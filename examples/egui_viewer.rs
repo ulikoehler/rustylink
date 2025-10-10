@@ -172,6 +172,7 @@ impl eframe::App for SubsystemApp {
                 let fill = Color32::from_gray(30);
                 let stroke = Stroke::new(2.0, Color32::from_rgb(180, 180, 200));
                 painter.rect_filled(r_screen, 4.0, fill);
+                painter.rect_stroke(r_screen, 4.0, stroke, egui::StrokeKind::Inside);
 
                 // Draw icon for specific block types
                 if b.block_type == "Product" {
