@@ -168,8 +168,26 @@ impl eframe::App for SubsystemApp {
 
             // Draw lines using polyline points (points are relative offsets)
             let line_stroke = Stroke::new(2.0, Color32::LIGHT_GREEN);
+            // Build a map of max port index per (sid, port_type) visible in this view
+            let mut port_counts: HashMap<(u32, u8), u32> = HashMap::new();
+            fn reg_ep(ep: &EndpointRef, port_counts: &mut HashMap<(u32, u8), u32>) {
+                let key = (ep.sid, if ep.port_type == "out" { 1 } else { 0 });
+                let idx1 = if ep.port_index == 0 { 1 } else { ep.port_index };
+                port_counts
+                    .entry(key)
+                    .and_modify(|v| *v = (*v).max(idx1))
+                    .or_insert(idx1);
+            }
+            fn reg_branch(br: &rustylink::model::Branch, port_counts: &mut HashMap<(u32, u8), u32>) {
+                if let Some(dst) = &br.dst { reg_ep(dst, port_counts); }
+                for sub in &br.branches { reg_branch(sub, port_counts); }
+            }
             for line in &self.system.lines {
-                // A line can be drawn if it has a valid source endpoint and that block SID is present.
+                if let Some(src) = &line.src { reg_ep(src, &mut port_counts); }
+                if let Some(dst) = &line.dst { reg_ep(dst, &mut port_counts); }
+                for br in &line.branches { reg_branch(br, &mut port_counts); }
+            }
+            for line in &self.system.lines {
                 let Some(src) = line.src.as_ref() else {
                     eprintln!(
                         "Cannot draw line '{}': missing src endpoint",
@@ -177,7 +195,6 @@ impl eframe::App for SubsystemApp {
                     );
                     continue;
                 };
-
                 let Some(sr) = sid_map.get(&src.sid) else {
                     eprintln!(
                         "Cannot draw line '{}': missing src SID {} in current view",
@@ -186,25 +203,21 @@ impl eframe::App for SubsystemApp {
                     );
                     continue;
                 };
-
-                // Build main offsets polyline (without final dst yet)
                 let mut offsets_pts: Vec<Pos2> = Vec::new();
-                let mut cur = endpoint_pos(*sr, src);
+                let num_src = port_counts.get(&(src.sid, if src.port_type == "out" { 1 } else { 0 })).copied();
+                let mut cur = endpoint_pos(*sr, src, num_src);
                 offsets_pts.push(cur);
                 for off in &line.points {
                     cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
                     offsets_pts.push(cur);
                 }
-
-                // Draw offsets segments
                 for seg in offsets_pts.windows(2) {
                     painter.line_segment([to_screen(seg[0]), to_screen(seg[1])], line_stroke);
                 }
-
-                // If the line also has a destination, connect the last offset point to it.
                 if let Some(dst) = line.dst.as_ref() {
                     if let Some(dr) = sid_map.get(&dst.sid) {
-                        let dst_pt = endpoint_pos(*dr, dst);
+                        let num_dst = port_counts.get(&(dst.sid, if dst.port_type == "out" { 1 } else { 0 })).copied();
+                        let dst_pt = endpoint_pos(*dr, dst, num_dst);
                         painter.line_segment([
                             to_screen(*offsets_pts.last().unwrap_or(&cur)),
                             to_screen(dst_pt),
@@ -217,45 +230,41 @@ impl eframe::App for SubsystemApp {
                         );
                     }
                 }
-
-                // Draw branches recursively starting from end of offsets polyline (tee point), not from dst
                 let main_anchor = *offsets_pts.last().unwrap_or(&cur);
                 let branch_color = Color32::from_rgb(120, 220, 120);
                 fn draw_branch_rec(
                     painter: &egui::Painter,
                     to_screen: &dyn Fn(Pos2) -> Pos2,
                     sid_map: &HashMap<u32, Rect>,
+                    port_counts: &HashMap<(u32, u8), u32>,
                     start: Pos2,
                     br: &rustylink::model::Branch,
                     color: Color32,
                 ) {
-                    // Build branch offsets polyline from the given start anchor
                     let mut pts: Vec<Pos2> = vec![start];
                     let mut cur = start;
                     for off in &br.points {
                         cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
                         pts.push(cur);
                     }
-                    // Draw offsets path
                     for seg in pts.windows(2) {
                         painter.line_segment([to_screen(seg[0]), to_screen(seg[1])], Stroke::new(2.0, color));
                     }
-                    // Connect to branch destination
                     if let Some(dstb) = &br.dst {
                         if let Some(dr) = sid_map.get(&dstb.sid) {
-                            let end_pt = endpoint_pos(*dr, dstb);
+                            let num_dst = port_counts.get(&(dstb.sid, if dstb.port_type == "out" { 1 } else { 0 })).copied();
+                            let end_pt = endpoint_pos(*dr, dstb, num_dst);
                             painter.line_segment([to_screen(*pts.last().unwrap_or(&cur)), to_screen(end_pt)], Stroke::new(2.0, color));
                         } else {
                             eprintln!("Cannot draw branch to dst SID {}", dstb.sid);
                         }
                     }
                     for sub in &br.branches {
-                        // Sub-branches start from the end of this branch's offsets path (before its destination)
-                        draw_branch_rec(painter, to_screen, sid_map, *pts.last().unwrap_or(&cur), sub, color);
+                        draw_branch_rec(painter, to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, color);
                     }
                 }
                 for br in &line.branches {
-                    draw_branch_rec(&painter, &to_screen, &sid_map, main_anchor, br, branch_color);
+                    draw_branch_rec(&painter, &to_screen, &sid_map, &port_counts, main_anchor, br, branch_color);
                 }
             }
         });
@@ -284,17 +293,24 @@ fn parse_block_rect(b: &Block) -> Option<Rect> {
 }
 
 #[cfg(feature = "egui")]
-fn endpoint_pos(r: Rect, ep: &EndpointRef) -> Pos2 {
-    // TODO(ports): When port coordinates are available, compute the exact port anchor
-    // based on (block SID, port_type, port_index). For now, approximate using the
-    // vertical center of the corresponding block edge.
-    port_anchor_pos(r, ep.port_type.as_str(), ep.port_index)
+fn endpoint_pos(r: Rect, ep: &EndpointRef, num_ports: Option<u32>) -> Pos2 {
+    port_anchor_pos(r, ep.port_type.as_str(), ep.port_index, num_ports)
 }
 
 // Helper to make switching to real port coordinates easier later on.
 #[cfg(feature = "egui")]
-fn port_anchor_pos(r: Rect, port_type: &str, _port_index: u32) -> Pos2 {
-    let y = r.center().y;
+fn port_anchor_pos(r: Rect, port_type: &str, port_index: u32, num_ports: Option<u32>) -> Pos2 {
+    // Distribute ports vertically: (N*2)+1 segments; ports occupy the centers of odd segments.
+    // Use 1-based port indices (as in Simulink UI). If 0 is provided, treat it as 1.
+    let idx1 = if port_index == 0 { 1 } else { port_index };
+    // Ensure N is at least idx1 to avoid overshooting when metadata is incomplete.
+    let n = num_ports.unwrap_or(idx1).max(idx1);
+    let total_segments = n * 2 + 1;
+    let y0 = r.top();
+    let y1 = r.bottom();
+    let dy = (y1 - y0) / (total_segments as f32);
+    // Place at center of the corresponding odd segment: position = (2*idx1 - 0.5) segments from top.
+    let y = y0 + ((2 * idx1) as f32 - 0.5) * dy;
     match port_type {
         "out" => Pos2::new(r.right(), y),
         _ => Pos2::new(r.left(), y),
