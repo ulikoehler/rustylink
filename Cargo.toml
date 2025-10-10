@@ -1,5 +1,5 @@
 [package]
-name = "simulink_parser_cli"
+name = "rustylink"
 version = "0.1.0"
 edition = "2024"
 

@@ -21,10 +21,24 @@ cargo run -- ../simulink/systems/system_root.xml > parsed.json
 
 If you run without an argument, it will try `simulink/systems/system_root.xml` relative to the current directory.
 
+## Examples
+
+Print an ASCII tree of SubSystems in a model (works with `.slx` or individual XML):
+
+```sh
+cargo run --example tree -- ASXTest.slx
+```
+
+Or point to an XML system file:
+
+```sh
+cargo run --example tree -- simulink/systems/system_root.xml
+```
+
 ## Library usage
 
 ```rust
-use simulink_parser_cli::parser::SimulinkParser;
+use rustylink::parser::SimulinkParser;
 use camino::Utf8PathBuf;
 
 let parser = SimulinkParser::new(".");

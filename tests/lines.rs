@@ -1,4 +1,4 @@
-use simulink_parser_cli::parser::{ContentSource, SimulinkParser};
+use rustylink::parser::{ContentSource, SimulinkParser};
 use camino::Utf8PathBuf;
 use anyhow::Result;
 use std::collections::HashMap;
