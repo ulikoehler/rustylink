@@ -19,6 +19,7 @@ use {
     std::collections::HashMap,
     eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke},
     rustylink::model::{Block, EndpointRef},
+    egui_phosphor::variants::regular,
 };
 
 #[cfg(feature = "egui")]
@@ -68,7 +69,17 @@ fn main() -> Result<()> {
     eframe::run_native(
         "rustylink egui subsystem viewer",
         options,
-        Box::new(|_cc| Box::new(SubsystemApp::new(system_owned))),
+        Box::new(|cc| {
+            // Register phosphor font once at startup
+            let mut font_definitions = egui::FontDefinitions::default();
+            egui_phosphor::add_to_fonts(&mut font_definitions, egui_phosphor::Variant::Regular);
+            // Also bind a named family so FontFamily::Name("phosphor") works without panic
+            font_definitions
+                .families
+                .insert(egui::FontFamily::Name("phosphor".into()), vec!["phosphor".into()]);
+            cc.egui_ctx.set_fonts(font_definitions);
+            Ok(Box::new(SubsystemApp::new(system_owned)))
+        })
     )
     .map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(())
@@ -160,7 +171,21 @@ impl eframe::App for SubsystemApp {
                 let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
                 let fill = Color32::from_gray(30);
                 let stroke = Stroke::new(2.0, Color32::from_rgb(180, 180, 200));
-                painter.rect(r_screen, 4.0, fill, stroke);
+                painter.rect_filled(r_screen, 4.0, fill);
+
+                // Draw icon for specific block types
+                if b.block_type == "Product" {
+                    let icon_size = 24.0;
+                    let icon_center = r_screen.center();
+                    painter.text(
+                        icon_center,
+                        Align2::CENTER_CENTER,
+                        regular::X,
+                        egui::FontId::new(icon_size, egui::FontFamily::Name("phosphor".into())),
+                        Color32::WHITE,
+                    );
+                }
+
                 // Block name: center or beneath depending on block size
                 let min_width = 40.0;
                 let min_height = 30.0;

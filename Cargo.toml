@@ -15,14 +15,18 @@ walkdir = "2.3"
 
 [features]
 # Optional GUI visualization using egui/eframe
-egui = ["dep:eframe", "dep:egui"]
+egui = ["dep:eframe", "dep:egui", "dep:egui-phosphor"]
+
+[dependencies.egui-phosphor]
+version = "0.10"
+optional = true
 
 [dependencies.egui]
-version = "0.27"
+version = "0.32"
 optional = true
 
 [dependencies.eframe]
-version = "0.27"
+version = "0.32"
 optional = true
 default-features = true
 features = ["wgpu"]
