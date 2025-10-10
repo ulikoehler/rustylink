@@ -90,7 +90,9 @@ impl<S: ContentSource> SimulinkParser<S> {
                 "Line" => {
                     lines.push(self.parse_line(child)?);
                 }
-                _ => {}
+                unknown => {
+                    println!("Unknown tag in System: {}", unknown);
+                }
             }
         }
 
@@ -106,12 +108,12 @@ impl<S: ContentSource> SimulinkParser<S> {
         let mut position = None;
         let mut zorder = None;
         let mut subsystem: Option<Box<System>> = None;
+        let mut commented = false;
 
         for child in node.children().filter(|c| c.is_element()) {
             match child.tag_name().name() {
                 "P" => {
                     if let Some(name_attr) = child.attribute("Name") {
-                        // Prefer Ref attribute if present, else text
                         let value = child
                             .attribute("Ref")
                             .map(|s| s.to_string())
@@ -119,6 +121,10 @@ impl<S: ContentSource> SimulinkParser<S> {
                         match name_attr {
                             "Position" => position = Some(value),
                             "ZOrder" => zorder = Some(value),
+                            "Commented" => {
+                                commented = value.eq_ignore_ascii_case("on");
+                                properties.insert(name_attr.to_string(), value);
+                            }
                             _ => {
                                 properties.insert(name_attr.to_string(), value);
                             }
@@ -126,7 +132,6 @@ impl<S: ContentSource> SimulinkParser<S> {
                     }
                 }
                 "PortCounts" => {
-                    // We won't store counts separately, ports are parsed from PortProperties
                     let _ = child;
                 }
                 "PortProperties" => {
@@ -143,35 +148,31 @@ impl<S: ContentSource> SimulinkParser<S> {
                     }
                 }
                 "System" => {
-                    // Prefer resolving by Ref attribute when present
                     if let Some(reference) = child.attribute("Ref") {
                         let resolved = resolve_system_reference(reference, base_dir);
                         let sys = self.parse_system_file(&resolved)?;
                         subsystem = Some(Box::new(sys));
                     } else {
-                        // Embedded system content
                         let sys = self.parse_system(child, base_dir)?;
                         subsystem = Some(Box::new(sys));
                     }
                 }
-                _ => {
-                    // If there is a System Ref attribute on this element or node, handle it
+                unknown => {
+                    println!("Unknown tag in Block: {}", unknown);
                 }
             }
         }
 
-        // Already handled in the loop; no second pass needed
-
-        Ok(Block { block_type, name, sid, position, zorder, properties, ports, subsystem })
+        Ok(Block { block_type, name, sid, position, zorder, commented, properties, ports, subsystem })
     }
 
     fn parse_line(&self, node: Node) -> Result<Line> {
         let mut name = None;
         let mut zorder = None;
-        let mut src = None;
-        let mut dst = None;
+        let mut src: Option<EndpointRef> = None;
+        let mut dst: Option<EndpointRef> = None;
         let mut labels = None;
-        let mut points_list: Vec<String> = Vec::new();
+        let mut points_list: Vec<Point> = Vec::new();
         let mut branches: Vec<Branch> = Vec::new();
 
         for child in node.children().filter(|c| c.is_element()) {
@@ -182,12 +183,10 @@ impl<S: ContentSource> SimulinkParser<S> {
                         match nm {
                             "Name" => name = Some(val),
                             "ZOrder" => zorder = Some(val),
-                            "Src" => src = Some(val),
-                            "Dst" => dst = Some(val),
+                            "Src" => src = parse_endpoint(&val).ok(),
+                            "Dst" => dst = parse_endpoint(&val).ok(),
                             "Labels" => labels = Some(val),
-                            "Points" => {
-                                points_list.push(val);
-                            }
+                            "Points" => points_list.extend(parse_points(&val)),
                             _ => {}
                         }
                     }
@@ -195,7 +194,9 @@ impl<S: ContentSource> SimulinkParser<S> {
                 "Branch" => {
                     branches.push(self.parse_branch(child)?);
                 }
-                _ => {}
+                unknown => {
+                    println!("Unknown tag in Line: {}", unknown);
+                }
             }
         }
 
@@ -205,9 +206,9 @@ impl<S: ContentSource> SimulinkParser<S> {
     fn parse_branch(&self, node: Node) -> Result<Branch> {
         let mut name = None;
         let mut zorder = None;
-        let mut dst = None;
+        let mut dst: Option<EndpointRef> = None;
         let mut labels = None;
-        let mut points_list: Vec<String> = Vec::new();
+        let mut points_list: Vec<Point> = Vec::new();
         let mut branches: Vec<Branch> = Vec::new();
 
         for child in node.children().filter(|c| c.is_element()) {
@@ -218,15 +219,17 @@ impl<S: ContentSource> SimulinkParser<S> {
                         match nm {
                             "Name" => name = Some(val),
                             "ZOrder" => zorder = Some(val),
-                            "Dst" => dst = Some(val),
+                            "Dst" => dst = parse_endpoint(&val).ok(),
                             "Labels" => labels = Some(val),
-                            "Points" => points_list.push(val),
+                            "Points" => points_list.extend(parse_points(&val)),
                             _ => {}
                         }
                     }
                 }
                 "Branch" => branches.push(self.parse_branch(child)?),
-                _ => {}
+                unknown => {
+                    println!("Unknown tag in Branch: {}", unknown);
+                }
             }
         }
 
@@ -243,4 +246,42 @@ fn resolve_system_reference(reference: &str, base_dir: &Utf8Path) -> Utf8PathBuf
     // If not absolute, join with base_dir
     let path = if candidate.is_absolute() { candidate } else { base_dir.join(candidate) };
     path
+}
+
+fn parse_points(s: &str) -> Vec<Point> {
+    // Expected formats: "[x, y]" or "[x, y; x2, y2; ...]"
+    let trimmed = s.trim();
+    let inner = trimmed
+        .strip_prefix('[')
+        .and_then(|t| t.strip_suffix(']'))
+        .unwrap_or(trimmed);
+    let mut points = Vec::new();
+    for pair in inner.split(';') {
+        let pair = pair.trim();
+        if pair.is_empty() { continue; }
+        // split by comma
+        let mut it = pair.split(',').map(|v| v.trim()).filter(|t| !t.is_empty());
+        if let (Some(x), Some(y)) = (it.next(), it.next()) {
+            if let (Ok(xv), Ok(yv)) = (x.parse::<i32>(), y.parse::<i32>()) {
+                points.push(Point { x: xv, y: yv });
+            }
+        }
+    }
+    points
+}
+
+fn parse_endpoint(s: &str) -> Result<EndpointRef> {
+    // Formats observed: "5#out:1" or "11#in:2"
+    // Split at '#'
+    let (sid_str, rest) = s
+        .split_once('#')
+        .ok_or_else(|| anyhow!("Invalid endpoint format: {}", s))?;
+    let sid: u32 = sid_str.trim().parse()?;
+    // rest like "out:1" or "in:2"
+    let (ptype, pidx_str) = rest
+        .split_once(':')
+        .ok_or_else(|| anyhow!("Invalid endpoint port format: {}", s))?;
+    let port_type = ptype.trim().to_string();
+    let port_index: u32 = pidx_str.trim().parse()?;
+    Ok(EndpointRef { sid, port_type, port_index })
 }
