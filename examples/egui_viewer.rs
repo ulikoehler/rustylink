@@ -161,9 +161,26 @@ impl eframe::App for SubsystemApp {
                 let fill = Color32::from_gray(30);
                 let stroke = Stroke::new(2.0, Color32::from_rgb(180, 180, 200));
                 painter.rect(r_screen, 4.0, fill, stroke);
-                // Block name centered
-                let center = r_screen.center();
-                painter.text(center, Align2::CENTER_CENTER, &b.name, egui::FontId::proportional(14.0), Color32::WHITE);
+                // Block name: center or beneath depending on block size
+                let min_width = 40.0;
+                let min_height = 30.0;
+                let block_width = r_screen.width();
+                let block_height = r_screen.height();
+                if block_width < min_width || block_height < min_height {
+                    // Draw multiline label immediately beneath block, horizontally centered
+                    let lines: Vec<&str> = b.name.split('\n').collect();
+                    let line_height = 16.0; // Approximate line height for font size 14
+                    let mut y = r_screen.bottom() + 2.0;
+                    for line in lines {
+                        let pos = Pos2::new(r_screen.center().x, y);
+                        painter.text(pos, Align2::CENTER_TOP, line, egui::FontId::proportional(14.0), Color32::WHITE);
+                        y += line_height;
+                    }
+                } else {
+                    // Draw label centered
+                    let center = r_screen.center();
+                    painter.text(center, Align2::CENTER_CENTER, &b.name, egui::FontId::proportional(14.0), Color32::WHITE);
+                }
             }
 
             // Draw lines using polyline points (points are relative offsets)
