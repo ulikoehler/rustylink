@@ -176,25 +176,16 @@ impl eframe::App for SubsystemApp {
                 painter.rect_filled(r_screen, 4.0, fill);
                 painter.rect_stroke(r_screen, 4.0, stroke, egui::StrokeKind::Inside);
 
-                // Draw icon for specific block types
-                if b.block_type == "Product" {
-                    let icon_size = 24.0;
-                    let icon_center = r_screen.center();
-                    painter.text(
-                        icon_center,
-                        Align2::CENTER_CENTER,
-                        regular::X,
-                        egui::FontId::new(icon_size, egui::FontFamily::Name("phosphor".into())),
-                        Color32::WHITE,
-                    );
-                }
+                // Draw icon for specific block types using a common function
+                render_block_icon(&painter, b, &r_screen);
 
                 // Block name: center or beneath depending on block size
                 let min_width = 40.0;
                 let min_height = 30.0;
                 let block_width = r_screen.width();
                 let block_height = r_screen.height();
-                if block_width < min_width || block_height < min_height {
+                let has_icon = matches!(b.block_type.as_str(), "Product" | "Constant");
+                if block_width < min_width || block_height < min_height || has_icon {
                     // Draw multiline label immediately beneath block, horizontally centered
                     let lines: Vec<&str> = b.name.split('\n').collect();
                     let line_height = 16.0; // Approximate line height for font size 14
@@ -211,6 +202,33 @@ impl eframe::App for SubsystemApp {
                     painter.text(center, Align2::CENTER_CENTER, &b.name, egui::FontId::proportional(14.0), Color32::WHITE);
                 }
             }
+
+// Helper function to render block icons based on type
+fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
+    let icon_size = 24.0;
+    let icon_center = rect.center();
+    match block.block_type.as_str() {
+        "Product" => {
+            painter.text(
+                icon_center,
+                Align2::CENTER_CENTER,
+                regular::X,
+                egui::FontId::new(icon_size, egui::FontFamily::Name("phosphor".into())),
+                Color32::WHITE,
+            );
+        },
+        "Constant" => {
+            painter.text(
+                icon_center,
+                Align2::CENTER_CENTER,
+                regular::WRENCH,
+                egui::FontId::new(icon_size, egui::FontFamily::Name("phosphor".into())),
+                Color32::WHITE,
+            );
+        },
+        _ => {}
+    }
+}
 
             // Draw lines using polyline points (points are relative offsets)
             let line_stroke = Stroke::new(2.0, Color32::LIGHT_GREEN);
