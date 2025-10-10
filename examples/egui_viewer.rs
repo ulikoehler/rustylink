@@ -78,6 +78,8 @@ fn main() -> Result<()> {
                 .families
                 .insert(egui::FontFamily::Name("phosphor".into()), vec!["phosphor".into()]);
             cc.egui_ctx.set_fonts(font_definitions);
+                // Set light theme
+                cc.egui_ctx.set_visuals(egui::Visuals::light());
             Ok(Box::new(SubsystemApp::new(system_owned)))
         })
     )
@@ -199,11 +201,12 @@ impl eframe::App for SubsystemApp {
                     let mut y = r_screen.bottom() + 2.0;
                     for line in lines {
                         let pos = Pos2::new(r_screen.center().x, y);
-                        painter.text(pos, Align2::CENTER_TOP, line, egui::FontId::proportional(14.0), Color32::WHITE);
+                        // Use dark color for text outside the block
+                        painter.text(pos, Align2::CENTER_TOP, line, egui::FontId::proportional(14.0), Color32::from_rgb(40, 40, 40));
                         y += line_height;
                     }
                 } else {
-                    // Draw label centered
+                    // Draw label centered inside block, use white text
                     let center = r_screen.center();
                     painter.text(center, Align2::CENTER_CENTER, &b.name, egui::FontId::proportional(14.0), Color32::WHITE);
                 }
