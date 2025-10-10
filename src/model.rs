@@ -73,3 +73,40 @@ pub struct EndpointRef {
     pub port_type: String, // "in" | "out"
     pub port_index: u32,
 }
+
+impl System {
+    /// Walk all blocks in this system recursively, calling `cb` for every block.
+    ///
+    /// The callback receives the path of subsystem names from the root to the
+    /// containing subsystem (not including the block name) and a reference to
+    /// the block itself. The path is returned as a slice of Strings where each
+    /// element is the name of the subsystem block that introduced that level.
+    pub fn walk_blocks<F>(&self, path: &mut Vec<String>, cb: &mut F)
+    where
+        F: FnMut(&[String], &Block),
+    {
+        for blk in &self.blocks {
+            cb(&path, blk);
+            if let Some(sub) = &blk.subsystem {
+                // descend into subsystem: push the block name as part of path
+                path.push(blk.name.clone());
+                sub.walk_blocks(path, cb);
+                path.pop();
+            }
+        }
+    }
+
+    /// Find all blocks that have `block_type` (case sensitive) and return a
+    /// vector of (path, Block) pairs where `path` is the vector of subsystem
+    /// names from root down to the containing subsystem.
+    pub fn find_blocks_by_type(&self, block_type: &str) -> Vec<(Vec<String>, Block)> {
+        let mut result = Vec::new();
+        let mut path = Vec::new();
+        self.walk_blocks(&mut path, &mut |p, b| {
+            if b.block_type == block_type {
+                result.push((p.to_vec(), b.clone()));
+            }
+        });
+        result
+    }
+}
