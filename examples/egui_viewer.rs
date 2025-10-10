@@ -226,6 +226,15 @@ fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
                 Color32::WHITE,
             );
         },
+        "Scope" => {
+            painter.text(
+                icon_center,
+                Align2::CENTER_CENTER,
+                regular::WAVE_SINE,
+                egui::FontId::new(icon_size, egui::FontFamily::Name("phosphor".into())),
+                Color32::WHITE,
+            );
+        },
         _ => {}
     }
 }
