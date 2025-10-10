@@ -18,7 +18,7 @@ pub struct Block {
     #[serde(rename = "type")]
     pub block_type: String,
     pub name: String,
-    pub sid: Option<String>,
+    pub sid: Option<u32>,
     pub position: Option<String>,
     pub zorder: Option<String>,
     pub commented: bool,

@@ -102,7 +102,7 @@ impl<S: ContentSource> SimulinkParser<S> {
     fn parse_block(&mut self, node: Node, base_dir: &Utf8Path) -> Result<Block> {
         let block_type = node.attribute("BlockType").unwrap_or("").to_string();
         let name = node.attribute("Name").unwrap_or("").to_string();
-        let sid = node.attribute("SID").map(|s| s.to_string());
+    let sid = node.attribute("SID").and_then(|s| s.parse::<u32>().ok());
         let mut properties = BTreeMap::new();
         let mut ports = Vec::new();
         let mut position = None;
