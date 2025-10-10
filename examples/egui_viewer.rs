@@ -59,8 +59,12 @@ fn main() -> Result<()> {
         system
     };
 
-    // Run egui app fullscreen
-    let options = eframe::NativeOptions { viewport: egui::ViewportBuilder::default().with_fullscreen(true), ..Default::default() };
+    // Run egui app in a window that starts maximized (windowed fullscreen)
+    // Some platforms do not support exclusive fullscreen well; starting maximized keeps a window but fills the screen.
+    let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default().with_maximized(true),
+        ..Default::default()
+    };
     eframe::run_native(
         "rustylink egui subsystem viewer",
         options,
@@ -111,7 +115,7 @@ impl eframe::App for SubsystemApp {
             let painter = ui.painter();
 
             // Collect drawable blocks (with positions)
-            let mut blocks: Vec<(&Block, Rect)> = self
+            let blocks: Vec<(&Block, Rect)> = self
                 .system
                 .blocks
                 .iter()
@@ -167,30 +171,27 @@ impl eframe::App for SubsystemApp {
             for line in &self.system.lines {
                 if let (Some(src), Some(dst)) = (&line.src, &line.dst) {
                     if let (Some(sr), Some(dr)) = (sid_map.get(&src.sid), sid_map.get(&dst.sid)) {
-                        // Build main polyline
-                        let mut pts: Vec<Pos2> = Vec::new();
+                        // Build main offsets polyline (without final dst yet)
+                        let mut offsets_pts: Vec<Pos2> = Vec::new();
                         let mut cur = endpoint_pos(*sr, src);
-                        pts.push(cur);
+                        offsets_pts.push(cur);
                         for off in &line.points {
                             cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
-                            pts.push(cur);
-                        }
-                        // Connect to dst
-                        pts.push(endpoint_pos(*dr, dst));
-                        // Draw segments
-                        for seg in pts.windows(2) {
-                            let a = to_screen(seg[0]);
-                            let b = to_screen(seg[1]);
-                            painter.line_segment([a, b], line_stroke);
+                            offsets_pts.push(cur);
                         }
 
-                        // Draw branches recursively starting from end of main polyline
-                        let main_end = *pts.last().unwrap_or(&cur);
+                        // Draw offsets segments
+                        for seg in offsets_pts.windows(2) {
+                            painter.line_segment([to_screen(seg[0]), to_screen(seg[1])], line_stroke);
+                        }
+
+                        // Connect last offset point to destination
+                        let dst_pt = endpoint_pos(*dr, dst);
+                        painter.line_segment([to_screen(*offsets_pts.last().unwrap_or(&cur)), to_screen(dst_pt)], line_stroke);
+
+                        // Draw branches recursively starting from end of offsets polyline (tee point), not from dst
+                        let main_anchor = *offsets_pts.last().unwrap_or(&cur);
                         let branch_color = Color32::from_rgb(120, 220, 120);
-                        let draw_branch = |start: Pos2, br: &rustylink::model::Branch, recurse: &dyn Fn(Pos2, &rustylink::model::Branch)| {
-                            // This closure only defines the type; replaced below
-                            let _ = (start, br, recurse);
-                        };
                         fn draw_branch_rec(
                             painter: &egui::Painter,
                             to_screen: &dyn Fn(Pos2) -> Pos2,
@@ -199,26 +200,31 @@ impl eframe::App for SubsystemApp {
                             br: &rustylink::model::Branch,
                             color: Color32,
                         ) {
+                            // Build branch offsets polyline from the given start anchor
                             let mut pts: Vec<Pos2> = vec![start];
                             let mut cur = start;
                             for off in &br.points {
                                 cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
                                 pts.push(cur);
                             }
-                            if let Some(dstb) = &br.dst {
-                                if let Some(dr) = sid_map.get(&dstb.sid) {
-                                    pts.push(endpoint_pos(*dr, dstb));
-                                }
-                            }
+                            // Draw offsets path
                             for seg in pts.windows(2) {
                                 painter.line_segment([to_screen(seg[0]), to_screen(seg[1])], Stroke::new(2.0, color));
                             }
+                            // Connect to branch destination
+                            if let Some(dstb) = &br.dst {
+                                if let Some(dr) = sid_map.get(&dstb.sid) {
+                                    let end_pt = endpoint_pos(*dr, dstb);
+                                    painter.line_segment([to_screen(*pts.last().unwrap_or(&cur)), to_screen(end_pt)], Stroke::new(2.0, color));
+                                }
+                            }
                             for sub in &br.branches {
+                                // Sub-branches start from the end of this branch's offsets path (before its destination)
                                 draw_branch_rec(painter, to_screen, sid_map, *pts.last().unwrap_or(&cur), sub, color);
                             }
                         }
                         for br in &line.branches {
-                            draw_branch_rec(&painter, &to_screen, &sid_map, main_end, br, branch_color);
+                            draw_branch_rec(&painter, &to_screen, &sid_map, main_anchor, br, branch_color);
                         }
                     }
                 }
