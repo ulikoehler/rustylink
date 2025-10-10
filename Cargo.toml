@@ -12,3 +12,17 @@ camino = "1.1"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 clap = { version = "4.5", features = ["derive"] }
 walkdir = "2.3"
+
+[features]
+# Optional GUI visualization using egui/eframe
+egui = ["dep:eframe", "dep:egui"]
+
+[dependencies.egui]
+version = "0.27"
+optional = true
+
+[dependencies.eframe]
+version = "0.27"
+optional = true
+default-features = true
+features = ["wgpu"]
