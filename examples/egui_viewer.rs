@@ -217,7 +217,8 @@ impl eframe::App for SubsystemApp {
                 if let Some(dst) = line.dst.as_ref() {
                     if let Some(dr) = sid_map.get(&dst.sid) {
                         let num_dst = port_counts.get(&(dst.sid, if dst.port_type == "out" { 1 } else { 0 })).copied();
-                        let dst_pt = endpoint_pos(*dr, dst, num_dst);
+                        // Snap destination Y to the last offset point to ensure a horizontal final segment
+                        let dst_pt = endpoint_pos_with_target(*dr, dst, num_dst, Some(cur.y));
                         painter.line_segment([
                             to_screen(*offsets_pts.last().unwrap_or(&cur)),
                             to_screen(dst_pt),
@@ -253,7 +254,8 @@ impl eframe::App for SubsystemApp {
                     if let Some(dstb) = &br.dst {
                         if let Some(dr) = sid_map.get(&dstb.sid) {
                             let num_dst = port_counts.get(&(dstb.sid, if dstb.port_type == "out" { 1 } else { 0 })).copied();
-                            let end_pt = endpoint_pos(*dr, dstb, num_dst);
+                            // Snap branch destination to last point Y for a horizontal final segment
+                            let end_pt = endpoint_pos_with_target(*dr, dstb, num_dst, Some(cur.y));
                             painter.line_segment([to_screen(*pts.last().unwrap_or(&cur)), to_screen(end_pt)], Stroke::new(2.0, color));
                         } else {
                             eprintln!("Cannot draw branch to dst SID {}", dstb.sid);
@@ -295,6 +297,18 @@ fn parse_block_rect(b: &Block) -> Option<Rect> {
 #[cfg(feature = "egui")]
 fn endpoint_pos(r: Rect, ep: &EndpointRef, num_ports: Option<u32>) -> Pos2 {
     port_anchor_pos(r, ep.port_type.as_str(), ep.port_index, num_ports)
+}
+
+// Variant that tries to match a target Y (e.g., last polyline Y) to keep the final segment horizontal
+#[cfg(feature = "egui")]
+fn endpoint_pos_with_target(r: Rect, ep: &EndpointRef, num_ports: Option<u32>, target_y: Option<f32>) -> Pos2 {
+    let mut p = endpoint_pos(r, ep, num_ports);
+    if let Some(ty) = target_y {
+        p.y = ty;
+        // Clamp within the block vertical range to avoid overshooting due to rounding
+        p.y = p.y.max(r.top()).min(r.bottom());
+    }
+    p
 }
 
 // Helper to make switching to real port coordinates easier later on.
