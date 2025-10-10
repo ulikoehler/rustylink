@@ -235,6 +235,15 @@ fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
                 Color32::WHITE,
             );
         },
+        "ManualSwitch" => {
+            painter.text(
+                icon_center,
+                Align2::CENTER_CENTER,
+                regular::TOGGLE_LEFT,
+                egui::FontId::new(icon_size, egui::FontFamily::Name("phosphor".into())),
+                Color32::WHITE,
+            );
+        },
         _ => {}
     }
 }
