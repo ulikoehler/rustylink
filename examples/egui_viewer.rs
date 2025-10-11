@@ -17,7 +17,7 @@ use rustylink::parser::{FsSource, SimulinkParser, ZipSource};
 #[cfg(feature = "egui")]
 use {
     std::collections::HashMap,
-    eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Sense, RichText},
+    eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Sense, RichText, Vec2},
     eframe::egui::text::LayoutJob,
     rustylink::model::{Block, EndpointRef},
     egui_phosphor::variants::regular,
@@ -169,6 +169,48 @@ fn highlight_query_job(text: &str, query: &str) -> LayoutJob {
     job
 }
 
+
+// MATLAB syntax highlighter using syntect. Lazily load the syntax set and theme.
+#[cfg(feature = "egui")]
+fn matlab_syntax_job(script: &str) -> LayoutJob {
+    use egui::{TextFormat, FontId};
+    use syntect::easy::HighlightLines;
+    use syntect::highlighting::{Style, ThemeSet};
+    use syntect::parsing::SyntaxSet;
+    use syntect::util::LinesWithEndings;
+    use once_cell::sync::OnceCell;
+
+    static SYNTAX_SET: OnceCell<SyntaxSet> = OnceCell::new();
+    static THEME_SET: OnceCell<ThemeSet> = OnceCell::new();
+
+    // Initialize sets on first use
+    let ss = SYNTAX_SET.get_or_init(|| {
+        // load binary-packed syntaxes (requires "yaml-load" feature)
+        SyntaxSet::load_defaults_newlines()
+    });
+    let ts = THEME_SET.get_or_init(|| ThemeSet::load_defaults());
+
+    // Try to find a MATLAB syntax; fall back to generic 'source' syntax
+    let syntax = ss.find_syntax_by_extension("m").or_else(|| ss.find_syntax_by_name("Matlab")).unwrap_or_else(|| ss.find_syntax_plain_text());
+    // Use the 'InspiredGitHub' theme as a pleasant light theme; fallback to the first theme
+    let theme = ts.themes.get("InspiredGitHub").or_else(|| ts.themes.values().next()).unwrap();
+
+    let mut h = HighlightLines::new(syntax, theme);
+    let mut job = LayoutJob::default();
+    let mono = FontId::monospace(14.0);
+
+    for line in LinesWithEndings::from(script) {
+    let regions: Vec<(Style, &str)> = h.highlight(line, ss);
+        for (style, text) in regions {
+            // syntect style channels are 0-255; egui Color32::from_rgba_premultiplied expects u8s
+            let color = Color32::from_rgba_premultiplied(style.foreground.r, style.foreground.g, style.foreground.b, style.foreground.a);
+            let tf = TextFormat { font_id: mono.clone(), color, ..Default::default() };
+            job.append(text, 0.0, tf);
+        }
+    }
+    job
+}
+
 #[cfg(feature = "egui")]
 #[derive(Clone)]
 struct SubsystemApp {
@@ -177,6 +219,20 @@ struct SubsystemApp {
     all_subsystems: Vec<Vec<String>>,
     search_query: String,
     search_matches: Vec<Vec<String>>,
+    // View transform state
+    zoom: f32,
+    pan: Vec2,
+    reset_view: bool,
+    // Chart popup state
+    chart_view: Option<ChartView>,
+}
+
+#[cfg(feature = "egui")]
+#[derive(Clone)]
+struct ChartView {
+    title: String,
+    script: String,
+    open: bool,
 }
 
 #[cfg(feature = "egui")]
@@ -189,6 +245,10 @@ impl SubsystemApp {
             all_subsystems: all,
             search_query: String::new(),
             search_matches: Vec::new(),
+            zoom: 1.0,
+            pan: Vec2::ZERO,
+            reset_view: true,
+            chart_view: None,
         }
     }
 
@@ -197,11 +257,11 @@ impl SubsystemApp {
     }
 
     fn go_up(&mut self) {
-        if !self.path.is_empty() { self.path.pop(); }
+        if !self.path.is_empty() { self.path.pop(); self.reset_view = true; }
     }
 
     fn navigate_to_path(&mut self, p: Vec<String>) {
-        if resolve_subsystem_by_vec(&self.root, &p).is_some() { self.path = p; }
+        if resolve_subsystem_by_vec(&self.root, &p).is_some() { self.path = p; self.reset_view = true; }
     }
 
     fn open_block_if_subsystem(&mut self, b: &Block) -> bool {
@@ -209,13 +269,13 @@ impl SubsystemApp {
             if let Some(sub) = &b.subsystem {
                 if sub.chart.is_none() {
                     self.path.push(b.name.clone());
+                    self.reset_view = true;
                     return true;
                 }
             }
         }
         false
     }
-
     fn update_search_matches(&mut self) {
         let q = self.search_query.trim();
         if q.is_empty() { self.search_matches.clear(); return; }
@@ -286,8 +346,13 @@ impl eframe::App for SubsystemApp {
             });
             return;
         };
-        // Also stage navigation from block clicks
-        let mut navigate_to_from_block: Option<Vec<String>> = None;
+    // Stage interactions for central panel
+    let mut navigate_to_from_block: Option<Vec<String>> = None;
+    let mut open_chart: Option<ChartView> = None;
+    // Stage pan/zoom to avoid borrowing issues
+    let mut staged_zoom = self.zoom;
+    let mut staged_pan = self.pan;
+    let mut staged_reset = self.reset_view;
         egui::CentralPanel::default().show(ctx, |ui| {
             // We'll first allocate interaction rects (which mutably borrow `ui`),
             // collecting screen-space geometry and click responses. After that
@@ -316,12 +381,88 @@ impl eframe::App for SubsystemApp {
             let height = (bb.height()).max(1.0);
             let sx = (avail_size.x - 2.0 * margin) / width;
             let sy = (avail_size.y - 2.0 * margin) / height;
-            let scale = sx.min(sy).max(0.1);
+            let base_scale = sx.min(sy).max(0.1);
+
+            // Reset view if requested
+            if staged_reset {
+                staged_zoom = 1.0;
+                staged_pan = Vec2::ZERO;
+                staged_reset = false;
+            }
+
+            // Canvas interactions: pan and mousewheel zoom
+            let canvas_resp = ui.interact(
+                avail,
+                ui.id().with("canvas"),
+                Sense::drag(),
+            );
+            if canvas_resp.dragged() {
+                let d = canvas_resp.drag_delta();
+                staged_pan += d;
+            }
+            // Mouse wheel zoom around cursor
+            let scroll_y = ctx.input(|i| i.raw_scroll_delta.y);
+            if scroll_y.abs() > 0.0 && canvas_resp.hovered() {
+                let factor = (1.0_f32 + scroll_y as f32 * 0.001_f32).max(0.1_f32);
+                let old_zoom = staged_zoom;
+                let new_zoom = (old_zoom * factor).clamp(0.2, 10.0);
+                if (new_zoom - old_zoom).abs() > f32::EPSILON {
+                    let origin = Pos2::new(avail.left() + margin, avail.top() + margin);
+                    let s_old = base_scale * old_zoom;
+                    let s_new = base_scale * new_zoom;
+                    let cursor = canvas_resp.hover_pos().unwrap_or(avail.center());
+                    // world under cursor before zoom
+                    let world_x = (cursor.x - origin.x - staged_pan.x) / s_old + bb.left();
+                    let world_y = (cursor.y - origin.y - staged_pan.y) / s_old + bb.top();
+                    staged_zoom = new_zoom;
+                    // adjust pan to keep world under cursor stable
+                    staged_pan.x = cursor.x - ((world_x - bb.left()) * s_new + origin.x);
+                    staged_pan.y = cursor.y - ((world_y - bb.top()) * s_new + origin.y);
+                }
+            }
+
+            // Overlay zoom controls (+/- and reset)
+            egui::Area::new("zoom_controls".into())
+                .fixed_pos(Pos2::new(avail.left() + 8.0, avail.top() + 8.0))
+                .show(ui.ctx(), |ui| {
+                    egui::Frame::menu(ui.style()).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let center = avail.center();
+                            let origin = Pos2::new(avail.left() + margin, avail.top() + margin);
+                            // minus
+                            if ui.small_button("−").clicked() {
+                                let old_zoom = staged_zoom;
+                                let new_zoom = (old_zoom * 0.9).clamp(0.2, 10.0);
+                                let s_old = base_scale * old_zoom;
+                                let s_new = base_scale * new_zoom;
+                                let world_x = (center.x - origin.x - staged_pan.x) / s_old + bb.left();
+                                let world_y = (center.y - origin.y - staged_pan.y) / s_old + bb.top();
+                                staged_zoom = new_zoom;
+                                staged_pan.x = center.x - ((world_x - bb.left()) * s_new + origin.x);
+                                staged_pan.y = center.y - ((world_y - bb.top()) * s_new + origin.y);
+                            }
+                            // plus
+                            if ui.small_button("+").clicked() {
+                                let old_zoom = staged_zoom;
+                                let new_zoom = (old_zoom * 1.1).clamp(0.2, 10.0);
+                                let s_old = base_scale * old_zoom;
+                                let s_new = base_scale * new_zoom;
+                                let world_x = (center.x - origin.x - staged_pan.x) / s_old + bb.left();
+                                let world_y = (center.y - origin.y - staged_pan.y) / s_old + bb.top();
+                                staged_zoom = new_zoom;
+                                staged_pan.x = center.x - ((world_x - bb.left()) * s_new + origin.x);
+                                staged_pan.y = center.y - ((world_y - bb.top()) * s_new + origin.y);
+                            }
+                            if ui.small_button("Reset").clicked() { staged_reset = true; }
+                        });
+                    });
+                });
 
             // Transform function from model coords to screen
             let to_screen = |p: Pos2| -> Pos2 {
-                let x = (p.x - bb.left()) * scale + avail.left() + margin;
-                let y = (p.y - bb.top()) * scale + avail.top() + margin;
+                let s = base_scale * staged_zoom;
+                let x = (p.x - bb.left()) * s + avail.left() + margin + staged_pan.x;
+                let y = (p.y - bb.top()) * s + avail.top() + margin + staged_pan.y;
                 Pos2::new(x, y)
             };
 
@@ -569,7 +710,18 @@ fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
                                 np.push(b.name.clone());
                                 navigate_to_from_block = Some(np);
                             } else {
-                                println!("Clicked subsystem block (chart): name='{}' sid={:?}", b.name, b.sid);
+                                // Open chart dialog instead of navigating
+                                if let Some(chart) = &sub.chart {
+                                    let title = chart
+                                        .name
+                                        .clone()
+                                        .or(chart.eml_name.clone())
+                                        .unwrap_or_else(|| b.name.clone());
+                                    let script = chart.script.clone().unwrap_or_default();
+                                    open_chart = Some(ChartView { title, script, open: true });
+                                } else {
+                                    println!("Clicked subsystem block (chart): name='{}' sid={:?}", b.name, b.sid);
+                                }
                             }
                         } else {
                             println!("Clicked subsystem block (unresolved): name='{}' sid={:?}", b.name, b.sid);
@@ -588,9 +740,32 @@ fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
         if let Some(p) = navigate_to_from_block.or(navigate_to) {
             self.navigate_to_path(p);
         }
+        // Apply staged view updates and chart dialog open
+        self.zoom = staged_zoom;
+        self.pan = staged_pan;
+        self.reset_view = staged_reset;
+        if let Some(cv) = open_chart { self.chart_view = Some(cv); }
         if clear_search {
             self.search_query.clear();
             self.search_matches.clear();
+        }
+        // Chart dialog window with syntax highlighted MATLAB script
+        if let Some(cv) = &mut self.chart_view {
+            let mut open_flag = cv.open;
+            egui::Window::new(format!("Chart: {}", cv.title))
+                .open(&mut open_flag)
+                .resizable(true)
+                .vscroll(true)
+                .min_width(400.0)
+                .min_height(200.0)
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
+                        let job = matlab_syntax_job(&cv.script);
+                        ui.add(egui::Label::new(job).wrap());
+                    });
+                });
+            cv.open = open_flag;
+            if !cv.open { self.chart_view = None; }
         }
     }
 }
