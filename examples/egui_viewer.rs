@@ -17,7 +17,7 @@ use rustylink::parser::{FsSource, SimulinkParser, ZipSource};
 #[cfg(feature = "egui")]
 use {
     std::collections::HashMap,
-    eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke},
+    eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Sense},
     rustylink::model::{Block, EndpointRef},
     egui_phosphor::variants::regular,
 };
@@ -125,7 +125,9 @@ impl eframe::App for SubsystemApp {
             ui.label("Use Esc to exit. Rendering subsystem blocks and lines.");
         });
         egui::CentralPanel::default().show(ctx, |ui| {
-            let painter = ui.painter();
+            // We'll first allocate interaction rects (which mutably borrow `ui`),
+            // collecting screen-space geometry and click responses. After that
+            // we can obtain the painter and draw everything (avoids borrow conflicts).
 
             // Collect drawable blocks (with positions)
             let blocks: Vec<(&Block, Rect)> = self
@@ -160,36 +162,20 @@ impl eframe::App for SubsystemApp {
                 Pos2::new(x, y)
             };
 
-            // Build sid->block rect map
+            // Build sid->block rect map and allocate interaction rects for blocks first
             let mut sid_map: HashMap<u32, Rect> = HashMap::new();
+            let mut block_views: Vec<(&Block, Rect, bool)> = Vec::new();
             for (b, r) in &blocks {
                 if let Some(sid) = b.sid {
                     sid_map.insert(sid, *r);
                 }
-            }
-
-            // Draw blocks
-            for (b, r) in &blocks {
                 let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
-                let fill = Color32::from_gray(30);
-                let stroke = Stroke::new(2.0, Color32::from_rgb(180, 180, 200));
-                painter.rect_filled(r_screen, 4.0, fill);
-                painter.rect_stroke(r_screen, 4.0, stroke, egui::StrokeKind::Inside);
-
-                // Draw icon for specific block types using a common function
-                render_block_icon(&painter, b, &r_screen);
-
-                // Block name: always draw beneath the block, horizontally centered
-                let lines: Vec<&str> = b.name.split('\n').collect();
-                let line_height = 16.0; // Approximate line height for font size 14
-                let mut y = r_screen.bottom() + 2.0;
-                for line in lines {
-                    let pos = Pos2::new(r_screen.center().x, y);
-                    // Use dark color for text outside the block
-                    painter.text(pos, Align2::CENTER_TOP, line, egui::FontId::proportional(14.0), Color32::from_rgb(40, 40, 40));
-                    y += line_height;
-                }
+                let resp = ui.allocate_rect(r_screen, Sense::click());
+                block_views.push((b, r_screen, resp.clicked()));
             }
+
+            // At this point we have block_views (interaction info) and will compute
+            // line_views next. Drawing will occur after both sets are prepared.
 
 // Helper function to render block icons based on type
 fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
@@ -257,6 +243,10 @@ fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
                 if let Some(dst) = &line.dst { reg_ep(dst, &mut port_counts); }
                 for br in &line.branches { reg_branch(br, &mut port_counts); }
             }
+
+            // Precompute screen-space polylines and allocate hit rects (mutable ui borrow)
+            // Store views for later drawing with the painter.
+            let mut line_views: Vec<(&rustylink::model::Line, Vec<Pos2>, Pos2, bool)> = Vec::new();
             for line in &self.system.lines {
                 let Some(src) = line.src.as_ref() else {
                     eprintln!(
@@ -281,62 +271,139 @@ fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
                     cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
                     offsets_pts.push(cur);
                 }
-                for seg in offsets_pts.windows(2) {
-                    painter.line_segment([to_screen(seg[0]), to_screen(seg[1])], line_stroke);
-                }
+                // Convert offsets (model-space) to screen-space points so we can both draw and
+                // perform hit-testing for clicks.
+                let mut screen_pts: Vec<Pos2> = offsets_pts.iter().map(|p| to_screen(*p)).collect();
                 if let Some(dst) = line.dst.as_ref() {
                     if let Some(dr) = sid_map.get(&dst.sid) {
                         let num_dst = port_counts.get(&(dst.sid, if dst.port_type == "out" { 1 } else { 0 })).copied();
                         // Snap destination Y to the last offset point to ensure a horizontal final segment
                         let dst_pt = endpoint_pos_with_target(*dr, dst, num_dst, Some(cur.y));
-                        painter.line_segment([
-                            to_screen(*offsets_pts.last().unwrap_or(&cur)),
-                            to_screen(dst_pt),
-                        ], line_stroke);
-                    } else {
-                        eprintln!(
-                            "Cannot connect line '{}' to dst SID {} (not in current view)",
-                            line.name.as_deref().unwrap_or("<unnamed>"),
-                            dst.sid
-                        );
+                        let dst_screen = to_screen(dst_pt);
+                        screen_pts.push(dst_screen);
                     }
                 }
+                // compute bbox for hit-testing
+                if screen_pts.is_empty() { continue; }
+                let mut min_x = screen_pts[0].x;
+                let mut max_x = screen_pts[0].x;
+                let mut min_y = screen_pts[0].y;
+                let mut max_y = screen_pts[0].y;
+                for p in &screen_pts {
+                    min_x = min_x.min(p.x);
+                    max_x = max_x.max(p.x);
+                    min_y = min_y.min(p.y);
+                    max_y = max_y.max(p.y);
+                }
+                let pad = 8.0;
+                let hit_rect = Rect::from_min_max(Pos2::new(min_x - pad, min_y - pad), Pos2::new(max_x + pad, max_y + pad));
+                let resp = ui.allocate_rect(hit_rect, Sense::click());
+                let clicked = resp.clicked();
                 let main_anchor = *offsets_pts.last().unwrap_or(&cur);
+                line_views.push((line, screen_pts, main_anchor, clicked));
+            }
+
+            // Helper to draw branches recursively. Defined here so it can use `painter` and other locals.
+            fn draw_branch_rec(
+                painter: &egui::Painter,
+                to_screen: &dyn Fn(Pos2) -> Pos2,
+                sid_map: &HashMap<u32, Rect>,
+                port_counts: &HashMap<(u32, u8), u32>,
+                start: Pos2,
+                br: &rustylink::model::Branch,
+                color: Color32,
+            ) {
+                let mut pts: Vec<Pos2> = vec![start];
+                let mut cur = start;
+                for off in &br.points {
+                    cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
+                    pts.push(cur);
+                }
+                for seg in pts.windows(2) {
+                    painter.line_segment([to_screen(seg[0]), to_screen(seg[1])], Stroke::new(2.0, color));
+                }
+                if let Some(dstb) = &br.dst {
+                    if let Some(dr) = sid_map.get(&dstb.sid) {
+                        let num_dst = port_counts.get(&(dstb.sid, if dstb.port_type == "out" { 1 } else { 0 })).copied();
+                        // Snap branch destination to last point Y for a horizontal final segment
+                        let end_pt = endpoint_pos_with_target(*dr, dstb, num_dst, Some(cur.y));
+                        painter.line_segment([to_screen(*pts.last().unwrap_or(&cur)), to_screen(end_pt)], Stroke::new(2.0, color));
+                    } else {
+                        eprintln!("Cannot draw branch to dst SID {}", dstb.sid);
+                    }
+                }
+                for sub in &br.branches {
+                    draw_branch_rec(painter, to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, color);
+                }
+            }
+
+            // Now obtain painter and draw lines and branches with the painter and handle clicks using stored info
+            let painter = ui.painter();
+            // Now draw lines and branches with the painter and handle clicks using stored info
+            for (line, screen_pts, main_anchor, clicked) in &line_views {
+                for seg in screen_pts.windows(2) {
+                    painter.line_segment([seg[0], seg[1]], line_stroke);
+                }
                 let branch_color = Color32::from_rgb(120, 220, 120);
-                fn draw_branch_rec(
-                    painter: &egui::Painter,
-                    to_screen: &dyn Fn(Pos2) -> Pos2,
-                    sid_map: &HashMap<u32, Rect>,
-                    port_counts: &HashMap<(u32, u8), u32>,
-                    start: Pos2,
-                    br: &rustylink::model::Branch,
-                    color: Color32,
-                ) {
-                    let mut pts: Vec<Pos2> = vec![start];
-                    let mut cur = start;
-                    for off in &br.points {
-                        cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
-                        pts.push(cur);
-                    }
-                    for seg in pts.windows(2) {
-                        painter.line_segment([to_screen(seg[0]), to_screen(seg[1])], Stroke::new(2.0, color));
-                    }
-                    if let Some(dstb) = &br.dst {
-                        if let Some(dr) = sid_map.get(&dstb.sid) {
-                            let num_dst = port_counts.get(&(dstb.sid, if dstb.port_type == "out" { 1 } else { 0 })).copied();
-                            // Snap branch destination to last point Y for a horizontal final segment
-                            let end_pt = endpoint_pos_with_target(*dr, dstb, num_dst, Some(cur.y));
-                            painter.line_segment([to_screen(*pts.last().unwrap_or(&cur)), to_screen(end_pt)], Stroke::new(2.0, color));
-                        } else {
-                            eprintln!("Cannot draw branch to dst SID {}", dstb.sid);
+                for br in &line.branches {
+                    draw_branch_rec(&painter, &to_screen, &sid_map, &port_counts, *main_anchor, br, branch_color);
+                }
+                if *clicked {
+                    // try to get pointer position at interaction
+                    let cp = ctx.input(|i| i.pointer.interact_pos());
+                    if let Some(cp) = cp {
+                        let mut min_dist = f32::INFINITY;
+                        for seg in screen_pts.windows(2) {
+                            let a = seg[0];
+                            let b = seg[1];
+                            let ab_x = b.x - a.x;
+                            let ab_y = b.y - a.y;
+                            let ap_x = cp.x - a.x;
+                            let ap_y = cp.y - a.y;
+                            let ab_len2 = (ab_x * ab_x + ab_y * ab_y).max(1e-6);
+                            let t = (ap_x * ab_x + ap_y * ab_y) / ab_len2;
+                            let t_clamped = t.max(0.0).min(1.0);
+                            let proj_x = a.x + ab_x * t_clamped;
+                            let proj_y = a.y + ab_y * t_clamped;
+                            let dx = cp.x - proj_x;
+                            let dy = cp.y - proj_y;
+                            let dist = (dx * dx + dy * dy).sqrt();
+                            if dist < min_dist { min_dist = dist; }
+                        }
+                        let threshold = 8.0;
+                        if min_dist <= threshold {
+                            println!("Clicked line: '{}' (min_dist={:.1})", line.name.as_deref().unwrap_or("<unnamed>"), min_dist);
                         }
                     }
-                    for sub in &br.branches {
-                        draw_branch_rec(painter, to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, color);
-                    }
                 }
-                for br in &line.branches {
-                    draw_branch_rec(&painter, &to_screen, &sid_map, &port_counts, main_anchor, br, branch_color);
+            }
+
+            // Now render blocks using painter and the earlier allocated interaction results
+            for (b, r_screen, clicked) in &block_views {
+                let fill = Color32::from_gray(30);
+                let stroke = Stroke::new(2.0, Color32::from_rgb(180, 180, 200));
+                painter.rect_filled(*r_screen, 4.0, fill);
+                painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
+
+                // Draw icon for specific block types using a common function
+                render_block_icon(&painter, b, r_screen);
+
+                // Block name: always draw beneath the block, horizontally centered
+                let lines: Vec<&str> = b.name.split('\n').collect();
+                let line_height = 16.0; // Approximate line height for font size 14
+                let mut y = r_screen.bottom() + 2.0;
+                for line in lines {
+                    let pos = Pos2::new(r_screen.center().x, y);
+                    // Use dark color for text outside the block
+                    painter.text(pos, Align2::CENTER_TOP, line, egui::FontId::proportional(14.0), Color32::from_rgb(40, 40, 40));
+                    y += line_height;
+                }
+                if *clicked {
+                    if b.block_type == "SubSystem" {
+                        println!("Clicked subsystem block: name='{}' sid={:?}", b.name, b.sid);
+                    } else {
+                        println!("Clicked block: type='{}' name='{}' sid={:?}", b.block_type, b.name, b.sid);
+                    }
                 }
             }
         });
