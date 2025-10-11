@@ -11,6 +11,8 @@ pub struct System {
     pub properties: BTreeMap<String, String>,
     pub blocks: Vec<Block>,
     pub lines: Vec<Line>,
+    /// Optional Stateflow chart content when a system reference resolves to a chart (chart_XX.xml)
+    pub chart: Option<Chart>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,6 +74,35 @@ pub struct EndpointRef {
     pub sid: u32,
     pub port_type: String, // "in" | "out"
     pub port_index: u32,
+}
+
+/// Minimal representation of a Stateflow chart needed for current use cases
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Chart {
+    pub id: Option<u32>,
+    pub name: Option<String>,
+    pub eml_name: Option<String>,
+    pub script: Option<String>,
+    pub inputs: Vec<ChartPort>,
+    pub outputs: Vec<ChartPort>,
+    pub properties: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChartPort {
+    pub name: String,
+    /// Raw size/dimensions as found in <array><P Name="size">...</P></array>
+    pub size: Option<String>,
+    /// Type information as found in <type>...</type>
+    pub method: Option<String>,
+    pub primitive: Option<String>,
+    pub is_signed: Option<bool>,
+    pub word_length: Option<u32>,
+    pub complexity: Option<String>,
+    pub frame: Option<String>,
+    /// Optional display string such as "Inherit: Same as Simulink"
+    pub data_type: Option<String>,
+    pub unit: Option<String>,
 }
 
 impl System {

@@ -17,7 +17,8 @@ use rustylink::parser::{FsSource, SimulinkParser, ZipSource};
 #[cfg(feature = "egui")]
 use {
     std::collections::HashMap,
-    eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Sense},
+    eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Sense, RichText},
+    eframe::egui::text::LayoutJob,
     rustylink::model::{Block, EndpointRef},
     egui_phosphor::variants::regular,
 };
@@ -41,7 +42,7 @@ fn main() -> Result<()> {
     let path = Utf8PathBuf::from(&args.file);
 
     // Parse system
-    let system = if path.extension() == Some("slx") {
+    let root_system = if path.extension() == Some("slx") {
         let file = std::fs::File::open(&path).with_context(|| format!("Open {}", path))?;
         let reader = std::io::BufReader::new(file);
         let mut parser = SimulinkParser::new("", ZipSource::new(reader)?);
@@ -52,13 +53,13 @@ fn main() -> Result<()> {
         let mut parser = SimulinkParser::new(&root_dir, FsSource);
         parser.parse_system_file(&path).with_context(|| format!("Failed to parse {}", path))?
     };
-
-    // Resolve subsystem to show and own it
-    let system_owned: System = if let Some(p) = &args.system {
-        resolve_subsystem_by_path(&system, p).cloned().unwrap_or(system)
-    } else {
-        system
-    };
+    
+    // Compute initial path vector relative to root_system
+    let initial_path: Vec<String> = if let Some(p) = &args.system {
+        let parts: Vec<String> = p.trim().trim_start_matches('/').split('/')
+            .filter(|s| !s.is_empty()).map(|s| s.to_string()).collect();
+        if resolve_subsystem_by_vec(&root_system, &parts).is_some() { parts } else { Vec::new() }
+    } else { Vec::new() };
 
     // Run egui app in a window that starts maximized (windowed fullscreen)
     // Some platforms do not support exclusive fullscreen well; starting maximized keeps a window but fills the screen.
@@ -78,9 +79,9 @@ fn main() -> Result<()> {
                 .families
                 .insert(egui::FontFamily::Name("phosphor".into()), vec!["phosphor".into()]);
             cc.egui_ctx.set_fonts(font_definitions);
-                // Set light theme
-                cc.egui_ctx.set_visuals(egui::Visuals::light());
-            Ok(Box::new(SubsystemApp::new(system_owned)))
+            // Set light theme
+            cc.egui_ctx.set_visuals(egui::Visuals::light());
+            Ok(Box::new(SubsystemApp::new(root_system, initial_path)))
         })
     )
     .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -107,31 +108,193 @@ fn resolve_subsystem_by_path<'a>(root: &'a System, path: &str) -> Option<&'a Sys
     Some(cur)
 }
 
+// Resolve a subsystem by a vector path of names, relative to root
+#[cfg(feature = "egui")]
+fn resolve_subsystem_by_vec<'a>(root: &'a System, path: &[String]) -> Option<&'a System> {
+    let mut cur: &System = root;
+    for name in path {
+        let mut found = None;
+        for b in &cur.blocks {
+            if b.block_type == "SubSystem" && &b.name == name {
+                if let Some(sub) = &b.subsystem { found = Some(sub.as_ref()); break; }
+            }
+        }
+        cur = found?;
+    }
+    Some(cur)
+}
+
+// Collect all non-chart subsystem paths for search
+#[cfg(feature = "egui")]
+fn collect_subsystems_paths(root: &System) -> Vec<Vec<String>> {
+    fn rec(cur: &System, path: &mut Vec<String>, out: &mut Vec<Vec<String>>) {
+        for b in &cur.blocks {
+            if b.block_type == "SubSystem" {
+                if let Some(sub) = &b.subsystem {
+                    if sub.chart.is_none() {
+                        path.push(b.name.clone());
+                        out.push(path.clone());
+                        rec(sub, path, out);
+                        path.pop();
+                    }
+                }
+            }
+        }
+    }
+    let mut out = Vec::new();
+    let mut p = Vec::new();
+    rec(root, &mut p, &mut out);
+    out
+}
+
+// Simple case-insensitive highlighter of query in a path label
+#[cfg(feature = "egui")]
+fn highlight_query_job(text: &str, query: &str) -> LayoutJob {
+    let mut job = LayoutJob::default();
+    let t = text;
+    let tl = t.to_lowercase();
+    let ql = query.to_lowercase();
+    if ql.is_empty() { job.append(t, 0.0, egui::TextFormat::default()); return job; }
+    let mut i = 0;
+    while let Some(pos) = tl[i..].find(&ql) {
+        let start = i + pos;
+        if start > i { job.append(&t[i..start], 0.0, egui::TextFormat::default()); }
+        let end = start + ql.len();
+        let mut fmt = egui::TextFormat::default();
+        fmt.background = Color32::YELLOW.into();
+        job.append(&t[start..end], 0.0, fmt);
+        i = end;
+    }
+    if i < t.len() { job.append(&t[i..], 0.0, egui::TextFormat::default()); }
+    job
+}
+
 #[cfg(feature = "egui")]
 #[derive(Clone)]
 struct SubsystemApp {
-    system: System,
+    root: System,
+    path: Vec<String>,
+    all_subsystems: Vec<Vec<String>>,
+    search_query: String,
+    search_matches: Vec<Vec<String>>,
 }
 
 #[cfg(feature = "egui")]
 impl SubsystemApp {
-    fn new(system: System) -> Self { Self { system } }
+    fn new(root: System, initial_path: Vec<String>) -> Self {
+        let all = collect_subsystems_paths(&root);
+        Self {
+            root,
+            path: initial_path,
+            all_subsystems: all,
+            search_query: String::new(),
+            search_matches: Vec::new(),
+        }
+    }
+
+    fn current_system(&self) -> Option<&System> {
+        resolve_subsystem_by_vec(&self.root, &self.path)
+    }
+
+    fn go_up(&mut self) {
+        if !self.path.is_empty() { self.path.pop(); }
+    }
+
+    fn navigate_to_path(&mut self, p: Vec<String>) {
+        if resolve_subsystem_by_vec(&self.root, &p).is_some() { self.path = p; }
+    }
+
+    fn open_block_if_subsystem(&mut self, b: &Block) -> bool {
+        if b.block_type == "SubSystem" {
+            if let Some(sub) = &b.subsystem {
+                if sub.chart.is_none() {
+                    self.path.push(b.name.clone());
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    fn update_search_matches(&mut self) {
+        let q = self.search_query.trim();
+        if q.is_empty() { self.search_matches.clear(); return; }
+        let ql = q.to_lowercase();
+        let mut m: Vec<Vec<String>> = self.all_subsystems
+            .iter()
+            .filter(|p| p.last().map(|n| n.to_lowercase().contains(&ql)).unwrap_or(false))
+            .cloned()
+            .collect();
+        m.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));
+        m.truncate(30);
+        self.search_matches = m;
+    }
 }
 
 #[cfg(feature = "egui")]
 impl eframe::App for SubsystemApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Stage mutations to avoid borrowing self mutably while immutably borrowed
+        let mut navigate_to: Option<Vec<String>> = None;
+        let mut clear_search = false;
+        let path_snapshot = self.path.clone();
+        // Top: breadcrumbs and search
         egui::TopBottomPanel::top("top").show(ctx, |ui| {
-            ui.label("Use Esc to exit. Rendering subsystem blocks and lines.");
+            ui.horizontal(|ui| {
+                let up = ui.add_enabled(!path_snapshot.is_empty(), egui::Button::new("↑ Up"));
+                if up.clicked() {
+                    let mut p = path_snapshot.clone();
+                    p.pop();
+                    navigate_to = Some(p);
+                }
+                ui.separator();
+                ui.label(RichText::new("Path:").strong());
+                if ui.link("Root").clicked() { navigate_to = Some(Vec::new()); }
+                for (i, name) in path_snapshot.iter().enumerate() {
+                    ui.label("/");
+                    if ui.link(name).clicked() {
+                        navigate_to = Some(path_snapshot[..=i].to_vec());
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut self.search_query)
+                        .hint_text("Search subsystems by name…"),
+                );
+                if resp.changed() { self.update_search_matches(); }
+            });
+            if !self.search_query.trim().is_empty() && !self.search_matches.is_empty() {
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
+                        for p in self.search_matches.clone() {
+                            let label = format!("/{}", p.join("/"));
+                            let job = highlight_query_job(&label, &self.search_query);
+                            let resp = ui.add(egui::Label::new(job).sense(Sense::click()));
+                            if resp.clicked() {
+                                navigate_to = Some(p);
+                                clear_search = true;
+                            }
+                        }
+                    });
+                });
+            }
         });
+        let Some(current_system) = self.current_system() else {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.colored_label(Color32::RED, "Invalid path – nothing to render");
+            });
+            return;
+        };
+        // Also stage navigation from block clicks
+        let mut navigate_to_from_block: Option<Vec<String>> = None;
         egui::CentralPanel::default().show(ctx, |ui| {
             // We'll first allocate interaction rects (which mutably borrow `ui`),
             // collecting screen-space geometry and click responses. After that
             // we can obtain the painter and draw everything (avoids borrow conflicts).
 
             // Collect drawable blocks (with positions)
-            let blocks: Vec<(&Block, Rect)> = self
-                .system
+            let blocks: Vec<(&Block, Rect)> = current_system
                 .blocks
                 .iter()
                 .filter_map(|b| parse_block_rect(b).map(|r| (b, r)))
@@ -238,7 +401,7 @@ fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
                 if let Some(dst) = &br.dst { reg_ep(dst, port_counts); }
                 for sub in &br.branches { reg_branch(sub, port_counts); }
             }
-            for line in &self.system.lines {
+            for line in &current_system.lines {
                 if let Some(src) = &line.src { reg_ep(src, &mut port_counts); }
                 if let Some(dst) = &line.dst { reg_ep(dst, &mut port_counts); }
                 for br in &line.branches { reg_branch(br, &mut port_counts); }
@@ -247,7 +410,7 @@ fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
             // Precompute screen-space polylines and allocate hit rects (mutable ui borrow)
             // Store views for later drawing with the painter.
             let mut line_views: Vec<(&rustylink::model::Line, Vec<Pos2>, Pos2, bool)> = Vec::new();
-            for line in &self.system.lines {
+            for line in &current_system.lines {
                 let Some(src) = line.src.as_ref() else {
                     eprintln!(
                         "Cannot draw line '{}': missing src endpoint",
@@ -400,13 +563,35 @@ fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
                 }
                 if *clicked {
                     if b.block_type == "SubSystem" {
-                        println!("Clicked subsystem block: name='{}' sid={:?}", b.name, b.sid);
+                        if let Some(sub) = &b.subsystem {
+                            if sub.chart.is_none() {
+                                let mut np = path_snapshot.clone();
+                                np.push(b.name.clone());
+                                navigate_to_from_block = Some(np);
+                            } else {
+                                println!("Clicked subsystem block (chart): name='{}' sid={:?}", b.name, b.sid);
+                            }
+                        } else {
+                            println!("Clicked subsystem block (unresolved): name='{}' sid={:?}", b.name, b.sid);
+                        }
                     } else {
-                        println!("Clicked block: type='{}' name='{}' sid={:?}", b.block_type, b.name, b.sid);
+                        if b.block_type == "SubSystem" {
+                            println!("Clicked subsystem block (chart or unresolved): name='{}' sid={:?}", b.name, b.sid);
+                        } else {
+                            println!("Clicked block: type='{}' name='{}' sid={:?}", b.block_type, b.name, b.sid);
+                        }
                     }
                 }
             }
         });
+        // Apply any queued navigation and search changes now that UI borrows are done
+        if let Some(p) = navigate_to_from_block.or(navigate_to) {
+            self.navigate_to_path(p);
+        }
+        if clear_search {
+            self.search_query.clear();
+            self.search_matches.clear();
+        }
     }
 }
 

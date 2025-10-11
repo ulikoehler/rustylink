@@ -96,7 +96,7 @@ impl<S: ContentSource> SimulinkParser<S> {
             }
         }
 
-        Ok(System { properties, blocks, lines })
+        Ok(System { properties, blocks, lines, chart: None })
     }
 
     fn parse_block(&mut self, node: Node, base_dir: &Utf8Path) -> Result<Block> {
@@ -150,8 +150,24 @@ impl<S: ContentSource> SimulinkParser<S> {
                 "System" => {
                     if let Some(reference) = child.attribute("Ref") {
                         let resolved = resolve_system_reference(reference, base_dir);
-                        let sys = self.parse_system_file(&resolved)?;
-                        subsystem = Some(Box::new(sys));
+                        match self.parse_system_file(&resolved) {
+                            Ok(sys) => {
+                                subsystem = Some(Box::new(sys));
+                            }
+                            Err(_) => {
+                                // Fallback: try Stateflow chart with same id
+                                let chart_path = resolve_chart_reference_from_system_ref(reference, base_dir);
+                                match self.parse_chart_file(&chart_path) {
+                                    Ok(chart) => {
+                                        let sub_sys = System { properties: BTreeMap::new(), blocks: Vec::new(), lines: Vec::new(), chart: Some(chart) };
+                                        subsystem = Some(Box::new(sub_sys));
+                                    }
+                                    Err(e) => {
+                                        return Err(e).with_context(|| format!("Failed to resolve '{}' as system or chart", reference));
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         let sys = self.parse_system(child, base_dir)?;
                         subsystem = Some(Box::new(sys));
@@ -246,6 +262,155 @@ fn resolve_system_reference(reference: &str, base_dir: &Utf8Path) -> Utf8PathBuf
     // If not absolute, join with base_dir
     let path = if candidate.is_absolute() { candidate } else { base_dir.join(candidate) };
     path
+}
+
+fn resolve_chart_reference_from_system_ref(reference: &str, base_dir: &Utf8Path) -> Utf8PathBuf {
+    // reference like "system_18" or "system_18.xml" -> build simulink/stateflow/chart_18.xml
+    let name = reference.trim_end_matches(".xml");
+    let id_part = name.strip_prefix("system_").unwrap_or(name);
+    let filename = format!("chart_{}.xml", id_part);
+    let sim_root = base_dir.parent().unwrap_or(base_dir);
+    sim_root.join("stateflow").join(filename)
+}
+
+impl<S: ContentSource> SimulinkParser<S> {
+    /// Parse a Stateflow chart XML file and extract script and port metadata.
+    pub fn parse_chart_file(&mut self, path: impl AsRef<Utf8Path>) -> Result<Chart> {
+        let path = path.as_ref();
+        let text = self.source.read_to_string(path)?;
+        let doc = Document::parse(&text).with_context(|| format!("Failed to parse XML {}", path))?;
+        let chart_node = doc
+            .descendants()
+            .find(|n| n.is_element() && n.has_tag_name("chart"))
+            .ok_or_else(|| anyhow!("No <chart> root in {}", path))?;
+
+        // Collect top-level properties
+        let mut properties = BTreeMap::new();
+        for p in chart_node.children().filter(|c| c.is_element() && c.has_tag_name("P")) {
+            if let Some(nm) = p.attribute("Name") {
+                properties.insert(nm.to_string(), p.text().unwrap_or("").to_string());
+            }
+        }
+
+        let id = chart_node.attribute("id").and_then(|s| s.parse::<u32>().ok());
+        let name = properties.get("name").cloned();
+
+        // EML name
+        let eml_name = chart_node
+            .children()
+            .find(|c| c.is_element() && c.has_tag_name("eml"))
+            .and_then(|eml| eml.children().find(|c| c.is_element() && c.has_tag_name("P") && c.attribute("Name") == Some("name")))
+            .and_then(|p| p.text())
+            .map(|s| s.to_string());
+
+        // Script: search for P Name="script" under any <state>/<eml>
+        let mut script: Option<String> = None;
+        for st in chart_node.descendants().filter(|c| c.is_element() && c.has_tag_name("state")) {
+            if let Some(eml) = st.children().find(|c| c.is_element() && c.has_tag_name("eml")) {
+                if let Some(scr) = eml
+                    .children()
+                    .find(|c| c.is_element() && c.has_tag_name("P") && c.attribute("Name") == Some("script"))
+                    .and_then(|p| p.text())
+                {
+                    script = Some(scr.to_string());
+                    break;
+                }
+            }
+        }
+
+        // Ports: inputs and outputs based on <data> nodes and their <P Name="scope">
+        let mut inputs = Vec::new();
+        let mut outputs = Vec::new();
+        for data in chart_node.descendants().filter(|c| c.is_element() && c.has_tag_name("data")) {
+            let port_name = data.attribute("name").unwrap_or("").to_string();
+            if port_name.is_empty() { continue; }
+            let mut scope: Option<String> = None;
+            let mut size: Option<String> = None;
+            let mut method: Option<String> = None;
+            let mut primitive: Option<String> = None;
+            let mut is_signed: Option<bool> = None;
+            let mut word_length: Option<u32> = None;
+            let mut complexity: Option<String> = None;
+            let mut frame: Option<String> = None;
+            let mut unit: Option<String> = None;
+            let mut data_type: Option<String> = None;
+
+            for child in data.children().filter(|c| c.is_element()) {
+                match child.tag_name().name() {
+                    "P" => {
+                        if let Some(nm) = child.attribute("Name") {
+                            let val = child.text().unwrap_or("").to_string();
+                            match nm {
+                                "scope" => scope = Some(val),
+                                "dataType" => data_type = Some(val),
+                                _ => {}
+                            }
+                        }
+                    }
+                    "props" => {
+                        // Inside props we may find array, type, complexity, frame, unit
+                        for pp in child.children().filter(|c| c.is_element()) {
+                            match pp.tag_name().name() {
+                                "array" => {
+                                    if let Some(szp) = pp
+                                        .children()
+                                        .find(|c| c.is_element() && c.has_tag_name("P") && c.attribute("Name") == Some("size"))
+                                    {
+                                        size = szp.text().map(|s| s.to_string());
+                                    }
+                                }
+                                "type" => {
+                                    for tprop in pp.children().filter(|c| c.is_element() && c.has_tag_name("P")) {
+                                        if let Some(nm) = tprop.attribute("Name") {
+                                            let val = tprop.text().unwrap_or("").to_string();
+                                            match nm {
+                                                "method" => method = Some(val),
+                                                "primitive" => primitive = Some(val),
+                                                "isSigned" => is_signed = val.parse::<i32>().ok().map(|v| v != 0),
+                                                "wordLength" => word_length = val.parse::<u32>().ok(),
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                }
+                                "unit" => {
+                                    if let Some(up) = pp
+                                        .children()
+                                        .find(|c| c.is_element() && c.has_tag_name("P") && c.attribute("Name") == Some("name"))
+                                    {
+                                        unit = up.text().map(|s| s.to_string());
+                                    }
+                                }
+                                _ => {
+                                    // also P nodes directly under props
+                                    if pp.has_tag_name("P") {
+                                        if let Some(nm) = pp.attribute("Name") {
+                                            let val = pp.text().unwrap_or("").to_string();
+                                            match nm {
+                                                "complexity" => complexity = Some(val),
+                                                "frame" => frame = Some(val),
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            let port = ChartPort { name: port_name, size, method, primitive, is_signed, word_length, complexity, frame, data_type, unit };
+            match scope.as_deref() {
+                Some("INPUT_DATA") => inputs.push(port),
+                Some("OUTPUT_DATA") => outputs.push(port),
+                _ => {}
+            }
+        }
+
+        Ok(Chart { id, name, eml_name, script, inputs, outputs, properties })
+    }
 }
 
 fn parse_points(s: &str) -> Vec<Point> {
