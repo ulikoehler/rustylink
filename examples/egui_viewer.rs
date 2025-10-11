@@ -179,27 +179,15 @@ impl eframe::App for SubsystemApp {
                 // Draw icon for specific block types using a common function
                 render_block_icon(&painter, b, &r_screen);
 
-                // Block name: center or beneath depending on block size
-                let min_width = 40.0;
-                let min_height = 30.0;
-                let block_width = r_screen.width();
-                let block_height = r_screen.height();
-                let has_icon = matches!(b.block_type.as_str(), "Product" | "Constant");
-                if block_width < min_width || block_height < min_height || has_icon {
-                    // Draw multiline label immediately beneath block, horizontally centered
-                    let lines: Vec<&str> = b.name.split('\n').collect();
-                    let line_height = 16.0; // Approximate line height for font size 14
-                    let mut y = r_screen.bottom() + 2.0;
-                    for line in lines {
-                        let pos = Pos2::new(r_screen.center().x, y);
-                        // Use dark color for text outside the block
-                        painter.text(pos, Align2::CENTER_TOP, line, egui::FontId::proportional(14.0), Color32::from_rgb(40, 40, 40));
-                        y += line_height;
-                    }
-                } else {
-                    // Draw label centered inside block, use white text
-                    let center = r_screen.center();
-                    painter.text(center, Align2::CENTER_CENTER, &b.name, egui::FontId::proportional(14.0), Color32::WHITE);
+                // Block name: always draw beneath the block, horizontally centered
+                let lines: Vec<&str> = b.name.split('\n').collect();
+                let line_height = 16.0; // Approximate line height for font size 14
+                let mut y = r_screen.bottom() + 2.0;
+                for line in lines {
+                    let pos = Pos2::new(r_screen.center().x, y);
+                    // Use dark color for text outside the block
+                    painter.text(pos, Align2::CENTER_TOP, line, egui::FontId::proportional(14.0), Color32::from_rgb(40, 40, 40));
+                    y += line_height;
                 }
             }
 
