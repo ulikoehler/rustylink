@@ -14,11 +14,12 @@ impl ContentSource for MemSource {
 }
 
 #[test]
-fn parse_chart_and_link_from_system_ref() {
+fn parse_chart_and_mapping_then_open_matlab_function() {
     // Minimal system containing a subsystem referencing system_18 which doesn't exist as XML in MemSource
     let sys_root = r#"<?xml version=\"1.0\" encoding=\"utf-8\"?>
 <System>
   <Block BlockType=\"SubSystem\" Name=\"Wall clock\" SID=\"18\">
+    <P Name=\"SFBlockType\">MATLAB Function</P>
     <System Ref=\"system_18\"/>
   </Block>
 </System>
@@ -69,22 +70,41 @@ fn parse_chart_and_link_from_system_ref() {
 </chart>
 "#;
 
+    // machine.xml mapping instances to charts
+    let machine = r#"<?xml version=\"1.0\" encoding=\"utf-8\"?>
+<Stateflow>
+  <machine id=\"9\">
+    <Children>
+      <chart Ref=\"chart_18\"/>
+    </Children>
+  </machine>
+  <instance id=\"27\">
+    <P Name=\"machine\">9</P>
+    <P Name=\"name\">Wall clock</P>
+    <P Name=\"chart\">18</P>
+  </instance>
+</Stateflow>
+"#;
+
     let base = Utf8PathBuf::from("/simulink/systems");
     let mut files = HashMap::new();
-    files.insert(base.join("system_root.xml").as_str().to_string(), sys_root.to_string());
-    files.insert("/simulink/stateflow/chart_18.xml".to_string(), chart_18.to_string());
+  files.insert(base.join("system_root.xml").as_str().to_string(), sys_root.to_string());
+  files.insert("/simulink/stateflow/chart_18.xml".to_string(), chart_18.to_string());
+  files.insert("/simulink/stateflow/machine.xml".to_string(), machine.to_string());
 
     let source = MemSource { files };
     let mut parser = SimulinkParser::new("/", source);
 
-    let system = parser.parse_system_file(base.join("system_root.xml")).expect("parse system");
-    assert_eq!(system.blocks.len(), 1);
-    let blk = &system.blocks[0];
-    let sub = blk.subsystem.as_ref().expect("subsystem resolved");
-    let chart = sub.chart.as_ref().expect("chart attached to system");
-    assert_eq!(chart.id, Some(18));
-    assert_eq!(chart.eml_name.as_deref(), Some("generateSine"));
-    assert!(chart.script.as_ref().map(|s| s.contains("generateSine")).unwrap_or(false));
-    assert!(chart.inputs.iter().any(|p| p.name == "phaseDeg"));
-    assert!(chart.outputs.iter().any(|p| p.name == "y"));
+  let system = parser.parse_system_file(base.join("system_root.xml")).expect("parse system");
+  assert_eq!(system.blocks.len(), 1);
+  let blk = &system.blocks[0];
+  assert!(blk.is_matlab_function, "Expected MATLAB Function block flagged");
+  // Charts are now pre-parsed and available via parser getters
+  let charts = parser.get_charts();
+  let chart = charts.get(&18).expect("chart 18 parsed");
+  assert_eq!(chart.id, Some(18));
+  assert_eq!(chart.eml_name.as_deref(), Some("generateSine"));
+  assert!(chart.script.as_ref().map(|s| s.contains("generateSine")).unwrap_or(false));
+  assert!(chart.inputs.iter().any(|p| p.name == "phaseDeg"));
+  assert!(chart.outputs.iter().any(|p| p.name == "y"));
 }

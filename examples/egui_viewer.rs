@@ -10,7 +10,7 @@ use camino::Utf8PathBuf;
 #[cfg(feature = "egui")]
 use clap::Parser;
 #[cfg(feature = "egui")]
-use rustylink::model::System;
+use rustylink::model::{System, Chart};
 #[cfg(feature = "egui")]
 use rustylink::parser::{FsSource, SimulinkParser, ZipSource};
 
@@ -42,16 +42,22 @@ fn main() -> Result<()> {
     let path = Utf8PathBuf::from(&args.file);
 
     // Parse system
-    let root_system = if path.extension() == Some("slx") {
+    let (root_system, charts, chart_map) = if path.extension() == Some("slx") {
         let file = std::fs::File::open(&path).with_context(|| format!("Open {}", path))?;
         let reader = std::io::BufReader::new(file);
         let mut parser = SimulinkParser::new("", ZipSource::new(reader)?);
         let root = Utf8PathBuf::from("simulink/systems/system_root.xml");
-        parser.parse_system_file(&root)?
+        let sys = parser.parse_system_file(&root)?;
+        let charts = parser.get_charts().clone();
+        let chart_map = parser.get_system_to_chart_map().clone();
+        (sys, charts, chart_map)
     } else {
         let root_dir = Utf8PathBuf::from(".");
         let mut parser = SimulinkParser::new(&root_dir, FsSource);
-        parser.parse_system_file(&path).with_context(|| format!("Failed to parse {}", path))?
+        let sys = parser.parse_system_file(&path).with_context(|| format!("Failed to parse {}", path))?;
+        let charts = parser.get_charts().clone();
+        let chart_map = parser.get_system_to_chart_map().clone();
+        (sys, charts, chart_map)
     };
     
     // Compute initial path vector relative to root_system
@@ -81,7 +87,7 @@ fn main() -> Result<()> {
             cc.egui_ctx.set_fonts(font_definitions);
             // Set light theme
             cc.egui_ctx.set_visuals(egui::Visuals::light());
-            Ok(Box::new(SubsystemApp::new(root_system, initial_path)))
+            Ok(Box::new(SubsystemApp::new(root_system, initial_path, charts, chart_map)))
         })
     )
     .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -225,6 +231,8 @@ struct SubsystemApp {
     reset_view: bool,
     // Chart popup state
     chart_view: Option<ChartView>,
+    charts: std::collections::BTreeMap<u32, Chart>,
+    chart_map: std::collections::BTreeMap<String, u32>,
 }
 
 #[cfg(feature = "egui")]
@@ -237,7 +245,7 @@ struct ChartView {
 
 #[cfg(feature = "egui")]
 impl SubsystemApp {
-    fn new(root: System, initial_path: Vec<String>) -> Self {
+    fn new(root: System, initial_path: Vec<String>, charts: std::collections::BTreeMap<u32, Chart>, chart_map: std::collections::BTreeMap<String, u32>) -> Self {
         let all = collect_subsystems_paths(&root);
         Self {
             root,
@@ -249,6 +257,8 @@ impl SubsystemApp {
             pan: Vec2::ZERO,
             reset_view: true,
             chart_view: None,
+            charts,
+            chart_map,
         }
     }
 
@@ -704,14 +714,13 @@ fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
                 }
                 if *clicked {
                     if b.block_type == "SubSystem" {
-                        if let Some(sub) = &b.subsystem {
-                            if sub.chart.is_none() {
-                                let mut np = path_snapshot.clone();
-                                np.push(b.name.clone());
-                                navigate_to_from_block = Some(np);
-                            } else {
-                                // Open chart dialog instead of navigating
-                                if let Some(chart) = &sub.chart {
+                        if b.is_matlab_function {
+                            // Build instance path name like "A/B/Block"
+                            let mut instance_name = if path_snapshot.is_empty() { b.name.clone() } else { format!("{}/{}", path_snapshot.join("/"), b.name) };
+                            // In case of leading slashes or inconsistent whitespace
+                            instance_name = instance_name.trim_matches('/').to_string();
+                            if let Some(cid) = self.chart_map.get(&instance_name).cloned() {
+                                if let Some(chart) = self.charts.get(&cid) {
                                     let title = chart
                                         .name
                                         .clone()
@@ -720,18 +729,21 @@ fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
                                     let script = chart.script.clone().unwrap_or_default();
                                     open_chart = Some(ChartView { title, script, open: true });
                                 } else {
-                                    println!("Clicked subsystem block (chart): name='{}' sid={:?}", b.name, b.sid);
+                                    println!("MATLAB Function clicked but chart id {} not found", cid);
                                 }
+                            } else {
+                                println!("MATLAB Function clicked but instance not found in mapping: {}", instance_name);
                             }
+                        } else if let Some(sub) = &b.subsystem {
+                            println!("Opened subsystem: '{}' (normal subsystem)", b.name);
+                            let mut np = path_snapshot.clone();
+                            np.push(b.name.clone());
+                            navigate_to_from_block = Some(np);
                         } else {
                             println!("Clicked subsystem block (unresolved): name='{}' sid={:?}", b.name, b.sid);
                         }
                     } else {
-                        if b.block_type == "SubSystem" {
-                            println!("Clicked subsystem block (chart or unresolved): name='{}' sid={:?}", b.name, b.sid);
-                        } else {
-                            println!("Clicked block: type='{}' name='{}' sid={:?}", b.block_type, b.name, b.sid);
-                        }
+                        println!("Clicked block: type='{}' name='{}' sid={:?}", b.block_type, b.name, b.sid);
                     }
                 }
             }

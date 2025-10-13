@@ -50,30 +50,38 @@ impl<R: Read + std::io::Seek> ContentSource for ZipSource<R> {
 pub struct SimulinkParser<S: ContentSource> {
     root_dir: Utf8PathBuf,
     source: S,
+    // Pre-parsed charts by id
+    charts_by_id: BTreeMap<u32, Chart>,
+    // Mapping from Simulink block path/name to chart id as taken from stateflow/machine.xml <instance>
+    system_to_chart_map: BTreeMap<String, u32>,
 }
 
 impl<S: ContentSource> SimulinkParser<S> {
     pub fn new(root_dir: impl AsRef<Utf8Path>, source: S) -> Self {
-        Self { root_dir: root_dir.as_ref().to_path_buf(), source }
+        Self { root_dir: root_dir.as_ref().to_path_buf(), source, charts_by_id: BTreeMap::new(), system_to_chart_map: BTreeMap::new() }
     }
 
     pub fn parse_system_file(&mut self, path: impl AsRef<Utf8Path>) -> Result<System> {
         let path = path.as_ref();
+        println!("[rustylink] Parsing system from file: {}", path);
+        // Pre-parse charts and machine mapping before parsing systems
+        self.try_parse_stateflow_for(path);
         let text = self.source.read_to_string(path)?;
         let doc = Document::parse(&text).with_context(|| format!("Failed to parse XML {}", path))?;
-        let system_node = doc
-            .descendants()
-            .find(|n| n.has_tag_name("System"))
-            .ok_or_else(|| anyhow!("No <System> root in {}", path))?;
-        let base_dir_owned: Utf8PathBuf = path
-            .parent()
-            .map(|p| p.to_owned())
-            .unwrap_or_else(|| self.root_dir.clone());
-        self.parse_system(system_node, base_dir_owned.as_path())
+        if let Some(system_node) = doc.descendants().find(|n| n.has_tag_name("System")) {
+            println!("[rustylink] Detected normal system in file: {} (found <System> root)", path);
+            let base_dir_owned: Utf8PathBuf = path
+                .parent()
+                .map(|p| p.to_owned())
+                .unwrap_or_else(|| self.root_dir.clone());
+            self.parse_system(system_node, base_dir_owned.as_path())
+        } else {
+            Err(anyhow!("No <System> root in {}", path))
+        }
     }
 
     fn parse_system(&mut self, node: Node, base_dir: &Utf8Path) -> Result<System> {
-        let mut properties = BTreeMap::new();
+    let mut properties = BTreeMap::new();
         let mut blocks = Vec::new();
         let mut lines = Vec::new();
 
@@ -109,6 +117,7 @@ impl<S: ContentSource> SimulinkParser<S> {
         let mut zorder = None;
         let mut subsystem: Option<Box<System>> = None;
         let mut commented = false;
+        let mut is_matlab_function = false;
 
         for child in node.children().filter(|c| c.is_element()) {
             match child.tag_name().name() {
@@ -123,6 +132,10 @@ impl<S: ContentSource> SimulinkParser<S> {
                             "ZOrder" => zorder = Some(value),
                             "Commented" => {
                                 commented = value.eq_ignore_ascii_case("on");
+                                properties.insert(name_attr.to_string(), value);
+                            }
+                            "SFBlockType" => {
+                                if value == "MATLAB Function" { is_matlab_function = true; }
                                 properties.insert(name_attr.to_string(), value);
                             }
                             _ => {
@@ -150,25 +163,11 @@ impl<S: ContentSource> SimulinkParser<S> {
                 "System" => {
                     if let Some(reference) = child.attribute("Ref") {
                         let resolved = resolve_system_reference(reference, base_dir);
-                        match self.parse_system_file(&resolved) {
-                            Ok(sys) => {
-                                subsystem = Some(Box::new(sys));
-                            }
-                            Err(_) => {
-                                // Fallback: try Stateflow chart with same id
-                                let chart_path = resolve_chart_reference_from_system_ref(reference, base_dir);
-                                match self.parse_chart_file(&chart_path) {
-                                    Ok(chart) => {
-                                        let sub_sys = System { properties: BTreeMap::new(), blocks: Vec::new(), lines: Vec::new(), chart: Some(chart) };
-                                        subsystem = Some(Box::new(sub_sys));
-                                    }
-                                    Err(e) => {
-                                        return Err(e).with_context(|| format!("Failed to resolve '{}' as system or chart", reference));
-                                    }
-                                }
-                            }
-                        }
+                        println!("[rustylink] Parsing referenced system: {} (resolved path: {})", reference, resolved);
+                        let sys = self.parse_system_file(&resolved)?;
+                        subsystem = Some(Box::new(sys));
                     } else {
+                        println!("[rustylink] Parsing inline system block (no Ref attribute)");
                         let sys = self.parse_system(child, base_dir)?;
                         subsystem = Some(Box::new(sys));
                     }
@@ -179,7 +178,7 @@ impl<S: ContentSource> SimulinkParser<S> {
             }
         }
 
-        Ok(Block { block_type, name, sid, position, zorder, commented, properties, ports, subsystem })
+        Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem })
     }
 
     fn parse_line(&self, node: Node) -> Result<Line> {
@@ -411,6 +410,69 @@ impl<S: ContentSource> SimulinkParser<S> {
 
         Ok(Chart { id, name, eml_name, script, inputs, outputs, properties })
     }
+}
+
+impl<S: ContentSource> SimulinkParser<S> {
+    /// Attempt to parse stateflow/machine.xml and all referenced charts based on the location of a given system xml path.
+    /// This function is idempotent and safe to call multiple times.
+    fn try_parse_stateflow_for(&mut self, system_xml_path: &Utf8Path) {
+        // Determine sim root: path like simulink/systems/system_XX.xml -> root is parent of "systems" which itself is under "simulink"
+        let mut found_root: Option<Utf8PathBuf> = None;
+        for anc in system_xml_path.ancestors() {
+            if anc.file_name() == Some("systems") {
+                if let Some(parent) = anc.parent() {
+                    if parent.file_name() == Some("simulink") {
+                        found_root = Some(parent.to_path_buf());
+                        break;
+                    }
+                }
+            }
+        }
+        let sim_root: Utf8PathBuf = found_root.unwrap_or_else(|| self.root_dir.clone());
+        let machine_path = sim_root.join("stateflow").join("machine.xml");
+        // Try to read; if fails, just return silently
+        let text = match self.source.read_to_string(&machine_path) {
+            Ok(t) => t,
+            Err(_) => return,
+        };
+        if let Ok(doc) = Document::parse(&text) {
+            // Build list of chart files from <machine>/<Children>/<chart Ref="chart_XX"/>
+            let mut chart_refs: Vec<String> = Vec::new();
+            if let Some(machine) = doc.descendants().find(|n| n.is_element() && n.has_tag_name("machine")) {
+                if let Some(children) = machine.children().find(|n| n.is_element() && n.has_tag_name("Children")) {
+                    for ch in children.children().filter(|c| c.is_element() && c.has_tag_name("chart")) {
+                        if let Some(r) = ch.attribute("Ref") { chart_refs.push(r.to_string()); }
+                    }
+                }
+            }
+            // Parse <instance> mapping name -> chart id
+            for inst in doc.descendants().filter(|n| n.is_element() && n.has_tag_name("instance")) {
+                let mut name: Option<String> = None;
+                let mut chart_id: Option<u32> = None;
+                for p in inst.children().filter(|c| c.is_element() && c.has_tag_name("P")) {
+                    match p.attribute("Name") {
+                        Some("name") => name = p.text().map(|s| s.to_string()),
+                        Some("chart") => chart_id = p.text().and_then(|s| s.parse::<u32>().ok()),
+                        _ => {}
+                    }
+                }
+                if let (Some(n), Some(cid)) = (name, chart_id) {
+                    self.system_to_chart_map.entry(n).or_insert(cid);
+                }
+            }
+            // Load chart files
+            for r in chart_refs {
+                let chart_path = sim_root.join("stateflow").join(format!("{}.xml", r.trim_end_matches(".xml")));
+                if let Ok(chart) = SimulinkParser::parse_chart_file(self, &chart_path) {
+                    if let Some(id) = chart.id { self.charts_by_id.entry(id).or_insert(chart); }
+                }
+            }
+        }
+    }
+
+    pub fn get_charts(&self) -> &BTreeMap<u32, Chart> { &self.charts_by_id }
+    pub fn get_system_to_chart_map(&self) -> &BTreeMap<String, u32> { &self.system_to_chart_map }
+    pub fn get_chart(&self, id: u32) -> Option<&Chart> { self.charts_by_id.get(&id) }
 }
 
 fn parse_points(s: &str) -> Vec<Point> {
