@@ -667,7 +667,7 @@ impl eframe::App for SubsystemApp {
             }
 
             for (b, r_screen, clicked) in &block_views {
-                let fill = Color32::from_gray(30);
+                let fill = Color32::from_rgb(230, 230, 230); // light gray
                 let stroke = Stroke::new(2.0, Color32::from_rgb(180, 180, 200));
                 painter.rect_filled(*r_screen, 4.0, fill);
                 painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
