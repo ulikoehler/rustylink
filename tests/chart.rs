@@ -16,72 +16,76 @@ impl ContentSource for MemSource {
 #[test]
 fn parse_chart_and_mapping_then_open_matlab_function() {
     // Minimal system containing a subsystem referencing system_18 which doesn't exist as XML in MemSource
-    let sys_root = r#"<?xml version=\"1.0\" encoding=\"utf-8\"?>
+    let sys_root = r#"<?xml version="1.0" encoding="utf-8"?>
 <System>
-  <Block BlockType=\"SubSystem\" Name=\"Wall clock\" SID=\"18\">
-    <P Name=\"SFBlockType\">MATLAB Function</P>
-    <System Ref=\"system_18\"/>
+  <Block BlockType="SubSystem" Name="Wall clock" SID="18">
+    <P Name="SFBlockType">MATLAB Function</P>
+    <System Ref="system_18"/>
   </Block>
+  <!-- The referenced system_18 is intentionally missing as a file; parser should tolerate this. -->
 </System>
 "#;
 
     // Chart XML based on provided sample
-    let chart_18 = r#"<?xml version=\"1.0\" encoding=\"utf-8\"?>
-<chart id=\"18\">
-  <P Name=\"name\">Logic/MATLAB Function</P>
+    let chart_18 = r#"<?xml version="1.0" encoding="utf-8"?>
+<chart id="18">
+  <P Name="name">Logic/MATLAB Function</P>
   <eml>
-    <P Name=\"name\">generateSine</P>
+    <P Name="name">generateSine</P>
   </eml>
   <Children>
-    <state SSID=\"1\">
-      <P Name=\"labelString\">eML_blk_kernel()</P>
+    <state SSID="1">
+      <P Name="labelString">eML_blk_kernel()</P>
       <eml>
-        <P Name=\"isEML\">1</P>
-        <P Name=\"script\">function y = generateSine(phaseDeg, freq, amp, t)\n% comment\ny = amp * sin(2*pi*freq*t + deg2rad(phaseDeg));\nend</P>
+        <P Name="isEML">1</P>
+        <P Name="script">function y = generateSine(phaseDeg, freq, amp, t)
+% comment
+y = amp * sin(2*pi*freq*t + deg2rad(phaseDeg));
+end</P>
       </eml>
     </state>
-    <data SSID=\"4\" name=\"phaseDeg\">
-      <P Name=\"scope\">INPUT_DATA</P>
+    <data SSID="4" name="phaseDeg">
+      <P Name="scope">INPUT_DATA</P>
       <props>
-        <array><P Name=\"size\">-1</P></array>
+        <array><P Name="size">-1</P></array>
         <type>
-          <P Name=\"method\">SF_INHERITED_TYPE</P>
-          <P Name=\"primitive\">SF_DOUBLE_TYPE</P>
+          <P Name="method">SF_INHERITED_TYPE</P>
+          <P Name="primitive">SF_DOUBLE_TYPE</P>
         </type>
-        <P Name=\"complexity\">SF_COMPLEX_INHERITED</P>
-        <unit><P Name=\"name\">inherit</P></unit>
+        <P Name="complexity">SF_COMPLEX_INHERITED</P>
+        <unit><P Name="name">inherit</P></unit>
       </props>
-      <P Name=\"dataType\">Inherit: Same as Simulink</P>
+      <P Name="dataType">Inherit: Same as Simulink</P>
     </data>
-    <data SSID=\"5\" name=\"y\">
-      <P Name=\"scope\">OUTPUT_DATA</P>
+    <data SSID="5" name="y">
+      <P Name="scope">OUTPUT_DATA</P>
       <props>
-        <array><P Name=\"size\">-1</P></array>
+        <array><P Name="size">-1</P></array>
         <type>
-          <P Name=\"method\">SF_INHERITED_TYPE</P>
-          <P Name=\"primitive\">SF_DOUBLE_TYPE</P>
+          <P Name="method">SF_INHERITED_TYPE</P>
+          <P Name="primitive">SF_DOUBLE_TYPE</P>
         </type>
-        <P Name=\"complexity\">SF_COMPLEX_INHERITED</P>
-        <unit><P Name=\"name\">inherit</P></unit>
+        <P Name="complexity">SF_COMPLEX_INHERITED</P>
+        <unit><P Name="name">inherit</P></unit>
       </props>
-      <P Name=\"dataType\">Inherit: Same as Simulink</P>
+      <P Name="dataType">Inherit: Same as Simulink</P>
     </data>
   </Children>
 </chart>
 "#;
 
     // machine.xml mapping instances to charts
-    let machine = r#"<?xml version=\"1.0\" encoding=\"utf-8\"?>
+    let machine = r#"<?xml version="1.0" encoding="utf-8"?>
 <Stateflow>
-  <machine id=\"9\">
+  <machine id="9">
     <Children>
-      <chart Ref=\"chart_18\"/>
+      <chart Ref="chart_18"/>
     </Children>
   </machine>
-  <instance id=\"27\">
-    <P Name=\"machine\">9</P>
-    <P Name=\"name\">Wall clock</P>
-    <P Name=\"chart\">18</P>
+  <instance id="27">
+    <P Name="machine">9</P>
+    <P Name="name">Wall clock</P>
+    <P Name="chart">18</P>
   </instance>
 </Stateflow>
 "#;

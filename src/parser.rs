@@ -163,13 +163,31 @@ impl<S: ContentSource> SimulinkParser<S> {
                 "System" => {
                     if let Some(reference) = child.attribute("Ref") {
                         let resolved = resolve_system_reference(reference, base_dir);
-                        println!("[rustylink] Parsing referenced system: {} (resolved path: {})", reference, resolved);
-                        let sys = self.parse_system_file(&resolved)?;
-                        subsystem = Some(Box::new(sys));
+                        println!(
+                            "[rustylink] Parsing referenced system: {} (resolved path: {})",
+                            reference, resolved
+                        );
+                        match self.parse_system_file(&resolved) {
+                            Ok(sys) => {
+                                subsystem = Some(Box::new(sys));
+                            }
+                            Err(err) => {
+                                // Tolerate missing referenced system files (e.g. MATLAB Function blocks
+                                // that map to Stateflow charts only). Keep subsystem unset and continue.
+                                eprintln!(
+                                    "[rustylink] Warning: failed to parse referenced system '{}': {}",
+                                    resolved, err
+                                );
+                            }
+                        }
                     } else {
                         println!("[rustylink] Parsing inline system block (no Ref attribute)");
-                        let sys = self.parse_system(child, base_dir)?;
-                        subsystem = Some(Box::new(sys));
+                        match self.parse_system(child, base_dir) {
+                            Ok(sys) => subsystem = Some(Box::new(sys)),
+                            Err(err) => {
+                                eprintln!("[rustylink] Warning: failed to parse inline system: {}", err);
+                            }
+                        }
                     }
                 }
                 unknown => {

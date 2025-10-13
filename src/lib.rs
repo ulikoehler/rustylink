@@ -7,3 +7,9 @@
 
 pub mod model;
 pub mod parser;
+
+// Optional GUI/egui functionality lives behind the `egui` feature flag.
+// This module provides an interactive viewer for Simulink subsystems and
+// is used by the example in examples/egui_viewer.rs.
+#[cfg(feature = "egui")]
+pub mod egui_app;
