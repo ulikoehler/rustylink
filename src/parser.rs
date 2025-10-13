@@ -63,13 +63,13 @@ impl<S: ContentSource> SimulinkParser<S> {
 
     pub fn parse_system_file(&mut self, path: impl AsRef<Utf8Path>) -> Result<System> {
         let path = path.as_ref();
-        println!("[rustylink] Parsing system from file: {}", path);
+        // println!("[rustylink] Parsing system from file: {}", path);
         // Pre-parse charts and machine mapping before parsing systems
         self.try_parse_stateflow_for(path);
         let text = self.source.read_to_string(path)?;
         let doc = Document::parse(&text).with_context(|| format!("Failed to parse XML {}", path))?;
         if let Some(system_node) = doc.descendants().find(|n| n.has_tag_name("System")) {
-            println!("[rustylink] Detected normal system in file: {} (found <System> root)", path);
+            // println!("[rustylink] Detected normal system in file: {} (found <System> root)", path);
             let base_dir_owned: Utf8PathBuf = path
                 .parent()
                 .map(|p| p.to_owned())
@@ -163,10 +163,10 @@ impl<S: ContentSource> SimulinkParser<S> {
                 "System" => {
                     if let Some(reference) = child.attribute("Ref") {
                         let resolved = resolve_system_reference(reference, base_dir);
-                        println!(
-                            "[rustylink] Parsing referenced system: {} (resolved path: {})",
-                            reference, resolved
-                        );
+                        // println!(
+                        //     "[rustylink] Parsing referenced system: {} (resolved path: {})",
+                        //     reference, resolved
+                        // );
                         match self.parse_system_file(&resolved) {
                             Ok(sys) => {
                                 subsystem = Some(Box::new(sys));
@@ -174,14 +174,14 @@ impl<S: ContentSource> SimulinkParser<S> {
                             Err(err) => {
                                 // Tolerate missing referenced system files (e.g. MATLAB Function blocks
                                 // that map to Stateflow charts only). Keep subsystem unset and continue.
-                                eprintln!(
+                                /*eprintln!(
                                     "[rustylink] Warning: failed to parse referenced system '{}': {}",
                                     resolved, err
-                                );
+                                );*/
                             }
                         }
                     } else {
-                        println!("[rustylink] Parsing inline system block (no Ref attribute)");
+                        // println!("[rustylink] Parsing inline system block (no Ref attribute)");
                         match self.parse_system(child, base_dir) {
                             Ok(sys) => subsystem = Some(Box::new(sys)),
                             Err(err) => {

@@ -210,18 +210,19 @@ pub fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
     let icon_size = 24.0;
     let icon_center = rect.center();
     let font = egui::FontId::new(icon_size, egui::FontFamily::Name("phosphor".into()));
+    let dark_icon = Color32::from_rgb(40, 40, 40); // dark color for icons
     match block.block_type.as_str() {
         "Product" => {
-            painter.text(icon_center, Align2::CENTER_CENTER, regular::X, font, Color32::WHITE);
+            painter.text(icon_center, Align2::CENTER_CENTER, regular::X, font, dark_icon);
         }
         "Constant" => {
-            painter.text(icon_center, Align2::CENTER_CENTER, regular::WRENCH, font, Color32::WHITE);
+            painter.text(icon_center, Align2::CENTER_CENTER, regular::WRENCH, font, dark_icon);
         }
         "Scope" => {
-            painter.text(icon_center, Align2::CENTER_CENTER, regular::WAVE_SINE, font, Color32::WHITE);
+            painter.text(icon_center, Align2::CENTER_CENTER, regular::WAVE_SINE, font, dark_icon);
         }
         "ManualSwitch" => {
-            painter.text(icon_center, Align2::CENTER_CENTER, regular::TOGGLE_LEFT, font, Color32::WHITE);
+            painter.text(icon_center, Align2::CENTER_CENTER, regular::TOGGLE_LEFT, font, dark_icon);
         }
         _ => {}
     }
@@ -494,6 +495,9 @@ impl eframe::App for SubsystemApp {
                     sid_map.insert(sid, *r);
                 }
                 let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
+                // Draw block background with light gray color
+                let light_gray = Color32::from_rgb(230, 230, 230);
+                ui.painter().rect_filled(r_screen, 6.0, light_gray);
                 let resp = ui.allocate_rect(r_screen, Sense::click());
                 block_views.push((b, r_screen, resp.clicked()));
             }
