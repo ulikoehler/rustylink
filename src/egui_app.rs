@@ -122,10 +122,21 @@ pub fn matlab_syntax_job(script: &str) -> LayoutJob {
 
     let ss = SYNTAX_SET.get_or_init(|| SyntaxSet::load_defaults_newlines());
     let ts = THEME_SET.get_or_init(|| ThemeSet::load_defaults());
-    let syntax = ss
-        .find_syntax_by_extension("m")
-        .or_else(|| ss.find_syntax_by_name("Matlab"))
-        .unwrap_or_else(|| ss.find_syntax_plain_text());
+    // Important: Don't select by ".m" file extension as syntect often resolves that to Objective‑C.
+    // Prefer the explicit MATLAB scope or well-known names and only then fall back to plain text.
+    let syntax = {
+        use syntect::parsing::Scope;
+        // Try by scope first (most reliable)
+        let by_scope = Scope::new("source.matlab").ok().and_then(|s| ss.find_syntax_by_scope(s));
+        if let Some(s) = by_scope { s } else {
+            // Try a few common names that appear across sublime grammars
+            ss.find_syntax_by_name("Matlab")
+                .or_else(|| ss.find_syntax_by_name("MATLAB"))
+                .or_else(|| ss.find_syntax_by_name("Matlab (Octave)"))
+                .or_else(|| ss.find_syntax_by_name("MATLAB (Octave)"))
+                .unwrap_or_else(|| ss.find_syntax_plain_text())
+        }
+    };
     let theme = ts
         .themes
         .get("InspiredGitHub")
@@ -667,7 +678,7 @@ impl eframe::App for SubsystemApp {
             }
 
             for (b, r_screen, clicked) in &block_views {
-                let fill = Color32::from_rgb(230, 230, 230); // light gray
+                let fill = Color32::from_rgb(210, 210, 210); // light gray
                 let stroke = Stroke::new(2.0, Color32::from_rgb(180, 180, 200));
                 painter.rect_filled(*r_screen, 4.0, fill);
                 painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
