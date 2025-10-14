@@ -550,15 +550,12 @@ impl eframe::App for SubsystemApp {
                 }
             }
 
-            // Deterministic adjacency-aware rainbow color assignment
+            // Deterministic adjacency-aware rainbow color assignment with brightness guard
             fn circular_dist(a: f32, b: f32) -> f32 {
                 let d = (a - b).abs();
                 d.min(1.0 - d)
             }
-            fn hue_to_color32(h: f32) -> Color32 {
-                // Convert hue in [0,1) to RGB (simple HSV with s=0.85, v=0.95)
-                let s = 0.85f32;
-                let v = 0.95f32;
+            fn hsv_to_color32(h: f32, s: f32, v: f32) -> Color32 {
                 let h6 = (h * 6.0) % 6.0;
                 let c = v * s;
                 let x = c * (1.0 - ((h6 % 2.0) - 1.0).abs());
@@ -571,13 +568,34 @@ impl eframe::App for SubsystemApp {
                 let (r, g, b) = (r1 + m, g1 + m, b1 + m);
                 Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
             }
+            fn hue_to_color32(h: f32) -> Color32 { hsv_to_color32(h, 0.85, 0.95) }
+            fn rel_luminance(c: Color32) -> f32 {
+                fn to_lin(u: u8) -> f32 {
+                    let s = (u as f32) / 255.0;
+                    if s <= 0.04045 { s / 12.92 } else { ((s + 0.055) / 1.055).powf(2.4) }
+                }
+                let r = to_lin(c.r());
+                let g = to_lin(c.g());
+                let b = to_lin(c.b());
+                0.2126 * r + 0.7152 * g + 0.0722 * b
+            }
             let n_lines = current_system.lines.len();
-            let palette: Vec<f32> = (0..n_lines).map(|i| (i as f32) / (n_lines.max(1) as f32)).collect();
+            // Build a rich set of hue candidates and filter out those too light on the background
+            let sample_count = (n_lines.max(1) * 8).max(64);
+            let mut candidates: Vec<f32> = Vec::new();
+            for i in 0..sample_count { candidates.push((i as f32) / (sample_count as f32)); }
+            let bg_lum = rel_luminance(Color32::from_gray(245)); // approx UI bg
+            let max_lum = (bg_lum - 0.25).clamp(0.0, 1.0); // ensure reasonable contrast; forbid too-light colors (e.g., yellows)
+            candidates.retain(|&h| rel_luminance(hue_to_color32(h)) <= max_lum);
+            if candidates.is_empty() {
+                // Fallback if filtering removed all hues
+                for i in 0..sample_count { candidates.push((i as f32) / (sample_count as f32)); }
+            }
             // Order nodes by degree desc, then by index for determinism
             let mut order: Vec<usize> = (0..n_lines).collect();
             order.sort_by_key(|&i| (-(line_adjacency[i].len() as isize), i as isize));
             let mut assigned_hues: Vec<Option<f32>> = vec![None; n_lines];
-            let mut remaining: Vec<f32> = palette.clone();
+            let mut remaining: Vec<f32> = candidates.clone();
             for i in order {
                 // Choose hue from remaining that maximizes minimum circular distance to already assigned neighbors
                 let neigh_hues: Vec<f32> = line_adjacency[i]
@@ -610,7 +628,9 @@ impl eframe::App for SubsystemApp {
                 .enumerate()
                 .map(|(i, h)| {
                     let default_h = (i as f32) / (n_lines.max(1) as f32);
-                    hue_to_color32(h.unwrap_or(default_h))
+                    let c = hue_to_color32(h.unwrap_or(default_h));
+                    // As a final guard, darken if still too light
+                    if rel_luminance(c) > max_lum { hsv_to_color32(h.unwrap_or(default_h), 0.85, 0.75) } else { c }
                 })
                 .collect();
 
@@ -780,10 +800,10 @@ impl eframe::App for SubsystemApp {
             }
 
             // Place and render signal labels with collision avoidance via label_place module
-            // Font sizes: blocks use ~14.0; signals use ~half
+            // Font sizes: blocks use ~14.0; signals were ~0.75x; increase another 1.5x => ~1.125x
             let block_label_font = 14.0f32;
-            // Previously signal font was approx half the block font. Increase by 1.5x.
-            let signal_font = (block_label_font * 0.5 * 1.5).round().max(7.0);
+            // Previously signal font was approx half the block font, then 1.5x. Increase by another 1.5x now.
+            let signal_font = (block_label_font * 0.5 * 1.5 * 1.5).round().max(7.0);
             let sig_font_id = egui::FontId::proportional(signal_font);
 
             struct EguiMeasurer<'a> { ctx: &'a egui::Context, font: egui::FontId, color: Color32 }
@@ -795,60 +815,167 @@ impl eframe::App for SubsystemApp {
                 }
             }
 
-            let cfg = LabelConfig::default();
+            // Use a smaller perpendicular offset so labels appear visually attached to lines
+            let cfg = LabelConfig { expand_factor: 1.5, step_fraction: 0.25, perp_offset: 2.0 };
             let mut placed_label_rects: Vec<Rect> = Vec::new();
 
-            let mut draw_line_labels = |line: &crate::model::Line, screen_pts: &Vec<Pos2>, color: Color32| {
+            // Collect segments for a branch tree (model coords in, screen-space segments out)
+            fn collect_branch_segments_rec(
+                to_screen: &dyn Fn(Pos2) -> Pos2,
+                sid_map: &HashMap<u32, Rect>,
+                port_counts: &HashMap<(u32, u8), u32>,
+                start: Pos2,
+                br: &crate::model::Branch,
+                out: &mut Vec<(Pos2, Pos2)>,
+            ) {
+                let mut pts: Vec<Pos2> = vec![start];
+                let mut cur = start;
+                for off in &br.points {
+                    cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
+                    pts.push(cur);
+                }
+                for seg in pts.windows(2) {
+                    out.push((to_screen(seg[0]), to_screen(seg[1])));
+                }
+                if let Some(dstb) = &br.dst {
+                    if let Some(dr) = sid_map.get(&dstb.sid) {
+                        let num_dst = port_counts.get(&(dstb.sid, if dstb.port_type == "out" { 1 } else { 0 })).copied();
+                        let end_pt = endpoint_pos_with_target(*dr, dstb, num_dst, Some(cur.y));
+                        out.push((to_screen(*pts.last().unwrap_or(&cur)), to_screen(end_pt)));
+                    }
+                }
+                for sub in &br.branches {
+                    collect_branch_segments_rec(to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, out);
+                }
+            }
+
+            let mut draw_line_labels = |line: &crate::model::Line, screen_pts: &Vec<Pos2>, main_anchor: Pos2, color: Color32| {
                 if screen_pts.len() < 2 { return; }
                 let label_text = if let Some(name) = line.name.as_ref().and_then(|s| if s.trim().is_empty() { None } else { Some(s) }) {
                     name.clone()
                 } else {
                     let src_s = line.src.as_ref().and_then(|e| sid_to_name.get(&e.sid)).cloned().unwrap_or_else(|| format!("SID{}", line.src.as_ref().map(|e| e.sid).unwrap_or(0)));
                     let dst_s = line.dst.as_ref().and_then(|e| sid_to_name.get(&e.sid)).cloned().unwrap_or_else(|| format!("SID{}", line.dst.as_ref().map(|e| e.sid).unwrap_or(0)));
-                    format!("{} → {}", src_s, dst_s)
+                    // Use ASCII arrow to avoid missing glyphs in some fonts
+                    format!("{} -> {}", src_s, dst_s)
                 };
 
-                let poly: Vec<V2> = screen_pts.iter().map(|p| V2{ x: p.x, y: p.y }).collect();
+                // Build list of all segments for this line, including branches, in screen space
+                let mut segments: Vec<(Pos2, Pos2)> = Vec::new();
+                for seg in screen_pts.windows(2) { segments.push((seg[0], seg[1])); }
+                for br in &line.branches {
+                    collect_branch_segments_rec(&to_screen, &sid_map, &port_counts, main_anchor, br, &mut segments);
+                }
+                // Choose the longest segment as preferred placement target
+                let mut best_len2 = -1.0f32;
+                let mut best_seg: Option<(Pos2, Pos2)> = None;
+                for (a, b) in &segments {
+                    let dx = b.x - a.x; let dy = b.y - a.y;
+                    let l2 = dx*dx + dy*dy;
+                    if l2 > best_len2 { best_len2 = l2; best_seg = Some((*a, *b)); }
+                }
+                let Some((sa, sb)) = best_seg else { return; };
+                let poly: Vec<V2> = vec![V2{ x: sa.x, y: sa.y }, V2{ x: sb.x, y: sb.y }];
                 let meas = EguiMeasurer { ctx, font: sig_font_id.clone(), color };
-                let already: Vec<RF> = placed_label_rects.iter().map(|r| RF::from_min_max(V2{ x: r.left(), y: r.top() }, V2{ x: r.right(), y: r.bottom() })).collect();
-                if let Some(result) = label_place::place_label(&poly, &label_text, &meas, cfg, &already) {
-                    // Recreate galley in chosen orientation; place_label encodes vertical as stacked characters
-                    let oriented_text = if result.horizontal {
-                        label_text.clone()
-                    } else {
-                        let mut s = String::new();
-                        for (i, ch) in label_text.chars().enumerate() {
-                            if i > 0 { s.push('\n'); }
-                            s.push(ch);
+                // Avoid collisions with already placed labels, with blocks, and with this line's own segments
+                let mut avoid_rects: Vec<RF> = placed_label_rects
+                    .iter()
+                    .map(|r| RF::from_min_max(V2{ x: r.left(), y: r.top() }, V2{ x: r.right(), y: r.bottom() }))
+                    .collect();
+                // Add all block rects as obstacles
+                for (_b, br, _clicked) in &block_views {
+                    avoid_rects.push(RF::from_min_max(V2{ x: br.left(), y: br.top() }, V2{ x: br.right(), y: br.bottom() }));
+                }
+                // Convert each segment to a very thin rectangle; algorithm expands by expand_factor internally,
+                // so keep this tiny to avoid visible detachment while still preventing overlap
+                let line_thickness = 0.8f32;
+                for (a, b) in &segments {
+                    let min_x = a.x.min(b.x) - line_thickness;
+                    let max_x = a.x.max(b.x) + line_thickness;
+                    let min_y = a.y.min(b.y) - line_thickness;
+                    let max_y = a.y.max(b.y) + line_thickness;
+                    avoid_rects.push(RF::from_min_max(V2{ x: min_x, y: min_y }, V2{ x: max_x, y: max_y }));
+                }
+                let already: Vec<RF> = avoid_rects;
+                // Try: normal text, then wrapped text, then progressively smaller font
+                let mut final_drawn = false;
+                let mut font_size = signal_font;
+                let mut tried_wrap = false;
+                let mut wrap_text = label_text.clone();
+                while !final_drawn {
+                    let font_id = egui::FontId::proportional(font_size);
+                    let meas = EguiMeasurer { ctx, font: font_id.clone(), color };
+                    let candidate_texts: Vec<String> = if !tried_wrap && label_text.contains(' ') {
+                        // Build a two-line wrap at closest space to center
+                        let chars: Vec<char> = label_text.chars().collect();
+                        let mid = chars.len() / 2;
+                        let bytes: Vec<(usize, char)> = label_text.char_indices().collect();
+                        let mut best_split = None;
+                        let mut best_dist = usize::MAX;
+                        for (i, ch) in bytes.iter() {
+                            if *ch == ' ' {
+                                let dist = (*i as isize - (label_text.len() as isize)/2).abs() as usize;
+                                if dist < best_dist { best_dist = dist; best_split = Some(*i); }
+                            }
                         }
-                        s
+                        if let Some(split) = best_split {
+                            wrap_text = format!("{}\n{}", &label_text[..split].trim_end(), &label_text[split+1..].trim_start());
+                            vec![label_text.clone(), wrap_text.clone()]
+                        } else {
+                            vec![label_text.clone()]
+                        }
+                    } else {
+                        vec![label_text.clone(), wrap_text.clone()]
                     };
-                    let galley = ctx.fonts(|f| f.layout_no_wrap(oriented_text, sig_font_id.clone(), color));
-                    let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
-                    painter.galley(draw_pos, galley, color);
-                    // Debug print for every label: text + position/size in screen space
-                    let w = result.rect.max.x - result.rect.min.x;
-                    let h = result.rect.max.y - result.rect.min.y;
-                    println!(
-                        "label: text='{}' orientation={} at ({:.2}, {:.2}) size {:.2}x{:.2}",
-                        label_text,
-                        if result.horizontal { "horizontal" } else { "vertical" },
-                        result.rect.min.x,
-                        result.rect.min.y,
-                        w,
-                        h
-                    );
-                    placed_label_rects.push(Rect::from_min_max(
-                        Pos2::new(result.rect.min.x, result.rect.min.y),
-                        Pos2::new(result.rect.max.x, result.rect.max.y),
-                    ));
+
+                    for candidate in candidate_texts.into_iter().filter(|s| !s.is_empty()) {
+                        if let Some(result) = label_place::place_label(&poly, &candidate, &meas, cfg, &already) {
+                            let oriented_text = if result.horizontal {
+                                candidate.clone()
+                            } else {
+                                let mut s = String::new();
+                                for (i, ch) in candidate.chars().enumerate() {
+                                    if i > 0 { s.push('\n'); }
+                                    s.push(ch);
+                                }
+                                s
+                            };
+                            let galley = ctx.fonts(|f| f.layout_no_wrap(oriented_text.clone(), font_id.clone(), color));
+                            let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
+                            painter.galley(draw_pos, galley, color);
+                            let w = result.rect.max.x - result.rect.min.x;
+                            let h = result.rect.max.y - result.rect.min.y;
+                            println!(
+                                "label: text='{}' orientation={} at ({:.2}, {:.2}) size {:.2}x{:.2}",
+                                candidate.replace('\n', "\\n"),
+                                if result.horizontal { "horizontal" } else { "vertical" },
+                                result.rect.min.x,
+                                result.rect.min.y,
+                                w,
+                                h
+                            );
+                            placed_label_rects.push(Rect::from_min_max(
+                                Pos2::new(result.rect.min.x, result.rect.min.y),
+                                Pos2::new(result.rect.max.x, result.rect.max.y),
+                            ));
+                            final_drawn = true;
+                            break;
+                        }
+                    }
+                    if final_drawn { break; }
+                    if !tried_wrap && label_text.contains(' ') {
+                        tried_wrap = true;
+                    } else {
+                        font_size *= 0.9; // shrink and retry
+                        if font_size < 9.0 { break; }
+                    }
                 }
             };
 
             // Draw labels for each line using the computed colors and screen polylines
             for (line, screen_pts, _main_anchor, _clicked, li) in &line_views {
                 let color = line_colors.get(*li).copied().unwrap_or(line_stroke_default.color);
-                draw_line_labels(line, screen_pts, color);
+                draw_line_labels(line, screen_pts, *_main_anchor, color);
             }
 
             for (b, r_screen, clicked) in &block_views {
