@@ -200,12 +200,12 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             block_views.push((b, r_screen, resp.clicked()));
         }
 
-        // Draw annotations (as plain text or HTML text) without background
+        // Draw annotations (convert HTML-rich content to plain text) without background
         for (a, r_model) in &annotations {
             let r_screen = Rect::from_min_max(to_screen(r_model.min), to_screen(r_model.max));
-            let resp = ui.allocate_rect(r_screen, Sense::hover());
-            let text = a.text.clone().unwrap_or_default();
-            // For HTML annotations, just render the HTML string literally (egui does not render HTML; user requested showing the HTML)
+            let _resp = ui.allocate_rect(r_screen, Sense::hover());
+            let raw = a.text.clone().unwrap_or_default();
+            let text = crate::egui_app::text::annotation_to_plain_text(&raw, a.interpreter.as_deref());
             let font_id = egui::FontId::proportional(12.0);
             let color = Color32::from_rgb(20, 20, 20);
             let galley = ui.painter().layout_no_wrap(text.clone(), font_id.clone(), color);
@@ -214,8 +214,10 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                 ui.painter().galley(r_screen.left_top(), galley, color);
             } else {
                 // wrapped
-                let mut child_ui = ui.child_ui(r_screen, egui::Layout::top_down(egui::Align::LEFT), None);
-                child_ui.label(egui::RichText::new(text).size(12.0).color(color));
+                // Use allocate_ui_at_rect to create a temporary child UI for wrapping
+                ui.allocate_ui_at_rect(r_screen, |child_ui| {
+                    child_ui.label(egui::RichText::new(text).size(12.0).color(color));
+                });
             }
             // no special tooltip; text is directly visible inside the rectangle
         }
