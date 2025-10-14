@@ -91,6 +91,54 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
             ..Default::default()
         },
     );
+    m.insert(
+        "MATLAB Function".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Phosphor(regular::CODE_BLOCK)),
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "SubSystem".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Phosphor(regular::CUBE)),
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "Inport".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Phosphor(regular::ARROW_FAT_LINES_RIGHT)),
+            show_input_port_labels: false,
+            show_output_port_labels: false,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "Outport".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Phosphor(regular::ARROW_FAT_LINES_RIGHT)),
+            show_input_port_labels: false,
+            show_output_port_labels: false,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "Concatenate".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Phosphor(regular::ROWS)),
+            show_input_port_labels: false,
+            show_output_port_labels: false,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "CFunction".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Phosphor(regular::FILE_CPP)),
+            ..Default::default()
+        },
+    );
 
     m
 }

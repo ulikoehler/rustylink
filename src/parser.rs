@@ -110,7 +110,7 @@ impl<S: ContentSource> SimulinkParser<S> {
     }
 
     fn parse_block(&mut self, node: Node, base_dir: &Utf8Path) -> Result<Block> {
-        let block_type = node.attribute("BlockType").unwrap_or("").to_string();
+        let mut block_type = node.attribute("BlockType").unwrap_or("").to_string();
         let name = node.attribute("Name").unwrap_or("").to_string();
     let sid = node.attribute("SID").and_then(|s| s.parse::<u32>().ok());
         let mut properties = BTreeMap::new();
@@ -204,7 +204,10 @@ impl<S: ContentSource> SimulinkParser<S> {
                 }
             }
         }
-
+        // If block_type is SubSystem and is_matlab_function is true, override block_type string
+        if block_type == "SubSystem" && is_matlab_function {
+            block_type = "MATLAB Function".to_string();
+        }
         Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem })
     }
 

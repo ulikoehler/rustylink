@@ -920,8 +920,12 @@ impl eframe::App for SubsystemApp {
                 } else {
                     let src_s = line.src.as_ref().and_then(|e| sid_to_name.get(&e.sid)).cloned().unwrap_or_else(|| format!("SID{}", line.src.as_ref().map(|e| e.sid).unwrap_or(0)));
                     let dst_s = line.dst.as_ref().and_then(|e| sid_to_name.get(&e.sid)).cloned().unwrap_or_else(|| format!("SID{}", line.dst.as_ref().map(|e| e.sid).unwrap_or(0)));
-                    // Use ASCII arrow to avoid missing glyphs in some fonts
-                    format!("{} -> {}", src_s, dst_s)
+                    // Use a Unicode triangle arrow for a nicer arrow glyph
+                    if dst_s == "SID0" {
+                        format!("{} ⏵", src_s)
+                    } else {
+                        format!("{} ⏵ {}", src_s, dst_s)
+                    }
                 };
 
                 // Build list of all segments for this line, including branches, in screen space
