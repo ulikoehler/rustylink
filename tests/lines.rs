@@ -71,18 +71,18 @@ fn parse_lines_and_branches_points_and_endpoints() {
 
     // Src endpoint parsed
     let src = freq.src.as_ref().expect("src present");
-    assert_eq!(src.sid, 5);
+  assert_eq!(src.sid, "5");
     assert_eq!(src.port_type, "out");
     assert_eq!(src.port_index, 1);
 
     // Branches parsed, with nested points and dst endpoint
     assert!(freq.branches.len() >= 2);
     // One branch should have Dst 11#in:2 and a single point [0, -105]
-    let b = freq
-        .branches
-        .iter()
-        .find(|b| b.dst.as_ref().map(|d| (d.sid, d.port_type.as_str(), d.port_index)) == Some((11, "in", 2)))
-        .expect("branch to 11#in:2");
+  let b = freq
+    .branches
+    .iter()
+    .find(|b| b.dst.as_ref().map(|d| (d.sid.as_str(), d.port_type.as_str(), d.port_index)) == Some(("11", "in", 2)))
+    .expect("branch to 11#in:2");
     assert_eq!(b.points.len(), 1);
     assert_eq!((b.points[0].x, b.points[0].y), (0, -105));
 }

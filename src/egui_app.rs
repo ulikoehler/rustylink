@@ -345,24 +345,24 @@ impl SubsystemApp {
     /// Create a new app showing the provided `root` system.
     pub fn new(root: System, initial_path: Vec<String>, charts: BTreeMap<u32, Chart>, chart_map: BTreeMap<String, u32>) -> Self {
         let all = collect_subsystems_paths(&root);
-        Self {
-            root,
-            path: initial_path,
-            all_subsystems: all,
-            search_query: String::new(),
-            search_matches: Vec::new(),
-            zoom: 1.0,
-            pan: Vec2::ZERO,
-            reset_view: true,
-            chart_view: None,
-            charts,
-            chart_map,
-            signal_view: None,
-            block_view: None,
-            signal_buttons: Vec::new(),
-            block_buttons: Vec::new(),
-            signal_menu_items: Vec::new(),
-            block_menu_items: Vec::new(),
+            Self {
+                root,
+                path: initial_path,
+                all_subsystems: all,
+                search_query: String::new(),
+                search_matches: Vec::new(),
+                zoom: 1.0,
+                pan: Vec2::ZERO,
+                reset_view: true,
+                chart_view: None,
+                charts,
+                chart_map,
+                signal_view: None,
+                block_view: None,
+                signal_buttons: Vec::new(),
+                block_buttons: Vec::new(),
+                signal_menu_items: Vec::new(),
+                block_menu_items: Vec::new(),
         }
     }
 
@@ -460,7 +460,7 @@ impl SubsystemApp {
             self.search_matches.clear();
             return;
         }
-        let ql = q.to_lowercase();
+            let ql = q.to_lowercase(); // Convert search query to lowercase
         let mut m: Vec<Vec<String>> = self
             .all_subsystems
             .iter()
@@ -637,15 +637,15 @@ impl eframe::App for SubsystemApp {
                 Pos2::new(x, y)
             };
 
-            let mut sid_map: HashMap<u32, Rect> = HashMap::new(); // world-space rects
-            let mut sid_screen_map: HashMap<u32, Rect> = HashMap::new(); // screen-space rects
+            let mut sid_map: HashMap<String, Rect> = HashMap::new(); // world-space rects
+            let mut sid_screen_map: HashMap<String, Rect> = HashMap::new(); // screen-space rects
             let mut block_views: Vec<(&Block, Rect, bool)> = Vec::new();
             for (b, r) in &blocks {
-                if let Some(sid) = b.sid {
-                    sid_map.insert(sid, *r);
+                if let Some(sid) = &b.sid {
+                    sid_map.insert(sid.clone(), *r);
                 }
                 let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
-                if let Some(sid) = b.sid { sid_screen_map.insert(sid, r_screen); }
+                if let Some(sid) = &b.sid { sid_screen_map.insert(sid.clone(), r_screen); }
                 // Draw block background with configured color if provided
                 let cfg = get_block_type_cfg(&b.block_type);
                 let bg = cfg.background.map(rgb_to_color32).unwrap_or_else(|| Color32::from_rgb(210, 210, 210));
@@ -671,12 +671,12 @@ impl eframe::App for SubsystemApp {
             }
 
             // Precompute a block SID -> block name map for labeling fallbacks and lookup
-            let mut sid_to_name: HashMap<u32, String> = HashMap::new();
-            let mut sid_to_block: HashMap<u32, &Block> = HashMap::new();
+            let mut sid_to_name: HashMap<String, String> = HashMap::new();
+            let mut sid_to_block: HashMap<String, &Block> = HashMap::new();
             for (b, _r) in &blocks {
-                if let Some(sid) = b.sid {
-                    sid_to_name.insert(sid, b.name.clone());
-                    sid_to_block.insert(sid, b);
+                if let Some(sid) = &b.sid {
+                    sid_to_name.insert(sid.clone(), b.name.clone());
+                    sid_to_block.insert(sid.clone(), b);
                 }
             }
 
@@ -684,16 +684,16 @@ impl eframe::App for SubsystemApp {
             // This helps us assign distinct rainbow colors to neighboring signals deterministically.
             let mut line_adjacency: Vec<Vec<usize>> = vec![Vec::new(); current_system.lines.len()];
             // Index endpoints per SID to compute adjacency quickly
-            let mut sid_to_lines: HashMap<u32, Vec<usize>> = HashMap::new();
+            let mut sid_to_lines: HashMap<String, Vec<usize>> = HashMap::new();
             for (i, l) in current_system.lines.iter().enumerate() {
-                if let Some(src) = &l.src { sid_to_lines.entry(src.sid).or_default().push(i); }
-                if let Some(dst) = &l.dst { sid_to_lines.entry(dst.sid).or_default().push(i); }
+                if let Some(src) = &l.src { sid_to_lines.entry(src.sid.clone()).or_default().push(i); }
+                if let Some(dst) = &l.dst { sid_to_lines.entry(dst.sid.clone()).or_default().push(i); }
                 // also include branch destinations
-                fn collect_branch_sids(br: &crate::model::Branch, out: &mut Vec<u32>) {
-                    if let Some(dst) = &br.dst { out.push(dst.sid); }
+                fn collect_branch_sids(br: &crate::model::Branch, out: &mut Vec<String>) {
+                    if let Some(dst) = &br.dst { out.push(dst.sid.clone()); }
                     for sub in &br.branches { collect_branch_sids(sub, out); }
                 }
-                let mut br_sids = Vec::new();
+                let mut br_sids: Vec<String> = Vec::new();
                 for br in &l.branches { collect_branch_sids(br, &mut br_sids); }
                 for sid in br_sids { sid_to_lines.entry(sid).or_default().push(i); }
             }
@@ -793,13 +793,13 @@ impl eframe::App for SubsystemApp {
                 .collect();
 
             let line_stroke_default = Stroke::new(2.0, Color32::LIGHT_GREEN);
-            let mut port_counts: HashMap<(u32, u8), u32> = HashMap::new();
-            fn reg_ep(ep: &EndpointRef, port_counts: &mut HashMap<(u32, u8), u32>) {
-                let key = (ep.sid, if ep.port_type == "out" { 1 } else { 0 });
+            let mut port_counts: HashMap<(String, u8), u32> = HashMap::new();
+            fn reg_ep(ep: &EndpointRef, port_counts: &mut HashMap<(String, u8), u32>) {
+                let key = (ep.sid.clone(), if ep.port_type == "out" { 1 } else { 0 });
                 let idx1 = if ep.port_index == 0 { 1 } else { ep.port_index };
                 port_counts.entry(key).and_modify(|v| *v = (*v).max(idx1)).or_insert(idx1);
             }
-            fn reg_branch(br: &crate::model::Branch, port_counts: &mut HashMap<(u32, u8), u32>) {
+            fn reg_branch(br: &crate::model::Branch, port_counts: &mut HashMap<(String, u8), u32>) {
                 if let Some(dst) = &br.dst {
                     reg_ep(dst, port_counts);
                 }
@@ -821,7 +821,7 @@ impl eframe::App for SubsystemApp {
 
             let mut line_views: Vec<(&crate::model::Line, Vec<Pos2>, Pos2, bool, usize, Vec<(Pos2, Pos2)>)> = Vec::new();
             // Requests to draw port labels inside blocks after blocks are drawn: (sid, port_index, is_input, y_screen)
-            let mut port_label_requests: Vec<(u32, u32, bool, f32)> = Vec::new();
+            let mut port_label_requests: Vec<(String, u32, bool, f32)> = Vec::new();
             for (li, line) in current_system.lines.iter().enumerate() {
                 let Some(src) = line.src.as_ref() else {
                     eprintln!(
@@ -839,7 +839,7 @@ impl eframe::App for SubsystemApp {
                     continue;
                 };
                 let mut offsets_pts: Vec<Pos2> = Vec::new();
-                let num_src = port_counts.get(&(src.sid, if src.port_type == "out" { 1 } else { 0 })).copied();
+                let num_src = port_counts.get(&(src.sid.clone(), if src.port_type == "out" { 1 } else { 0 })).copied();
                 let mut cur = endpoint_pos(*sr, src, num_src);
                 offsets_pts.push(cur);
                 for off in &line.points {
@@ -850,17 +850,17 @@ impl eframe::App for SubsystemApp {
                 // Record output port label aligned with the source anchor Y
                 if let Some(src_ep) = line.src.as_ref() {
                     let src_screen = *screen_pts.get(0).unwrap_or(&to_screen(cur));
-                    port_label_requests.push((src_ep.sid, src_ep.port_index, false, src_screen.y));
+                    port_label_requests.push((src_ep.sid.clone(), src_ep.port_index, false, src_screen.y));
                 }
                 if let Some(dst) = line.dst.as_ref() {
                     if let Some(dr) = sid_map.get(&dst.sid) {
-                        let num_dst = port_counts.get(&(dst.sid, if dst.port_type == "out" { 1 } else { 0 })).copied();
+                        let num_dst = port_counts.get(&(dst.sid.clone(), if dst.port_type == "out" { 1 } else { 0 })).copied();
                         let dst_pt = endpoint_pos_with_target(*dr, dst, num_dst, Some(cur.y));
                         let dst_screen = to_screen(dst_pt);
                         screen_pts.push(dst_screen);
                         // Record input port label aligned with the actual destination contact Y
                         if dst.port_type == "in" {
-                            port_label_requests.push((dst.sid, dst.port_index, true, dst_screen.y));
+                            port_label_requests.push((dst.sid.clone(), dst.port_index, true, dst_screen.y));
                         }
                     }
                 }
@@ -945,12 +945,12 @@ impl eframe::App for SubsystemApp {
             fn draw_branch_rec(
                 painter: &egui::Painter,
                 to_screen: &dyn Fn(Pos2) -> Pos2,
-                sid_map: &HashMap<u32, Rect>,
-                port_counts: &HashMap<(u32, u8), u32>,
+                sid_map: &HashMap<String, Rect>,
+                port_counts: &HashMap<(String, u8), u32>,
                 start: Pos2,
                 br: &crate::model::Branch,
                 color: Color32,
-                port_label_requests: &mut Vec<(u32, u32, bool, f32)>,
+                port_label_requests: &mut Vec<(String, u32, bool, f32)>,
             ) {
                 let mut pts: Vec<Pos2> = vec![start];
                 let mut cur = start;
@@ -963,7 +963,8 @@ impl eframe::App for SubsystemApp {
                 }
                 if let Some(dstb) = &br.dst {
                     if let Some(dr) = sid_map.get(&dstb.sid) {
-                        let num_dst = port_counts.get(&(dstb.sid, if dstb.port_type == "out" { 1 } else { 0 })).copied();
+                        let key = (dstb.sid.clone(), if dstb.port_type == "out" { 1 } else { 0 });
+                        let num_dst = port_counts.get(&key).copied();
                         let end_pt = endpoint_pos_with_target(*dr, dstb, num_dst, Some(cur.y));
                         let last = *pts.last().unwrap_or(&cur);
                         let a = to_screen(last);
@@ -972,7 +973,7 @@ impl eframe::App for SubsystemApp {
                         // Draw arrowhead only when contacting an input
                         if dstb.port_type == "in" { draw_arrowhead(painter, a, b, color); }
                         // Record input port label aligned with actual branch destination contact
-                        if dstb.port_type == "in" { port_label_requests.push((dstb.sid, dstb.port_index, true, b.y)); }
+                        if dstb.port_type == "in" { port_label_requests.push((dstb.sid.clone(), dstb.port_index, true, b.y)); }
                     } else {
                         eprintln!("Cannot draw branch to dst SID {}", dstb.sid);
                     }
@@ -1028,7 +1029,13 @@ impl eframe::App for SubsystemApp {
                             let title = line
                                 .name
                                 .clone()
-                                .unwrap_or_else(|| sid_to_name.get(&line.src.as_ref().map(|s| s.sid).unwrap_or(0)).cloned().unwrap_or("<signal>".into()));
+                                .unwrap_or_else(|| {
+                                    line.src
+                                        .as_ref()
+                                        .and_then(|s| sid_to_name.get(&s.sid))
+                                        .cloned()
+                                        .unwrap_or("<signal>".into())
+                                });
                             open_signal = Some(SignalDialog { title, line_idx: *li, open: true });
                         }
                     }
@@ -1057,8 +1064,8 @@ impl eframe::App for SubsystemApp {
             // Collect segments for a branch tree (model coords in, screen-space segments out)
             fn collect_branch_segments_rec(
                 to_screen: &dyn Fn(Pos2) -> Pos2,
-                sid_map: &HashMap<u32, Rect>,
-                port_counts: &HashMap<(u32, u8), u32>,
+                sid_map: &HashMap<String, Rect>,
+                port_counts: &HashMap<(String, u8), u32>,
                 start: Pos2,
                 br: &crate::model::Branch,
                 out: &mut Vec<(Pos2, Pos2)>,
@@ -1074,7 +1081,8 @@ impl eframe::App for SubsystemApp {
                 }
                 if let Some(dstb) = &br.dst {
                     if let Some(dr) = sid_map.get(&dstb.sid) {
-                        let num_dst = port_counts.get(&(dstb.sid, if dstb.port_type == "out" { 1 } else { 0 })).copied();
+                        let key = (dstb.sid.clone(), if dstb.port_type == "out" { 1 } else { 0 });
+                        let num_dst = port_counts.get(&key).copied();
                         let end_pt = endpoint_pos_with_target(*dr, dstb, num_dst, Some(cur.y));
                         out.push((to_screen(*pts.last().unwrap_or(&cur)), to_screen(end_pt)));
                     }
@@ -1176,15 +1184,14 @@ impl eframe::App for SubsystemApp {
                             let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
                             painter.galley(draw_pos, galley, color);
                             // keep rectangle as-is; debug sizes removed to avoid unused warnings
-                            /*println!(
-                                "label: text='{}' orientation={} at ({:.2}, {:.2}) size {:.2}x{:.2}",
-                                candidate.replace('\n', "\\n"),
-                                if result.horizontal { "horizontal" } else { "vertical" },
-                                result.rect.min.x,
-                                result.rect.min.y,
-                                w,
-                                h
-                            );*/
+                            // Debug: Uncomment to log placement details
+                            // println!(
+                            //     "label: text='{}' orientation={} at ({:.2}, {:.2})",
+                            //     candidate.replace('\n', "\\n"),
+                            //     if result.horizontal { "horizontal" } else { "vertical" },
+                            //     result.rect.min.x,
+                            //     result.rect.min.y,
+                            // );
                             let rect = Rect::from_min_max(
                                 Pos2::new(result.rect.min.x, result.rect.min.y),
                                 Pos2::new(result.rect.max.x, result.rect.max.y),
@@ -1272,8 +1279,7 @@ impl eframe::App for SubsystemApp {
                     // Open MATLAB Function dialog for either block_type == "MATLAB Function" or SubSystem with is_matlab_function
                     if b.block_type == "MATLAB Function" || (b.block_type == "SubSystem" && b.is_matlab_function) {
                         // Prefer SID-based mapping if chart_map keys are SIDs
-                        let sid_key = b.sid.map(|s| s.to_string());
-                        let by_sid = sid_key.as_ref().and_then(|k| self.chart_map.get(k)).cloned();
+                        let by_sid = b.sid.as_ref().and_then(|k| self.chart_map.get(k)).cloned();
                         // Fallback: name-based mapping from chart name in chart_*.xml
                         let mut instance_name = if path_snapshot.is_empty() {
                             b.name.clone()
@@ -1326,10 +1332,10 @@ impl eframe::App for SubsystemApp {
 
             // Draw port labels after blocks so they are visible on top
             // TODO(port labels): Consider caching measurements per unique (text, font)
-            let mut seen_port_labels: HashSet<(u32, u32, bool, i32)> = HashSet::new(); // (sid, index, is_input, y_center_rounded)
+            let mut seen_port_labels: HashSet<(String, u32, bool, i32)> = HashSet::new(); // (sid, index, is_input, y_center_rounded)
             let font_id = egui::FontId::proportional(12.0);
             for (sid, index, is_input, y) in port_label_requests {
-                let key = (sid, index, is_input, y.round() as i32);
+                let key = (sid.clone(), index, is_input, y.round() as i32);
                 if !seen_port_labels.insert(key) { continue; }
                 let Some(brect) = sid_screen_map.get(&sid).copied() else { continue; };
                 let Some(block) = sid_to_block.get(&sid) else { continue; };
@@ -1452,13 +1458,13 @@ impl eframe::App for SubsystemApp {
                                     let bname = sys
                                         .blocks
                                         .iter()
-                                        .find(|b| b.sid == Some(src.sid))
+                                        .find(|b| b.sid.as_ref() == Some(&src.sid))
                                         .map(|b| b.name.clone())
                                         .unwrap_or_else(|| format!("SID{}", src.sid));
                                     let pname = sys
                                         .blocks
                                         .iter()
-                                        .find(|b| b.sid == Some(src.sid))
+                                        .find(|b| b.sid.as_ref() == Some(&src.sid))
                                         .and_then(|b| b.ports.iter().find(|p| p.port_type == src.port_type && p.index.unwrap_or(0) == src.port_index))
                                         .and_then(|p| p.properties.get("Name").cloned().or_else(|| p.properties.get("name").cloned()))
                                         .unwrap_or_else(|| format!("{}{}", if src.port_type=="in"{"In"}else{"Out"}, src.port_index));
@@ -1473,13 +1479,13 @@ impl eframe::App for SubsystemApp {
                                     let bname = sys
                                         .blocks
                                         .iter()
-                                        .find(|b| b.sid == Some(d.sid))
+                                        .find(|b| b.sid.as_ref() == Some(&d.sid))
                                         .map(|b| b.name.clone())
                                         .unwrap_or_else(|| format!("SID{}", d.sid));
                                     let pname = sys
                                         .blocks
                                         .iter()
-                                        .find(|b| b.sid == Some(d.sid))
+                                        .find(|b| b.sid.as_ref() == Some(&d.sid))
                                         .and_then(|b| b.ports.iter().find(|p| p.port_type == d.port_type && p.index.unwrap_or(0) == d.port_index))
                                         .and_then(|p| p.properties.get("Name").cloned().or_else(|| p.properties.get("name").cloned()))
                                         .unwrap_or_else(|| format!("{}{}", if d.port_type=="in"{"In"}else{"Out"}, d.port_index));
@@ -1529,7 +1535,7 @@ impl eframe::App for SubsystemApp {
                     ui.horizontal_wrapped(|ui| {
                         ui.label(format!("Name: {}", block.name));
                         ui.label(format!("Type: {}", block.block_type));
-                        if let Some(sid) = block.sid { ui.label(format!("SID: {}", sid)); }
+                        if let Some(sid) = block.sid.as_ref() { ui.label(format!("SID: {}", sid)); }
                         if let Some(z) = &block.zorder { ui.label(format!("Z: {}", z)); }
                         if block.commented { ui.label("commented"); }
                     });
@@ -1540,6 +1546,21 @@ impl eframe::App for SubsystemApp {
                         if block.properties.is_empty() { ui.label("<none>"); }
                         for (k, v) in &block.properties { ui.horizontal(|ui| { ui.label(RichText::new(k).strong()); ui.label(v); }); }
                     });
+
+                    // Specialized view for CFunction code snippets
+                    if block.block_type == "CFunction" {
+                        if let Some(cfg) = &block.c_function {
+                            ui.separator();
+                            egui::CollapsingHeader::new("C/C++ Code").default_open(true).show(ui, |ui| {
+                                if let Some(s) = &cfg.start_code { ui.label(RichText::new("StartCode").strong()); ui.add(egui::TextEdit::multiline(&mut s.clone()).desired_width(f32::INFINITY)); }
+                                if let Some(s) = &cfg.output_code { ui.label(RichText::new("OutputCode").strong()); ui.add(egui::TextEdit::multiline(&mut s.clone()).desired_width(f32::INFINITY)); }
+                                if let Some(s) = &cfg.terminate_code { ui.label(RichText::new("TerminateCode").strong()); ui.add(egui::TextEdit::multiline(&mut s.clone()).desired_width(f32::INFINITY)); }
+                                if let Some(s) = &cfg.codegen_start_code { ui.label(RichText::new("CodegenStartCode").strong()); ui.add(egui::TextEdit::multiline(&mut s.clone()).desired_width(f32::INFINITY)); }
+                                if let Some(s) = &cfg.codegen_output_code { ui.label(RichText::new("CodegenOutputCode").strong()); ui.add(egui::TextEdit::multiline(&mut s.clone()).desired_width(f32::INFINITY)); }
+                                if let Some(s) = &cfg.codegen_terminate_code { ui.label(RichText::new("CodegenTerminateCode").strong()); ui.add(egui::TextEdit::multiline(&mut s.clone()).desired_width(f32::INFINITY)); }
+                            });
+                        }
+                    }
 
                     // Ports grouped by type
                     egui::CollapsingHeader::new("Ports").default_open(true).show(ui, |ui| {
@@ -1597,13 +1618,14 @@ mod tests {
         let sub_block = Block {
             block_type: "SubSystem".into(),
             name: "Child".into(),
-            sid: Some(2),
+            sid: Some("2".to_string()),
             position: Some("[100, 100, 160, 140]".into()),
             zorder: None,
             commented: false,
             is_matlab_function: false,
             properties: Default::default(),
             ports: vec![],
+            c_function: None,
             subsystem: Some(Box::new(sub_child)),
         };
         let root = System { properties: Default::default(), blocks: vec![sub_block], lines: vec![], chart: None };

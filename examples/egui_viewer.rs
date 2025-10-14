@@ -10,7 +10,7 @@ use camino::Utf8PathBuf;
 #[cfg(feature = "egui")]
 use clap::Parser;
 #[cfg(feature = "egui")]
-use rustylink::{egui_app, model::System, parser::{FsSource, SimulinkParser, ZipSource}};
+use rustylink::{egui_app, parser::{FsSource, SimulinkParser, ZipSource}};
 #[cfg(feature = "egui")]
 use eframe::egui;
 

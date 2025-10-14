@@ -89,8 +89,8 @@ pub struct SimulinkParser<S: ContentSource> {
     charts_by_id: BTreeMap<u32, Chart>,
     // Mapping from Simulink block path/name to chart id (from machine.xml if available)
     system_to_chart_map: BTreeMap<String, u32>,
-    // Mapping from block SID to chart id (resolved directly from System Ref -> chart_*.xml when possible)
-    sid_to_chart_id: BTreeMap<u32, u32>,
+    // Mapping from block SID (may be non-numeric like "47:2") to chart id
+    sid_to_chart_id: BTreeMap<String, u32>,
 }
 
 impl<S: ContentSource> SimulinkParser<S> {
@@ -146,7 +146,7 @@ impl<S: ContentSource> SimulinkParser<S> {
     fn parse_block(&mut self, node: Node, base_dir: &Utf8Path) -> Result<Block> {
         let mut block_type = node.attribute("BlockType").unwrap_or("").to_string();
         let name = node.attribute("Name").unwrap_or("").to_string();
-    let sid = node.attribute("SID").and_then(|s| s.parse::<u32>().ok());
+        let sid = node.attribute("SID").map(|s| s.to_string());
         let mut properties = BTreeMap::new();
         let mut ports = Vec::new();
         let mut position = None;
@@ -154,6 +154,12 @@ impl<S: ContentSource> SimulinkParser<S> {
         let mut subsystem: Option<Box<System>> = None;
         let mut commented = false;
         let mut is_matlab_function = false;
+        let mut c_output_code: Option<String> = None;
+        let mut c_start_code: Option<String> = None;
+        let mut c_term_code: Option<String> = None;
+        let mut c_codegen_output: Option<String> = None;
+        let mut c_codegen_start: Option<String> = None;
+        let mut c_codegen_term: Option<String> = None;
 
         for child in node.children().filter(|c| c.is_element()) {
             match child.tag_name().name() {
@@ -174,6 +180,13 @@ impl<S: ContentSource> SimulinkParser<S> {
                                 if value == "MATLAB Function" { is_matlab_function = true; }
                                 properties.insert(name_attr.to_string(), value);
                             }
+                            // Capture CFunction code snippets
+                            "OutputCode" => { c_output_code = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
+                            "StartCode" => { c_start_code = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
+                            "TerminateCode" => { c_term_code = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
+                            "CodegenOutputCode" => { c_codegen_output = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
+                            "CodegenStartCode" => { c_codegen_start = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
+                            "CodegenTerminateCode" => { c_codegen_term = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
                             _ => {
                                 properties.insert(name_attr.to_string(), value);
                             }
@@ -235,7 +248,17 @@ impl<S: ContentSource> SimulinkParser<S> {
         if block_type == "SubSystem" && is_matlab_function {
             block_type = "MATLAB Function".to_string();
         }
-        Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem })
+        let c_function = if block_type == "CFunction" {
+            Some(crate::model::CFunctionCode {
+                output_code: c_output_code,
+                start_code: c_start_code,
+                terminate_code: c_term_code,
+                codegen_output_code: c_codegen_output,
+                codegen_start_code: c_codegen_start,
+                codegen_terminate_code: c_codegen_term,
+            })
+        } else { None };
+        Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem, c_function })
     }
 
     fn parse_line(&self, node: Node) -> Result<Line> {
@@ -502,7 +525,7 @@ impl<S: ContentSource> SimulinkParser<S> {
     pub fn get_charts(&self) -> &BTreeMap<u32, Chart> { &self.charts_by_id }
     pub fn get_system_to_chart_map(&self) -> &BTreeMap<String, u32> { &self.system_to_chart_map }
     pub fn get_chart(&self, id: u32) -> Option<&Chart> { self.charts_by_id.get(&id) }
-    pub fn get_sid_to_chart_map(&self) -> &BTreeMap<u32, u32> { &self.sid_to_chart_id }
+    pub fn get_sid_to_chart_map(&self) -> &BTreeMap<String, u32> { &self.sid_to_chart_id }
 }
 
 fn parse_points(s: &str) -> Vec<Point> {
@@ -533,7 +556,7 @@ fn parse_endpoint(s: &str) -> Result<EndpointRef> {
     let (sid_str, rest) = s
         .split_once('#')
         .ok_or_else(|| anyhow!("Invalid endpoint format: {}", s))?;
-    let sid: u32 = sid_str.trim().parse()?;
+    let sid: String = sid_str.trim().to_string();
     // rest like "out:1" or "in:2"
     let (ptype, pidx_str) = rest
         .split_once(':')

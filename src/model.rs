@@ -20,7 +20,7 @@ pub struct Block {
     #[serde(rename = "type")]
     pub block_type: String,
     pub name: String,
-    pub sid: Option<u32>,
+    pub sid: Option<String>,
     pub position: Option<String>,
     pub zorder: Option<String>,
     pub commented: bool,
@@ -30,6 +30,9 @@ pub struct Block {
     pub properties: BTreeMap<String, String>,
     pub ports: Vec<Port>,
     pub subsystem: Option<Box<System>>, // resolved nested system if present
+    /// Present when this is a CFunction block
+    #[serde(default)]
+    pub c_function: Option<CFunctionCode>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,7 +77,7 @@ pub struct Point {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EndpointRef {
-    pub sid: u32,
+    pub sid: String,
     pub port_type: String, // "in" | "out"
     pub port_index: u32,
 }
@@ -106,6 +109,17 @@ pub struct ChartPort {
     /// Optional display string such as "Inherit: Same as Simulink"
     pub data_type: Option<String>,
     pub unit: Option<String>,
+}
+
+/// Structured data for a CFunction block's code snippets
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CFunctionCode {
+    pub output_code: Option<String>,
+    pub start_code: Option<String>,
+    pub terminate_code: Option<String>,
+    pub codegen_output_code: Option<String>,
+    pub codegen_start_code: Option<String>,
+    pub codegen_terminate_code: Option<String>,
 }
 
 impl System {
