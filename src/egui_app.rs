@@ -1010,7 +1010,7 @@ impl eframe::App for SubsystemApp {
                             painter.galley(draw_pos, galley, color);
                             let w = result.rect.max.x - result.rect.min.x;
                             let h = result.rect.max.y - result.rect.min.y;
-                            println!(
+                            /*println!(
                                 "label: text='{}' orientation={} at ({:.2}, {:.2}) size {:.2}x{:.2}",
                                 candidate.replace('\n', "\\n"),
                                 if result.horizontal { "horizontal" } else { "vertical" },
@@ -1018,7 +1018,7 @@ impl eframe::App for SubsystemApp {
                                 result.rect.min.y,
                                 w,
                                 h
-                            );
+                            );*/
                             let rect = Rect::from_min_max(
                                 Pos2::new(result.rect.min.x, result.rect.min.y),
                                 Pos2::new(result.rect.max.x, result.rect.max.y),
@@ -1082,38 +1082,41 @@ impl eframe::App for SubsystemApp {
                     y += line_height;
                 }
                 if *clicked {
-                    if b.block_type == "SubSystem" {
-                        if b.is_matlab_function {
-                            // Prefer SID-based mapping if chart_map keys are SIDs
-                            let sid_key = b.sid.map(|s| s.to_string());
-                            let by_sid = sid_key.as_ref().and_then(|k| self.chart_map.get(k)).cloned();
-                            // Fallback: name-based mapping from machine.xml path
-                            let mut instance_name = if path_snapshot.is_empty() {
-                                b.name.clone()
+                    // Open MATLAB Function dialog for either block_type == "MATLAB Function" or SubSystem with is_matlab_function
+                    if b.block_type == "MATLAB Function" || (b.block_type == "SubSystem" && b.is_matlab_function) {
+                        // Prefer SID-based mapping if chart_map keys are SIDs
+                        let sid_key = b.sid.map(|s| s.to_string());
+                        let by_sid = sid_key.as_ref().and_then(|k| self.chart_map.get(k)).cloned();
+                        // Fallback: name-based mapping from chart name in chart_*.xml
+                        let mut instance_name = if path_snapshot.is_empty() {
+                            b.name.clone()
+                        } else {
+                            format!("{}/{}", path_snapshot.join("/"), b.name)
+                        };
+                        instance_name = instance_name.trim_matches('/').to_string();
+                        let cid_opt = by_sid.or_else(|| self.chart_map.get(&instance_name).cloned());
+                        if let Some(cid) = cid_opt {
+                            if let Some(chart) = self.charts.get(&cid) {
+                                let title = chart
+                                    .name
+                                    .clone()
+                                    .or(chart.eml_name.clone())
+                                    .unwrap_or_else(|| b.name.clone());
+                                let script = chart.script.clone().unwrap_or_default();
+                                open_chart = Some(ChartView { title, script, open: true });
                             } else {
-                                format!("{}/{}", path_snapshot.join("/"), b.name)
-                            };
-                            instance_name = instance_name.trim_matches('/').to_string();
-                            let cid_opt = by_sid.or_else(|| self.chart_map.get(&instance_name).cloned());
-                            if let Some(cid) = cid_opt {
-                                if let Some(chart) = self.charts.get(&cid) {
-                                    let title = chart
-                                        .name
-                                        .clone()
-                                        .or(chart.eml_name.clone())
-                                        .unwrap_or_else(|| b.name.clone());
-                                    let script = chart.script.clone().unwrap_or_default();
-                                    open_chart = Some(ChartView { title, script, open: true });
-                                } else {
-                                    println!("MATLAB Function clicked but chart id {} not found", cid);
-                                }
-                            } else {
-                                println!(
-                                    "MATLAB Function clicked but instance not found in mapping: {}",
-                                    instance_name
-                                );
+                                println!("MATLAB Function clicked but chart id {} not found", cid);
                             }
-                        } else if let Some(_sub) = &b.subsystem {
+                        } else {
+                            let available_instances: Vec<&String> = self.chart_map.keys().collect();
+                            println!(
+                                "MATLAB Function clicked but instance not found in mapping: {}. Available instances: {:?}",
+                                instance_name,
+                                available_instances
+                            );
+                        }
+                    } else if b.block_type == "SubSystem" {
+                        if let Some(_sub) = &b.subsystem {
                             let mut np = path_snapshot.clone();
                             np.push(b.name.clone());
                             navigate_to_from_block = Some(np);

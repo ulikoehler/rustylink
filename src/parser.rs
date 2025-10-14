@@ -7,15 +7,33 @@ use std::io::Read;
 
 pub trait ContentSource {
     fn read_to_string(&mut self, path: &Utf8Path) -> Result<String>;
+    /// List files in a directory path (logical path for the source), returning full paths
+    fn list_dir(&mut self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>>;
 }
 
 pub struct FsSource;
+
+impl FsSource {
+    fn list_dir_impl(&mut self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
+        let mut files = Vec::new();
+        for entry in std::fs::read_dir(path.as_std_path()).with_context(|| format!("Read dir {}", path))? {
+            let entry = entry?;
+            if entry.file_type()?.is_file() {
+                let p = camino::Utf8PathBuf::from_path_buf(entry.path())
+                    .map_err(|_| anyhow::anyhow!("Non-UTF8 path in {}", path))?;
+                files.push(p);
+            }
+        }
+        Ok(files)
+    }
+}
 
 impl ContentSource for FsSource {
     fn read_to_string(&mut self, path: &Utf8Path) -> Result<String> {
         Ok(std::fs::read_to_string(path.as_str())
             .with_context(|| format!("Failed to read {}", path))?)
     }
+    fn list_dir(&mut self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>> { self.list_dir_impl(path) }
 }
 
 pub struct ZipSource<R: Read + std::io::Seek> {
@@ -44,6 +62,23 @@ impl<R: Read + std::io::Seek> ContentSource for ZipSource<R> {
         f.read_to_string(&mut s)
             .with_context(|| format!("Failed to read {} from zip", p))?;
         Ok(s)
+    }
+
+    fn list_dir(&mut self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
+        let mut files = Vec::new();
+        let mut prefix = path.as_str().trim_start_matches("./").trim_start_matches('/').to_string();
+        if !prefix.is_empty() && !prefix.ends_with('/') { prefix.push('/'); }
+        for i in 0..self.zip.len() {
+            let name = self.zip.by_index(i)?.name().to_string();
+            if name.starts_with(&prefix) {
+                // Only include direct children files (no trailing slash and no deeper directories)
+                if !name.ends_with('/') {
+                    // Accept any depth under prefix; the caller can filter by filename
+                    files.push(Utf8PathBuf::from(name));
+                }
+            }
+        }
+        Ok(files)
     }
 }
 
@@ -83,10 +118,9 @@ impl<S: ContentSource> SimulinkParser<S> {
     }
 
     fn parse_system(&mut self, node: Node, base_dir: &Utf8Path) -> Result<System> {
-    let mut properties = BTreeMap::new();
+        let mut properties = BTreeMap::new();
         let mut blocks = Vec::new();
         let mut lines = Vec::new();
-
         for child in node.children().filter(|c| c.is_element()) {
             match child.tag_name().name() {
                 "P" => {
@@ -180,13 +214,6 @@ impl<S: ContentSource> SimulinkParser<S> {
                                     "[rustylink] Warning: failed to parse referenced system '{}': {}",
                                     resolved, err
                                 );*/
-                            }
-                        }
-                        // Additionally, try to resolve chart_*.xml directly from this reference and map SID -> chart id
-                        if let Some(sid_val) = sid {
-                            let chart_path = resolve_chart_reference_from_system_ref(reference, base_dir);
-                            if let Ok(chart) = SimulinkParser::parse_chart_file(self, &chart_path) {
-                                if let Some(cid) = chart.id { self.charts_by_id.entry(cid).or_insert(chart.clone()); self.sid_to_chart_id.entry(sid_val).or_insert(cid); }
                             }
                         }
                     } else {
@@ -293,14 +320,7 @@ fn resolve_system_reference(reference: &str, base_dir: &Utf8Path) -> Utf8PathBuf
     path
 }
 
-fn resolve_chart_reference_from_system_ref(reference: &str, base_dir: &Utf8Path) -> Utf8PathBuf {
-    // reference like "system_18" or "system_18.xml" -> build simulink/stateflow/chart_18.xml
-    let name = reference.trim_end_matches(".xml");
-    let id_part = name.strip_prefix("system_").unwrap_or(name);
-    let filename = format!("chart_{}.xml", id_part);
-    let sim_root = base_dir.parent().unwrap_or(base_dir);
-    sim_root.join("stateflow").join(filename)
-}
+// Removed: resolving charts from system refs; charts are discovered via directory listing only.
 
 impl<S: ContentSource> SimulinkParser<S> {
     /// Parse a Stateflow chart XML file and extract script and port metadata.
@@ -443,7 +463,7 @@ impl<S: ContentSource> SimulinkParser<S> {
 }
 
 impl<S: ContentSource> SimulinkParser<S> {
-    /// Attempt to parse stateflow/machine.xml and all referenced charts based on the location of a given system xml path.
+    /// Attempt to pre-load charts based on the location of a given system xml path.
     /// This function is idempotent and safe to call multiple times.
     fn try_parse_stateflow_for(&mut self, system_xml_path: &Utf8Path) {
         // Determine sim root: path like simulink/systems/system_XX.xml -> root is parent of "systems" which itself is under "simulink"
@@ -459,42 +479,21 @@ impl<S: ContentSource> SimulinkParser<S> {
             }
         }
         let sim_root: Utf8PathBuf = found_root.unwrap_or_else(|| self.root_dir.clone());
-        let machine_path = sim_root.join("stateflow").join("machine.xml");
-        // Try to read; if fails, just return silently
-        let text = match self.source.read_to_string(&machine_path) {
-            Ok(t) => t,
-            Err(_) => return,
-        };
-        if let Ok(doc) = Document::parse(&text) {
-            // Build list of chart files from <machine>/<Children>/<chart Ref="chart_XX"/>
-            let mut chart_refs: Vec<String> = Vec::new();
-            if let Some(machine) = doc.descendants().find(|n| n.is_element() && n.has_tag_name("machine")) {
-                if let Some(children) = machine.children().find(|n| n.is_element() && n.has_tag_name("Children")) {
-                    for ch in children.children().filter(|c| c.is_element() && c.has_tag_name("chart")) {
-                        if let Some(r) = ch.attribute("Ref") { chart_refs.push(r.to_string()); }
+        // Discover and parse all chart_*.xml files via ContentSource directory listing
+        let stateflow_dir = sim_root.join("stateflow");
+        if let Ok(paths) = self.source.list_dir(&stateflow_dir) {
+            for p in paths {
+                if let Some(fname) = p.file_name() {
+                    if fname.starts_with("chart_") && fname.ends_with(".xml") {
+                        if let Ok(chart) = SimulinkParser::parse_chart_file(self, &p) {
+                            if let Some(id) = chart.id {
+                                let ch = self.charts_by_id.entry(id).or_insert(chart);
+                                if let Some(nm) = ch.name.clone() {
+                                    self.system_to_chart_map.entry(nm).or_insert(id);
+                                }
+                            }
+                        }
                     }
-                }
-            }
-            // Parse <instance> mapping name -> chart id
-            for inst in doc.descendants().filter(|n| n.is_element() && n.has_tag_name("instance")) {
-                let mut name: Option<String> = None;
-                let mut chart_id: Option<u32> = None;
-                for p in inst.children().filter(|c| c.is_element() && c.has_tag_name("P")) {
-                    match p.attribute("Name") {
-                        Some("name") => name = p.text().map(|s| s.to_string()),
-                        Some("chart") => chart_id = p.text().and_then(|s| s.parse::<u32>().ok()),
-                        _ => {}
-                    }
-                }
-                if let (Some(n), Some(cid)) = (name, chart_id) {
-                    self.system_to_chart_map.entry(n).or_insert(cid);
-                }
-            }
-            // Load chart files
-            for r in chart_refs {
-                let chart_path = sim_root.join("stateflow").join(format!("{}.xml", r.trim_end_matches(".xml")));
-                if let Ok(chart) = SimulinkParser::parse_chart_file(self, &chart_path) {
-                    if let Some(id) = chart.id { self.charts_by_id.entry(id).or_insert(chart); }
                 }
             }
         }

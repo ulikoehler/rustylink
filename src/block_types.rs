@@ -88,6 +88,8 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
         "ManualSwitch".to_string(),
         BlockTypeConfig {
             icon: Some(IconSpec::Phosphor(regular::TOGGLE_LEFT)),
+            show_input_port_labels: false,
+            show_output_port_labels: false,
             ..Default::default()
         },
     );
