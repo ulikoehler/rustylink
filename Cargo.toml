@@ -16,6 +16,7 @@ camino = "1.1"
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 clap = { version = "4.5", features = ["derive"] }
 walkdir = "2.3"
+rayon = "1.11"
 
 [features]
 # Optional GUI visualization using egui/eframe
