@@ -8,6 +8,7 @@
 pub mod color;
 pub mod model;
 pub mod parser;
+pub mod block;
 pub mod label_place;
 
 // Optional mask evaluation feature
