@@ -66,6 +66,9 @@ pub struct Block {
     /// When mask feature enabled: evaluated display text from mask's Display script (e.g., disp(mytab{control}))
     #[serde(default)]
     pub mask_display_text: Option<String>,
+    /// Optional current setting for blocks like ManualSwitch
+    #[serde(default)]
+    pub current_setting: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
