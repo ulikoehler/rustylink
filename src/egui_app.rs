@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, HashMap};
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use egui::text::LayoutJob;
 use egui_phosphor::variants::regular;
+use crate::label_place::{self, Config as LabelConfig, Measurer as LabelMeasurer, Vec2f as V2, RectF as RF};
 
 use crate::model::{Block, Chart, EndpointRef, System};
 
@@ -778,23 +779,26 @@ impl eframe::App for SubsystemApp {
                 }
             }
 
-            // Place and render signal labels with collision avoidance
+            // Place and render signal labels with collision avoidance via label_place module
             // Font sizes: blocks use ~14.0; signals use ~half
             let block_label_font = 14.0f32;
-            let signal_font = (block_label_font * 0.5).round().max(7.0); // approx half, min 7
+            let signal_font = (block_label_font * 0.5).round().max(7.0);
             let sig_font_id = egui::FontId::proportional(signal_font);
-            let mut placed_label_rects: Vec<Rect> = Vec::new();
-            // Helper to expand rectangle by a factor around its center
-            fn expanded_rect(r: Rect, factor: f32) -> Rect {
-                let c = r.center();
-                let hw = r.width() * 0.5 * factor;
-                let hh = r.height() * 0.5 * factor;
-                Rect::from_center_size(c, Vec2::new(hw * 2.0, hh * 2.0))
+
+            struct EguiMeasurer<'a> { ctx: &'a egui::Context, font: egui::FontId, color: Color32 }
+            impl<'a> LabelMeasurer for EguiMeasurer<'a> {
+                fn measure(&self, text: &str) -> (f32, f32) {
+                    let galley = self.ctx.fonts(|f| f.layout_no_wrap(text.to_string(), self.font.clone(), self.color));
+                    let s = galley.size();
+                    (s.x, s.y)
+                }
             }
-            // Render label for a given line polyline and chosen color
+
+            let cfg = LabelConfig::default();
+            let mut placed_label_rects: Vec<Rect> = Vec::new();
+
             let mut draw_line_labels = |line: &crate::model::Line, screen_pts: &Vec<Pos2>, color: Color32| {
                 if screen_pts.len() < 2 { return; }
-                // Determine label text
                 let label_text = if let Some(name) = line.name.as_ref().and_then(|s| if s.trim().is_empty() { None } else { Some(s) }) {
                     name.clone()
                 } else {
@@ -802,126 +806,20 @@ impl eframe::App for SubsystemApp {
                     let dst_s = line.dst.as_ref().and_then(|e| sid_to_name.get(&e.sid)).cloned().unwrap_or_else(|| format!("SID{}", line.dst.as_ref().map(|e| e.sid).unwrap_or(0)));
                     format!("{} → {}", src_s, dst_s)
                 };
-                // Build list of candidate segments (main polyline only), sorted by length desc
-                let mut segments: Vec<(Pos2, Pos2, f32)> = Vec::new();
-                for seg in screen_pts.windows(2) {
-                    let dx = seg[1].x - seg[0].x;
-                    let dy = seg[1].y - seg[0].y;
-                    let len = (dx*dx + dy*dy).sqrt();
-                    segments.push((seg[0], seg[1], len));
-                }
-                segments.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
 
-                let mut final_rect: Option<Rect> = None;
-                let mut final_galley = None;
-                let mut best_score_overall = f32::INFINITY;
-
-                for (a, b, len) in segments {
-                    let horizontal = (a.y - b.y).abs() <= (a.x - b.x).abs();
-                    // Prepare text orientation: horizontal keeps as-is, vertical stacks characters with newlines
-                    let oriented_text = if horizontal {
-                        label_text.clone()
-                    } else {
-                        label_text
-                            .chars()
-                            .map(|c| c.to_string())
-                            .collect::<Vec<String>>()
-                            .join("\n")
-                    };
-                    let galley = ctx.fonts(|f| f.layout_no_wrap(oriented_text.clone(), sig_font_id.clone(), color));
-                    let size = galley.size();
-                    let seg_min = Pos2::new(a.x.min(b.x), a.y.min(b.y));
-                    let seg_max = Pos2::new(a.x.max(b.x), a.y.max(b.y));
-                    // Base center at middle of the segment
-                    let mut center = Pos2::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
-                    let mut perp_offset = if horizontal { Vec2::new(0.0, -6.0) } else { Vec2::new(8.0, 0.0) };
-                    // Allowed range along segment so that label stays fully within segment extents
-                    let (min_t, max_t, base_t, step_t, spill_penalty) = if horizontal {
-                        let half_w = 0.5 * size.x;
-                        let min_x = seg_min.x + half_w;
-                        let max_x = seg_max.x - half_w;
-                        let base = center.x.clamp(min_x, max_x);
-                        let spill = (size.x - (seg_max.x - seg_min.x)).max(0.0);
-                        (min_x, max_x, base, size.x.max(40.0) * 0.25, spill)
-                    } else {
-                        let half_h = 0.5 * size.y;
-                        let min_y = seg_min.y + half_h;
-                        let max_y = seg_max.y - half_h;
-                        let base = center.y.clamp(min_y, max_y);
-                        let spill = (size.y - (seg_max.y - seg_min.y)).max(0.0);
-                        (min_y, max_y, base, size.y.max(20.0) * 0.5, spill)
-                    };
-
-                    // Candidate search: slide along this segment and expand perpendicular offset deterministically
-                    let mut chosen_rect: Option<Rect> = None;
-                    let mut best_score = f32::INFINITY;
-                    let max_perp_multiples = 5;
-                    for k in 0..=max_perp_multiples {
-                        let cur_perp = Vec2::new(perp_offset.x * (1 + k as i32) as f32, perp_offset.y * (1 + k as i32) as f32);
-                        let max_span = (max_t - min_t).abs();
-                        let mut m = 0usize;
-                        loop {
-                            let delta = (m as f32) * step_t;
-                            let candidates = if m == 0 { vec![0.0] } else { vec![delta, -delta] };
-                            let mut progressed = false;
-                            for d in candidates {
-                                let mut c = center;
-                                if horizontal { c.x = (base_t + d).clamp(min_t, max_t); } else { c.y = (base_t + d).clamp(min_t, max_t); }
-                                let tl = Pos2::new(c.x + cur_perp.x - size.x * 0.5, c.y + cur_perp.y - size.y * 0.5);
-                                let br = Pos2::new(tl.x + size.x, tl.y + size.y);
-                                let rect = Rect::from_min_max(tl, br);
-                                let er = expanded_rect(rect, 1.5);
-                                let mut intersects = false;
-                                let mut max_inter_penalty = 0.0;
-                                for other in &placed_label_rects {
-                                    let o = expanded_rect(*other, 1.5);
-                                    if er.intersects(o) {
-                                        intersects = true;
-                                        let ix = (er.right() - o.left()).min(o.right() - er.left()).max(0.0);
-                                        let iy = (er.bottom() - o.top()).min(o.bottom() - er.top()).max(0.0);
-                                        let area = (ix * iy).max(0.0);
-                                        if area > max_inter_penalty { max_inter_penalty = area; }
-                                    }
-                                }
-                                // Penalty components: intersection area, center bias, and spill beyond segment extents
-                                let center_bias = if m == 0 && k == 0 { -1.0 } else { 0.0 };
-                                let spill_bias = spill_penalty * 100.0; // strongly discourage overflow of segment
-                                let score = (if intersects { max_inter_penalty } else { 0.0 }) + center_bias + spill_bias;
-                                if !intersects {
-                                    if score < best_score {
-                                        best_score = score;
-                                        chosen_rect = Some(rect);
-                                    }
-                                    // keep searching for possibly lower score with same segment
-                                } else if score < best_score {
-                                    best_score = score;
-                                    chosen_rect = Some(rect);
-                                }
-                                progressed = true;
-                            }
-                            if m == 0 && best_score.is_finite() && best_score <= 0.0 { break; }
-                            if best_score <= 0.0 { break; }
-                            m += 1;
-                            if delta > max_span + 1.0 { break; }
-                            if !progressed { break; }
-                        }
-                        if best_score <= 0.0 { break; }
-                    }
-
-                    if let Some(rect) = chosen_rect {
-                        if best_score < best_score_overall {
-                            best_score_overall = best_score;
-                            final_rect = Some(rect);
-                            final_galley = Some(galley);
-                        }
-                        if best_score <= 0.0 { break; }
-                    }
-                }
-
-                if let (Some(rect), Some(galley)) = (final_rect, final_galley) {
-                    let draw_pos = rect.min;
+                let poly: Vec<V2> = screen_pts.iter().map(|p| V2{ x: p.x, y: p.y }).collect();
+                let meas = EguiMeasurer { ctx, font: sig_font_id.clone(), color };
+                let already: Vec<RF> = placed_label_rects.iter().map(|r| RF::from_min_max(V2{ x: r.left(), y: r.top() }, V2{ x: r.right(), y: r.bottom() })).collect();
+                if let Some(result) = label_place::place_label(&poly, &label_text, &meas, cfg, &already) {
+                    // Recreate galley in chosen orientation; place_label encodes vertical as stacked characters
+                    let oriented_text = if result.horizontal { label_text.clone() } else { label_text.chars().map(|c| c.to_string()).collect::<Vec<_>>().join("\n") };
+                    let galley = ctx.fonts(|f| f.layout_no_wrap(oriented_text, sig_font_id.clone(), color));
+                    let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
                     painter.galley(draw_pos, galley, color);
-                    placed_label_rects.push(rect);
+                    placed_label_rects.push(Rect::from_min_max(
+                        Pos2::new(result.rect.min.x, result.rect.min.y),
+                        Pos2::new(result.rect.max.x, result.rect.max.y),
+                    ));
                 }
             };
 

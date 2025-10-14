@@ -7,6 +7,7 @@
 
 pub mod model;
 pub mod parser;
+pub mod label_place;
 
 // Optional GUI/egui functionality lives behind the `egui` feature flag.
 // This module provides an interactive viewer for Simulink subsystems and
