@@ -89,21 +89,16 @@ pub fn annotation_to_plain_text(raw: &str, interpreter: Option<&str>) -> String 
     // 4) Decode a few common entities (use crate dependency)
     let decoded = html_escape::decode_html_entities(&out).to_string();
 
-    // 5) Collapse excessive blank lines and trim
+    // 5) Remove empty lines introduced by HTML formatting and trim trailing spaces.
+    //    Simulink/Qt often formats each <p> on its own line in the source. After we
+    //    convert </p> to a newline, those source newlines would yield blank lines.
+    //    We therefore drop blank-only lines entirely to get one line per paragraph.
     let mut cleaned = String::new();
-    let mut prev_was_blank = false;
     for line in decoded.lines() {
-        let is_blank = line.trim().is_empty();
-        if is_blank {
-            if !prev_was_blank { cleaned.push('\n'); }
-        } else {
-            cleaned.push_str(line.trim_end());
-            cleaned.push('\n');
-        }
-        prev_was_blank = is_blank;
+        if line.trim().is_empty() { continue; }
+        if !cleaned.is_empty() { cleaned.push('\n'); }
+        cleaned.push_str(line.trim_end());
     }
-    // remove the trailing newline we added
-    if cleaned.ends_with('\n') { cleaned.pop(); }
     cleaned
 }
 
