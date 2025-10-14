@@ -313,6 +313,7 @@ impl<S: ContentSource> SimulinkParser<S> {
         let mut display: Option<String> = None;
         let mut description: Option<String> = None;
         let mut initialization: Option<String> = None;
+        let mut help: Option<String> = None;
         let mut parameters: Vec<MaskParameter> = Vec::new();
         let mut dialog: Vec<DialogControl> = Vec::new();
 
@@ -327,13 +328,14 @@ impl<S: ContentSource> SimulinkParser<S> {
                 "DialogControl" => {
                     dialog.push(parse_dialog_control_node(child));
                 }
+                "Help" => help = child.text().map(|s| s.to_string()),
                 other => {
                     println!("Unknown tag in Mask: {}", other);
                 }
             }
         }
 
-        Ok(Mask { display, description, initialization, parameters, dialog })
+        Ok(Mask { display, description, initialization, help, parameters, dialog })
     }
     fn parse_mask_parameter(&self, node: Node) -> MaskParameter {
         let name = node.attribute("Name").unwrap_or("").to_string();
@@ -367,9 +369,10 @@ impl<S: ContentSource> SimulinkParser<S> {
             }
         }
 
-        let mut prompt: Option<String> = None;
-        let mut value: Option<String> = None;
-        let mut type_options: Vec<String> = Vec::new();
+    let mut prompt: Option<String> = None;
+    let mut value: Option<String> = None;
+    let mut callback: Option<String> = None;
+    let mut type_options: Vec<String> = Vec::new();
 
         for child in node.children().filter(|c| c.is_element()) {
             match child.tag_name().name() {
@@ -384,13 +387,12 @@ impl<S: ContentSource> SimulinkParser<S> {
                         }
                     }
                 }
-                other => {
-                    println!("Unknown tag in MaskParameter(Name='{}'): {}", name, other);
-                }
+                "Callback" => callback = child.text().map(|s| s.to_string()),
+                other => println!("Unknown tag in MaskParameter(Name='{}'): {}", name, other),
             }
         }
 
-        MaskParameter { name, param_type, prompt, value, tunable, visible, type_options }
+        MaskParameter { name, param_type, prompt, value, callback, tunable, visible, type_options }
     }
     fn parse_dialog_control(&self, node: Node) -> DialogControl {
         let tattr = node.attribute("Type").unwrap_or("");
@@ -399,6 +401,7 @@ impl<S: ContentSource> SimulinkParser<S> {
             t if t.eq_ignore_ascii_case("Text") => DialogControlType::Text,
             t if t.eq_ignore_ascii_case("Edit") => DialogControlType::Edit,
             t if t.eq_ignore_ascii_case("CheckBox") => DialogControlType::CheckBox,
+            t if t.eq_ignore_ascii_case("Popup") => DialogControlType::Popup,
             other => {
                 println!("Unknown DialogControl Type: {}", other);
                 DialogControlType::Unknown(other.to_string())
@@ -582,6 +585,7 @@ fn parse_mask_node(node: Node) -> Result<Mask> {
     let mut display: Option<String> = None;
     let mut description: Option<String> = None;
     let mut initialization: Option<String> = None;
+    let mut help: Option<String> = None;
     let mut parameters: Vec<MaskParameter> = Vec::new();
     let mut dialog: Vec<DialogControl> = Vec::new();
 
@@ -596,13 +600,14 @@ fn parse_mask_node(node: Node) -> Result<Mask> {
             "DialogControl" => {
                 dialog.push(parse_dialog_control_node(child));
             }
+            "Help" => help = child.text().map(|s| s.to_string()),
             other => {
                 println!("Unknown tag in Mask: {}", other);
             }
         }
     }
 
-    Ok(Mask { display, description, initialization, parameters, dialog })
+    Ok(Mask { display, description, initialization, help, parameters, dialog })
 }
 
 fn parse_instance_data_node(node: Node) -> Result<InstanceData> {
@@ -651,6 +656,7 @@ fn parse_mask_parameter_node(node: Node) -> MaskParameter {
 
     let mut prompt: Option<String> = None;
     let mut value: Option<String> = None;
+    let mut callback: Option<String> = None;
     let mut type_options: Vec<String> = Vec::new();
 
     for child in node.children().filter(|c| c.is_element()) {
@@ -666,13 +672,14 @@ fn parse_mask_parameter_node(node: Node) -> MaskParameter {
                     }
                 }
             }
+            "Callback" => callback = child.text().map(|s| s.to_string()),
             other => {
                 println!("Unknown tag in MaskParameter(Name='{}'): {}", name, other);
             }
         }
     }
 
-    MaskParameter { name, param_type, prompt, value, tunable, visible, type_options }
+    MaskParameter { name, param_type, prompt, value, callback, tunable, visible, type_options }
 }
 
 fn parse_dialog_control_node(node: Node) -> DialogControl {
@@ -682,6 +689,7 @@ fn parse_dialog_control_node(node: Node) -> DialogControl {
         t if t.eq_ignore_ascii_case("Text") => DialogControlType::Text,
         t if t.eq_ignore_ascii_case("Edit") => DialogControlType::Edit,
         t if t.eq_ignore_ascii_case("CheckBox") => DialogControlType::CheckBox,
+        t if t.eq_ignore_ascii_case("Popup") => DialogControlType::Popup,
         other => {
             println!("Unknown DialogControl Type: {}", other);
             DialogControlType::Unknown(other.to_string())
@@ -709,6 +717,7 @@ fn parse_dialog_control_node(node: Node) -> DialogControl {
         match child.tag_name().name() {
             "Prompt" => prompt = child.text().map(|s| s.to_string()),
             "DialogControl" => children.push(parse_dialog_control_node(child)),
+            "ControlOptions" => {}, // known but not modeled
             other => println!("Unknown tag in DialogControl(Name='{}'): {}", name.clone().unwrap_or_default(), other),
         }
     }

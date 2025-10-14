@@ -140,6 +140,8 @@ pub struct Mask {
     pub display: Option<String>,
     pub description: Option<String>,
     pub initialization: Option<String>,
+    /// Optional help HTML/text associated with the mask
+    pub help: Option<String>,
     pub parameters: Vec<MaskParameter>,
     pub dialog: Vec<DialogControl>,
 }
@@ -160,6 +162,8 @@ pub struct MaskParameter {
     pub param_type: MaskParamType,
     pub prompt: Option<String>,
     pub value: Option<String>,
+    /// Optional callback script/text for this parameter
+    pub callback: Option<String>,
     pub tunable: Option<bool>,
     pub visible: Option<bool>,
     /// Only for popup types; raw options text
@@ -173,6 +177,7 @@ pub enum DialogControlType {
     Text,
     Edit,
     CheckBox,
+    Popup,
     Unknown(String),
 }
 
