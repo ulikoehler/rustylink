@@ -36,6 +36,9 @@ pub struct Block {
     /// Present when this is a CFunction block
     #[serde(default)]
     pub c_function: Option<CFunctionCode>,
+    /// Optional per-instance data as a simple key-value map
+    #[serde(default)]
+    pub instance_data: Option<InstanceData>,
     /// Optional Simulink mask associated with this block
     #[serde(default)]
     pub mask: Option<Mask>,
@@ -178,6 +181,12 @@ pub struct DialogControl {
     pub name: Option<String>,
     pub prompt: Option<String>,
     pub children: Vec<DialogControl>,
+}
+
+/// InstanceData is a simple key-value map extracted from <InstanceData><P Name="...">...</P></InstanceData>
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct InstanceData {
+    pub properties: BTreeMap<String, String>,
 }
 
 /// Simulink annotation (text or HTML) with position

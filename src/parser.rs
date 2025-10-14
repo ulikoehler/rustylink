@@ -173,7 +173,8 @@ impl<S: ContentSource> SimulinkParser<S> {
         let mut c_term_code: Option<String> = None;
         let mut c_codegen_output: Option<String> = None;
         let mut c_codegen_start: Option<String> = None;
-        let mut c_codegen_term: Option<String> = None;
+    let mut c_codegen_term: Option<String> = None;
+    let mut instance_data: Option<InstanceData> = None;
     let mut mask: Option<Mask> = None;
     let mut annotations: Vec<Annotation> = Vec::new();
 
@@ -246,6 +247,12 @@ impl<S: ContentSource> SimulinkParser<S> {
                         Err(err) => eprintln!("[rustylink] Error parsing <Mask> in block '{}': {}", name, err),
                     }
                 }
+                "InstanceData" => {
+                    match parse_instance_data_node(child) {
+                        Ok(id) => instance_data = Some(id),
+                        Err(err) => eprintln!("[rustylink] Warning: failed to parse <InstanceData> in block '{}': {}", name, err),
+                    }
+                }
                 "Annotation" => {
                     match parse_annotation_node(child) {
                         Ok(a) => annotations.push(a),
@@ -271,7 +278,7 @@ impl<S: ContentSource> SimulinkParser<S> {
                 codegen_terminate_code: c_codegen_term,
             })
         } else { None };
-        Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem, c_function, mask, annotations })
+    Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem, c_function, instance_data, mask, annotations })
     }
 }
 
@@ -596,6 +603,18 @@ fn parse_mask_node(node: Node) -> Result<Mask> {
     Ok(Mask { display, description, initialization, parameters, dialog })
 }
 
+fn parse_instance_data_node(node: Node) -> Result<InstanceData> {
+    // <InstanceData> contains multiple <P Name="...">value</P>
+    let mut props: BTreeMap<String, String> = BTreeMap::new();
+    for p in node.children().filter(|c| c.is_element() && c.has_tag_name("P")) {
+        if let Some(nm) = p.attribute("Name") {
+            let val = p.text().unwrap_or("").to_string();
+            props.insert(nm.to_string(), val);
+        }
+    }
+    Ok(InstanceData { properties: props })
+}
+
 fn parse_mask_parameter_node(node: Node) -> MaskParameter {
     let name = node.attribute("Name").unwrap_or("").to_string();
     let tattr = node.attribute("Type").unwrap_or("");
@@ -784,6 +803,7 @@ fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
     let mut c_codegen_start: Option<String> = None;
     let mut c_codegen_term: Option<String> = None;
     let mut mask: Option<Mask> = None;
+    let mut instance_data: Option<InstanceData> = None;
     let mut annotations: Vec<Annotation> = Vec::new();
 
     for child in node.children().filter(|c| c.is_element()) {
@@ -852,6 +872,12 @@ fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                     Err(err) => eprintln!("[rustylink] Error parsing <Mask> in block '{}': {}", name, err),
                 }
             }
+            "InstanceData" => {
+                match parse_instance_data_node(child) {
+                    Ok(id) => instance_data = Some(id),
+                    Err(err) => eprintln!("[rustylink] Warning: failed to parse <InstanceData> in block '{}': {}", name, err),
+                }
+            }
             "Annotation" => {
                 match parse_annotation_node(child) {
                     Ok(a) => annotations.push(a),
@@ -877,7 +903,7 @@ fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
             codegen_terminate_code: c_codegen_term,
         })
     } else { None };
-    Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem, c_function, mask, annotations })
+    Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem, c_function, instance_data, mask, annotations })
 }
 
 fn parse_system_shallow(node: Node, base_dir: &Utf8Path) -> Result<System> {
