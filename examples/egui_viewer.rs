@@ -104,8 +104,13 @@ fn main() -> Result<()> {
     );
 
     // Create and run the native window here to keep windowing in the example.
+    // Load and apply window icon from the repository (embedded at compile time)
+    let mut viewport = egui::ViewportBuilder::default().with_maximized(true);
+    if let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!("../docs/RustyLinkIconSmall.png")) {
+        viewport = viewport.with_icon(icon);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_maximized(true),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
