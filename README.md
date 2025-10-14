@@ -1,4 +1,4 @@
-# rustlylink
+# rustylink
 
 <img src="docs/RustyLinkIcon.png" width="100">
 
