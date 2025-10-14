@@ -597,26 +597,38 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             });
         }
 
-        // Finish blocks (border, icon, labels) and click handling
+        // Finish blocks (border, icon/value, labels) and click handling
         for (b, r_screen, clicked) in &block_views {
             let cfg = get_block_type_cfg(&b.block_type);
             let border_rgb = cfg.border.unwrap_or(crate::block_types::Rgb(180, 180, 200));
             let stroke = Stroke::new(2.0, Color32::from_rgb(border_rgb.0, border_rgb.1, border_rgb.2));
             painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
-            // If mask display text is available (feature 'mask'), show it instead of icon
-            if let Some(text) = b.mask_display_text.as_ref() {
-                let font_size = (b.font_size.unwrap_or(14) as f32) * font_scale;
-                let font_id = egui::FontId::proportional(font_size);
-                let color = Color32::BLACK;
-                let galley = painter.layout_no_wrap(text.clone(), font_id.clone(), color);
+            // Icon/value rendering with precedence: mask > value > icon
+            if b.mask.is_some() {
+                if let Some(text) = b.mask_display_text.as_ref() {
+                    let font_size = (b.font_size.unwrap_or(14) as f32) * font_scale;
+                    let font_id = egui::FontId::proportional(font_size);
+                    let color = Color32::BLACK;
+                    let galley = painter.layout_no_wrap(text.clone(), font_id.clone(), color);
+                    let pos = r_screen.center() - galley.size() * 0.5;
+                    painter.galley(pos, galley, color);
+                }
+            } else if b.value.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false) {
+                // Render block value centered; smaller than label: use beneath-label font size
+                let beneath_font_px = 10.0 * font_scale; // same as label beneath block
+                let font_id = egui::FontId::proportional(beneath_font_px);
+                let color = Color32::from_rgb(40, 40, 40);
+                let text = b.value.as_ref().unwrap().clone();
+                let galley = painter.layout_no_wrap(text, font_id.clone(), color);
                 let pos = r_screen.center() - galley.size() * 0.5;
                 painter.galley(pos, galley, color);
             } else {
                 render_block_icon(&painter, b, r_screen, font_scale);
             }
-            // Respect ShowName flag when drawing label beneath the block
+            // Respect ShowName flag when drawing label beneath the block. If value is shown, do not draw the name label
             let show_name = b.show_name.unwrap_or(true);
-            if show_name {
+            let suppress_label = b.mask.is_some() || b.value.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+            if show_name && !suppress_label {
                 let lines: Vec<&str> = b.name.split('\n').collect();
                 let line_height = 16.0 * font_scale; let mut y = r_screen.bottom() + 2.0 * font_scale;
                 for line in lines {
@@ -662,7 +674,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let Some(brect) = sid_screen_map.get(&sid).copied() else { continue; };
             let Some(block) = blocks.iter().find_map(|(b, _)| if b.sid.as_ref() == Some(&sid) { Some(*b) } else { None }) else { continue; };
             // Do not show port labels if block has a mask
-            if block.mask_display_text.is_some() { continue; }
+            if block.mask.is_some() { continue; }
             let cfg = get_block_type_cfg(&block.block_type);
             if (is_input && !cfg.show_input_port_labels) || (!is_input && !cfg.show_output_port_labels) { continue; }
             let pname = block.ports.iter().filter(|p| p.port_type == if is_input { "in" } else { "out" } && p.index.unwrap_or(0) == index).filter_map(|p| {

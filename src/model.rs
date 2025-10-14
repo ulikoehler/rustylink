@@ -30,6 +30,9 @@ pub struct Block {
     /// True if this block is a Stateflow MATLAB Function block (SFBlockType == "MATLAB Function")
     #[serde(default)]
     pub is_matlab_function: bool,
+    /// Optional block value as text (e.g., for Constant blocks)
+    #[serde(default)]
+    pub value: Option<String>,
     pub properties: BTreeMap<String, String>,
     pub ports: Vec<Port>,
     pub subsystem: Option<Box<System>>, // resolved nested system if present

@@ -332,6 +332,7 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
     let mut show_name: Option<bool> = None;
     let mut font_size: Option<u32> = None;
     let mut font_weight: Option<String> = None;
+    let mut block_value: Option<String> = None;
 
     for child in node.children().filter(|c| c.is_element()) {
         match child.tag_name().name() {
@@ -390,6 +391,11 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                         }
                         "FontWeight" => {
                             font_weight = Some(value);
+                        }
+                        "Value" => {
+                            // Keep raw textual value; also store into properties
+                            block_value = Some(value.clone());
+                            properties.insert(name_attr.to_string(), value);
                         }
                         _ => {
                             properties.insert(name_attr.to_string(), value);
@@ -500,6 +506,7 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
         font_size,
         font_weight,
         mask_display_text: None,
+        value: block_value,
     };
     if blk.mask_display_text.is_none()
         && blk.mask.as_ref().and_then(|m| m.display.as_ref()).is_some()
