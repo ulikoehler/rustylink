@@ -159,6 +159,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                             staged_pan.x = center.x - ((world_x - bb.left()) * s_new + origin.x);
                             staged_pan.y = center.y - ((world_y - bb.top()) * s_new + origin.y);
                         };
+                        // Menu (buttons and zoom percentage) must not scale with zoom
                         if ui.small_button("−").clicked() { zoom_by(0.9); }
                         if ui.small_button("+").clicked() { zoom_by(1.1); }
                         if ui.small_button("Reset").clicked() { staged_reset = true; }
@@ -175,6 +176,9 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let y = (p.y - bb.top()) * s + avail.top() + margin + staged_pan.y;
             Pos2::new(x, y)
         };
+
+        // In-canvas font scaling: baseline is 400% zoom -> scale = zoom / 4.0
+        let font_scale: f32 = (staged_zoom / 4.0).max(0.01);
 
     // Draw blocks and setup interaction maps
         let mut sid_map: HashMap<String, Rect> = HashMap::new();
@@ -241,7 +245,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let _resp = ui.allocate_rect(r_screen, Sense::hover());
             let raw = a.text.clone().unwrap_or_default();
             let text = crate::egui_app::text::annotation_to_plain_text(&raw, a.interpreter.as_deref());
-            let font_id = egui::FontId::proportional(12.0);
+            let font_id = egui::FontId::proportional(12.0 * font_scale);
             let color = Color32::from_rgb(20, 20, 20);
             let galley = ui.painter().layout_no_wrap(text.clone(), font_id.clone(), color);
             // If text wider than rect, use wrapped label via a temporary UI
@@ -251,7 +255,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                 // wrapped
                 // Use allocate_ui_at_rect to create a temporary child UI for wrapping
                 ui.allocate_ui_at_rect(r_screen, |child_ui| {
-                    child_ui.label(egui::RichText::new(text).size(12.0).color(color));
+                    child_ui.label(egui::RichText::new(text).size(12.0 * font_scale).color(color));
                 });
             }
             // no special tooltip; text is directly visible inside the rectangle
@@ -498,8 +502,8 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
         }
 
         // Label placement
-        let block_label_font = 14.0f32;
-        let signal_font = (block_label_font * 0.5 * 1.5 * 1.5).round().max(7.0);
+        let block_label_font = 14.0f32 * font_scale;
+        let signal_font = (block_label_font * 0.5 * 1.5 * 1.5).round().max(7.0 * font_scale);
         struct EguiMeasurer<'a> { ctx: &'a egui::Context, font: egui::FontId, color: Color32 }
         impl<'a> crate::label_place::Measurer for EguiMeasurer<'a> {
             fn measure(&self, text: &str) -> (f32, f32) {
@@ -565,7 +569,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                     }
                 }
                 if final_drawn { break; }
-                if !tried_wrap && label_text.contains(' ') { tried_wrap = true; } else { font_size *= 0.9; if font_size < 9.0 { break; } }
+                if !tried_wrap && label_text.contains(' ') { tried_wrap = true; } else { font_size *= 0.9; if font_size < 9.0 * font_scale { break; } }
             }
         };
 
@@ -597,27 +601,27 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
             // If mask display text is available (feature 'mask'), show it instead of icon
             if let Some(text) = b.mask_display_text.as_ref() {
-                let font_size = b.font_size.unwrap_or(14) as f32;
+                let font_size = (b.font_size.unwrap_or(14) as f32) * font_scale;
                 let font_id = egui::FontId::proportional(font_size);
                 let color = Color32::BLACK;
                 let galley = painter.layout_no_wrap(text.clone(), font_id.clone(), color);
                 let pos = r_screen.center() - galley.size() * 0.5;
                 painter.galley(pos, galley, color);
             } else {
-                render_block_icon(&painter, b, r_screen);
+                render_block_icon(&painter, b, r_screen, font_scale);
             }
             // Respect ShowName flag when drawing label beneath the block
             let show_name = b.show_name.unwrap_or(true);
             if show_name {
                 let lines: Vec<&str> = b.name.split('\n').collect();
-                let line_height = 16.0; let mut y = r_screen.bottom() + 2.0;
+                let line_height = 16.0 * font_scale; let mut y = r_screen.bottom() + 2.0 * font_scale;
                 for line in lines {
                     let pos = Pos2::new(r_screen.center().x, y);
                     painter.text(
                         pos,
                         Align2::CENTER_TOP,
                         line,
-                        egui::FontId::proportional(14.0),
+                        egui::FontId::proportional(10.0 * font_scale),
                         Color32::from_rgb(40, 40, 40),
                     );
                     y += line_height;
@@ -647,7 +651,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
 
         // Draw port labels
         let mut seen_port_labels: std::collections::HashSet<(String, u32, bool, i32)> = Default::default();
-        let font_id = egui::FontId::proportional(12.0);
+        let font_id = egui::FontId::proportional(12.0 * font_scale);
         for (sid, index, is_input, y) in port_label_requests {
             let key = (sid.clone(), index, is_input, y.round() as i32);
             if !seen_port_labels.insert(key) { continue; }
@@ -662,11 +666,11 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             }).next().unwrap_or_else(|| format!("{}{}", if is_input { "In" } else { "Out" }, index));
             let galley = ctx.fonts(|f| f.layout_no_wrap(pname.clone(), font_id.clone(), Color32::from_rgb(40,40,40)));
             let size = galley.size();
-            let avail_w = brect.width() - 8.0;
+            let avail_w = brect.width() - 8.0 * font_scale;
             if size.x <= avail_w {
                 let half_h = size.y * 0.5; let y_min = brect.top(); let y_max = (brect.bottom() - size.y).max(y_min);
                 let y_top = (y - half_h).max(y_min).min(y_max);
-                let pos = if is_input { Pos2::new(brect.left() + 4.0, y_top) } else { Pos2::new(brect.right() - 4.0 - size.x, y_top) };
+                let pos = if is_input { Pos2::new(brect.left() + 4.0 * font_scale, y_top) } else { Pos2::new(brect.right() - 4.0 * font_scale - size.x, y_top) };
                 painter.galley(pos, galley, Color32::from_rgb(40,40,40));
             }
         }

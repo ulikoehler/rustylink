@@ -16,8 +16,11 @@ pub(crate) fn get_block_type_cfg(block_type: &str) -> BlockTypeConfig {
 }
 
 /// Render an icon in the center of the block according to its type using the phosphor font.
-pub fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
-    let icon_size = 24.0;
+///
+/// The `font_scale` parameter scales the icon size relative to the baseline size
+/// (baseline is 24.0 at 400% zoom; caller should pass zoom/4.0).
+pub fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect, font_scale: f32) {
+    let icon_size = 24.0 * font_scale.max(0.01);
     let icon_center = rect.center();
     let font = egui::FontId::new(icon_size, egui::FontFamily::Name("phosphor".into()));
     let dark_icon = Color32::from_rgb(40, 40, 40); // dark color for icons
