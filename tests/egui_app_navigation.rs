@@ -16,6 +16,7 @@ fn simple_system() -> System {
         properties: Default::default(),
         ports: vec![],
         c_function: None,
+        mask: None,
         subsystem: Some(Box::new(sub_child)),
     };
     System { properties: Default::default(), blocks: vec![sub_block], lines: vec![], chart: None }

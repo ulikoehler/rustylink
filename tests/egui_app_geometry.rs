@@ -16,6 +16,7 @@ fn test_ports_and_rect() {
         properties: Default::default(),
         ports: vec![],
         c_function: None,
+        mask: None,
         subsystem: None,
     };
     let r = parse_block_rect(&b).unwrap();

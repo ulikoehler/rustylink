@@ -33,6 +33,9 @@ pub struct Block {
     /// Present when this is a CFunction block
     #[serde(default)]
     pub c_function: Option<CFunctionCode>,
+    /// Optional Simulink mask associated with this block
+    #[serde(default)]
+    pub mask: Option<Mask>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +123,55 @@ pub struct CFunctionCode {
     pub codegen_output_code: Option<String>,
     pub codegen_start_code: Option<String>,
     pub codegen_terminate_code: Option<String>,
+}
+
+/// Simulink block mask definition
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Mask {
+    pub display: Option<String>,
+    pub description: Option<String>,
+    pub initialization: Option<String>,
+    pub parameters: Vec<MaskParameter>,
+    pub dialog: Vec<DialogControl>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum MaskParamType {
+    Popup,
+    Edit,
+    Unknown(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MaskParameter {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub param_type: MaskParamType,
+    pub prompt: Option<String>,
+    pub value: Option<String>,
+    pub tunable: Option<bool>,
+    pub visible: Option<bool>,
+    /// Only for popup types; raw options text
+    pub type_options: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", content = "value")]
+pub enum DialogControlType {
+    Group,
+    Text,
+    Edit,
+    Unknown(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DialogControl {
+    #[serde(rename = "type")]
+    pub control_type: DialogControlType,
+    pub name: Option<String>,
+    pub prompt: Option<String>,
+    pub children: Vec<DialogControl>,
 }
 
 impl System {

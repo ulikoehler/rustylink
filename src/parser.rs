@@ -160,6 +160,7 @@ impl<S: ContentSource> SimulinkParser<S> {
         let mut c_codegen_output: Option<String> = None;
         let mut c_codegen_start: Option<String> = None;
         let mut c_codegen_term: Option<String> = None;
+        let mut mask: Option<Mask> = None;
 
         for child in node.children().filter(|c| c.is_element()) {
             match child.tag_name().name() {
@@ -239,6 +240,12 @@ impl<S: ContentSource> SimulinkParser<S> {
                         }
                     }
                 }
+                "Mask" => {
+                    match self.parse_mask(child) {
+                        Ok(m) => mask = Some(m),
+                        Err(err) => eprintln!("[rustylink] Error parsing <Mask> in block '{}': {}", name, err),
+                    }
+                }
                 unknown => {
                     println!("Unknown tag in Block: {}", unknown);
                 }
@@ -258,7 +265,7 @@ impl<S: ContentSource> SimulinkParser<S> {
                 codegen_terminate_code: c_codegen_term,
             })
         } else { None };
-        Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem, c_function })
+        Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem, c_function, mask })
     }
 
     fn parse_line(&self, node: Node) -> Result<Line> {
@@ -331,6 +338,134 @@ impl<S: ContentSource> SimulinkParser<S> {
         Ok(Branch { name, zorder, dst, points: points_list, labels, branches })
     }
 }
+
+impl<S: ContentSource> SimulinkParser<S> {
+    fn parse_mask(&self, node: Node) -> Result<Mask> {
+        let mut display: Option<String> = None;
+        let mut description: Option<String> = None;
+        let mut initialization: Option<String> = None;
+        let mut parameters: Vec<MaskParameter> = Vec::new();
+        let mut dialog: Vec<DialogControl> = Vec::new();
+
+        for child in node.children().filter(|c| c.is_element()) {
+            match child.tag_name().name() {
+                "Display" => display = child.text().map(|s| s.to_string()),
+                "Description" => description = child.text().map(|s| s.to_string()),
+                "Initialization" => initialization = child.text().map(|s| s.to_string()),
+                "MaskParameter" => {
+                    parameters.push(self.parse_mask_parameter(child));
+                }
+                "DialogControl" => {
+                    dialog.push(self.parse_dialog_control(child));
+                }
+                other => {
+                    println!("Unknown tag in Mask: {}", other);
+                }
+            }
+        }
+
+        Ok(Mask { display, description, initialization, parameters, dialog })
+    }
+
+    fn parse_mask_parameter(&self, node: Node) -> MaskParameter {
+        let name = node.attribute("Name").unwrap_or("").to_string();
+        let tattr = node.attribute("Type").unwrap_or("");
+        let param_type = match tattr {
+            t if t.eq_ignore_ascii_case("popup") => MaskParamType::Popup,
+            t if t.eq_ignore_ascii_case("edit") => MaskParamType::Edit,
+            other => {
+                println!("Unknown MaskParameter Type: {} (Name='{}')", other, name);
+                MaskParamType::Unknown(other.to_string())
+            }
+        };
+        let tunable = node
+            .attribute("Tunable")
+            .map(|v| matches_ignore_case(v, "on") || v == "1");
+        let visible = node
+            .attribute("Visible")
+            .map(|v| matches_ignore_case(v, "on") || v == "1");
+
+        // Report unexpected attributes
+        for attr in node.attributes() {
+            let key = attr.name();
+            if key != "Name" && key != "Type" && key != "Tunable" && key != "Visible" {
+                println!(
+                    "Unknown attribute in MaskParameter(Name='{}'): {}='{}'",
+                    name,
+                    key,
+                    attr.value()
+                );
+            }
+        }
+
+        let mut prompt: Option<String> = None;
+        let mut value: Option<String> = None;
+        let mut type_options: Vec<String> = Vec::new();
+
+        for child in node.children().filter(|c| c.is_element()) {
+            match child.tag_name().name() {
+                "Prompt" => prompt = child.text().map(|s| s.to_string()),
+                "Value" => value = child.text().map(|s| s.to_string()),
+                "TypeOptions" => {
+                    for to in child.children().filter(|c| c.is_element()) {
+                        if to.has_tag_name("Option") {
+                            if let Some(t) = to.text() { type_options.push(t.to_string()); }
+                        } else {
+                            println!("Unknown tag in MaskParameter TypeOptions: {}", to.tag_name().name());
+                        }
+                    }
+                }
+                other => {
+                    println!("Unknown tag in MaskParameter(Name='{}'): {}", name, other);
+                }
+            }
+        }
+
+        MaskParameter { name, param_type, prompt, value, tunable, visible, type_options }
+    }
+
+    fn parse_dialog_control(&self, node: Node) -> DialogControl {
+        let tattr = node.attribute("Type").unwrap_or("");
+        let control_type = match tattr {
+            t if t.eq_ignore_ascii_case("Group") => DialogControlType::Group,
+            t if t.eq_ignore_ascii_case("Text") => DialogControlType::Text,
+            t if t.eq_ignore_ascii_case("Edit") => DialogControlType::Edit,
+            other => {
+                println!("Unknown DialogControl Type: {}", other);
+                DialogControlType::Unknown(other.to_string())
+            }
+        };
+        let name = node.attribute("Name").map(|s| s.to_string());
+
+        // Report unexpected attributes
+        for attr in node.attributes() {
+            let key = attr.name();
+            if key != "Type" && key != "Name" {
+                println!(
+                    "Unknown attribute in DialogControl(Name='{}'): {}='{}'",
+                    name.clone().unwrap_or_default(),
+                    key,
+                    attr.value()
+                );
+            }
+        }
+
+        let mut prompt: Option<String> = None;
+        let mut children: Vec<DialogControl> = Vec::new();
+
+        for child in node.children().filter(|c| c.is_element()) {
+            match child.tag_name().name() {
+                "Prompt" => prompt = child.text().map(|s| s.to_string()),
+                "DialogControl" => children.push(self.parse_dialog_control(child)),
+                other => println!("Unknown tag in DialogControl(Name='{}'): {}", name.clone().unwrap_or_default(), other),
+            }
+        }
+
+        DialogControl { control_type, name, prompt, children }
+    }
+}
+
+fn matches_ignore_case(a: &str, b: &str) -> bool { a.eq_ignore_ascii_case(b) }
 
 fn resolve_system_reference(reference: &str, base_dir: &Utf8Path) -> Utf8PathBuf {
     // The XML uses values like "system_22" or "system_22.xml"; files are in sibling directory or same base.
