@@ -6,7 +6,7 @@ use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, V
 
 use crate::model::EndpointRef;
 
-use super::geometry::{endpoint_pos, endpoint_pos_with_target, parse_block_rect};
+use super::geometry::{endpoint_pos, endpoint_pos_with_target, parse_block_rect, parse_rect_str};
 use super::render::{get_block_type_cfg, render_block_icon};
 use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
 use super::text::{highlight_query_job, matlab_syntax_job};
@@ -84,12 +84,30 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             .iter()
             .filter_map(|b| parse_block_rect(b).map(|r| (b, r)))
             .collect();
-        if blocks.is_empty() {
-            ui.colored_label(Color32::YELLOW, "No blocks with positions to render");
+        let annotations: Vec<(&crate::model::Annotation, Rect)> = {
+            let mut v: Vec<(&crate::model::Annotation, Rect)> = Vec::new();
+            for a in &current_system.annotations {
+                if let Some(pos) = a.position.as_deref().and_then(|s| parse_rect_str(s)) {
+                    v.push((a, pos));
+                }
+            }
+            // include block-local annotations as well
+            for b in &current_system.blocks {
+                for a in &b.annotations {
+                    if let Some(pos) = a.position.as_deref().and_then(|s| parse_rect_str(s)) {
+                        v.push((a, pos));
+                    }
+                }
+            }
+            v
+        };
+        if blocks.is_empty() && annotations.is_empty() {
+            ui.colored_label(Color32::YELLOW, "No blocks or annotations with positions to render");
             return;
         }
-        let mut bb = blocks[0].1;
+        let mut bb = blocks.get(0).map(|x| x.1).or_else(|| annotations.get(0).map(|x| x.1)).unwrap();
         for (_, r) in &blocks { bb = bb.union(*r); }
+        for (_, r) in &annotations { bb = bb.union(*r); }
 
         // Interaction space
         let margin = 20.0;
@@ -155,7 +173,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             Pos2::new(x, y)
         };
 
-        // Draw blocks and setup interaction maps
+    // Draw blocks and setup interaction maps
         let mut sid_map: HashMap<String, Rect> = HashMap::new();
         let mut sid_screen_map: HashMap<String, Rect> = HashMap::new();
         let mut block_views: Vec<(&crate::model::Block, Rect, bool)> = Vec::new();
@@ -180,6 +198,26 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                 }
             });
             block_views.push((b, r_screen, resp.clicked()));
+        }
+
+        // Draw annotations (as plain text or HTML text) without background
+        for (a, r_model) in &annotations {
+            let r_screen = Rect::from_min_max(to_screen(r_model.min), to_screen(r_model.max));
+            let resp = ui.allocate_rect(r_screen, Sense::hover());
+            let text = a.text.clone().unwrap_or_default();
+            // For HTML annotations, just render the HTML string literally (egui does not render HTML; user requested showing the HTML)
+            let font_id = egui::FontId::proportional(12.0);
+            let color = Color32::from_rgb(20, 20, 20);
+            let galley = ui.painter().layout_no_wrap(text.clone(), font_id.clone(), color);
+            // If text wider than rect, use wrapped label via a temporary UI
+            if galley.size().x <= r_screen.width() {
+                ui.painter().galley(r_screen.left_top(), galley, color);
+            } else {
+                // wrapped
+                let mut child_ui = ui.child_ui(r_screen, egui::Layout::top_down(egui::Align::LEFT), None);
+                child_ui.label(egui::RichText::new(text).size(12.0).color(color));
+            }
+            // no special tooltip; text is directly visible inside the rectangle
         }
 
         // Precompute lookup maps

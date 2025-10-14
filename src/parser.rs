@@ -121,6 +121,7 @@ impl<S: ContentSource> SimulinkParser<S> {
         let mut properties = BTreeMap::new();
         let mut blocks = Vec::new();
         let mut lines = Vec::new();
+        let mut annotations: Vec<Annotation> = Vec::new();
         for child in node.children().filter(|c| c.is_element()) {
             match child.tag_name().name() {
                 "P" => {
@@ -134,13 +135,19 @@ impl<S: ContentSource> SimulinkParser<S> {
                 "Line" => {
                     lines.push(self.parse_line(child)?);
                 }
+                "Annotation" => {
+                    match self.parse_annotation(child) {
+                        Ok(a) => annotations.push(a),
+                        Err(err) => eprintln!("[rustylink] Warning: failed to parse <Annotation>: {}", err),
+                    }
+                }
                 unknown => {
                     println!("Unknown tag in System: {}", unknown);
                 }
             }
         }
 
-        Ok(System { properties, blocks, lines, chart: None })
+        Ok(System { properties, blocks, lines, annotations, chart: None })
     }
 
     fn parse_block(&mut self, node: Node, base_dir: &Utf8Path) -> Result<Block> {
@@ -160,7 +167,8 @@ impl<S: ContentSource> SimulinkParser<S> {
         let mut c_codegen_output: Option<String> = None;
         let mut c_codegen_start: Option<String> = None;
         let mut c_codegen_term: Option<String> = None;
-        let mut mask: Option<Mask> = None;
+    let mut mask: Option<Mask> = None;
+    let mut annotations: Vec<Annotation> = Vec::new();
 
         for child in node.children().filter(|c| c.is_element()) {
             match child.tag_name().name() {
@@ -246,6 +254,12 @@ impl<S: ContentSource> SimulinkParser<S> {
                         Err(err) => eprintln!("[rustylink] Error parsing <Mask> in block '{}': {}", name, err),
                     }
                 }
+                "Annotation" => {
+                    match self.parse_annotation(child) {
+                        Ok(a) => annotations.push(a),
+                        Err(err) => eprintln!("[rustylink] Warning: failed to parse <Annotation> in block '{}': {}", name, err),
+                    }
+                }
                 unknown => {
                     println!("Unknown tag in Block: {}", unknown);
                 }
@@ -265,7 +279,7 @@ impl<S: ContentSource> SimulinkParser<S> {
                 codegen_terminate_code: c_codegen_term,
             })
         } else { None };
-        Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem, c_function, mask })
+        Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem, c_function, mask, annotations })
     }
 
     fn parse_line(&self, node: Node) -> Result<Line> {
@@ -340,6 +354,32 @@ impl<S: ContentSource> SimulinkParser<S> {
 }
 
 impl<S: ContentSource> SimulinkParser<S> {
+    fn parse_annotation(&self, node: Node) -> Result<Annotation> {
+        let sid = node.attribute("SID").map(|s| s.to_string());
+        let mut position: Option<String> = None;
+        let mut zorder: Option<String> = None;
+        let mut interpreter: Option<String> = None;
+        let mut text: Option<String> = None;
+        let mut properties: BTreeMap<String, String> = BTreeMap::new();
+
+        for child in node.children().filter(|c| c.is_element() && c.has_tag_name("P")) {
+            if let Some(nm) = child.attribute("Name") {
+                let val = child.text().unwrap_or("").to_string();
+                match nm {
+                    "Position" => position = Some(val.clone()),
+                    "ZOrder" => zorder = Some(val.clone()),
+                    "Interpreter" => interpreter = Some(val.clone()),
+                    "Name" => {
+                        text = Some(val.clone());
+                    }
+                    _ => {}
+                }
+                properties.insert(nm.to_string(), val);
+            }
+        }
+
+        Ok(Annotation { sid, text, position, zorder, interpreter, properties })
+    }
     fn parse_mask(&self, node: Node) -> Result<Mask> {
         let mut display: Option<String> = None;
         let mut description: Option<String> = None;

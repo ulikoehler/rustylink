@@ -4,7 +4,7 @@ use rustylink::egui_app::{collect_subsystems_paths, resolve_subsystem_by_path, r
 use rustylink::model::{Block, System};
 
 fn simple_system() -> System {
-    let sub_child = System { properties: Default::default(), blocks: vec![], lines: vec![], chart: None };
+    let sub_child = System { properties: Default::default(), blocks: vec![], lines: vec![], annotations: vec![], chart: None };
     let sub_block = Block {
         block_type: "SubSystem".into(),
         name: "Child".into(),
@@ -17,9 +17,10 @@ fn simple_system() -> System {
         ports: vec![],
         c_function: None,
         mask: None,
+        annotations: vec![],
         subsystem: Some(Box::new(sub_child)),
     };
-    System { properties: Default::default(), blocks: vec![sub_block], lines: vec![], chart: None }
+    System { properties: Default::default(), blocks: vec![sub_block], lines: vec![], annotations: vec![], chart: None }
 }
 
 #[test]

@@ -11,6 +11,9 @@ pub struct System {
     pub properties: BTreeMap<String, String>,
     pub blocks: Vec<Block>,
     pub lines: Vec<Line>,
+    /// Free-floating annotations inside this system
+    #[serde(default)]
+    pub annotations: Vec<Annotation>,
     /// Optional Stateflow chart content when a system reference resolves to a chart (chart_XX.xml)
     pub chart: Option<Chart>,
 }
@@ -36,6 +39,9 @@ pub struct Block {
     /// Optional Simulink mask associated with this block
     #[serde(default)]
     pub mask: Option<Mask>,
+    /// Optional annotations attached to the block
+    #[serde(default)]
+    pub annotations: Vec<Annotation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -172,6 +178,23 @@ pub struct DialogControl {
     pub name: Option<String>,
     pub prompt: Option<String>,
     pub children: Vec<DialogControl>,
+}
+
+/// Simulink annotation (text or HTML) with position
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Annotation {
+    /// Numeric SID when available
+    pub sid: Option<String>,
+    /// The raw text content of the annotation (may contain HTML entities)
+    pub text: Option<String>,
+    /// The position rectangle in Simulink coordinates, like "[l, t, r, b]"
+    pub position: Option<String>,
+    /// Z-Order if specified
+    pub zorder: Option<String>,
+    /// Interpreter (e.g., "rich" for HTML), if provided
+    pub interpreter: Option<String>,
+    /// Raw properties map for any other attributes
+    pub properties: BTreeMap<String, String>,
 }
 
 impl System {

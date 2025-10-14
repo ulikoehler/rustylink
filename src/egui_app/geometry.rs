@@ -7,6 +7,11 @@ use crate::model::{Block, EndpointRef};
 /// Expects a string of the form "[l, t, r, b]".
 pub fn parse_block_rect(b: &Block) -> Option<Rect> {
     let pos = b.position.as_deref()?;
+    parse_rect_str(pos)
+}
+
+/// Parse a rectangle string of the form "[l, t, r, b]" into an egui Rect
+pub fn parse_rect_str(pos: &str) -> Option<Rect> {
     let inner = pos.trim().trim_start_matches('[').trim_end_matches(']');
     let nums: Vec<f32> = inner
         .split(',')
