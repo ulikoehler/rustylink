@@ -184,7 +184,6 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let cfg = get_block_type_cfg(&b.block_type);
             // If block.background_color is set, override type color
             let bg = if let Some(ref color_str) = b.background_color {
-                // Simple color name mapping, extend as needed
                 match color_str.to_lowercase().as_str() {
                     "yellow" => Color32::YELLOW,
                     "red" => Color32::RED,
@@ -193,12 +192,24 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                     "black" => Color32::BLACK,
                     "white" => Color32::WHITE,
                     "gray" | "grey" => Color32::from_rgb(128,128,128),
-                    _ => Color32::from_rgb(210, 210, 210), // fallback
+                    other => {
+                        eprintln!("[rustylink] Warning: unknown block background color '{}', using default.", color_str);
+                        Color32::from_rgb(210, 210, 210)
+                    }
                 }
             } else {
                 cfg.background.map(|c| Color32::from_rgb(c.0, c.1, c.2)).unwrap_or_else(|| Color32::from_rgb(210, 210, 210))
             };
             ui.painter().rect_filled(r_screen, 6.0, bg);
+            // Only show block name if show_name is not set to false
+            let show_name = b.show_name.unwrap_or(true);
+            if show_name {
+                let font_id = egui::FontId::proportional(14.0);
+                let color = Color32::BLACK;
+                let galley = ui.painter().layout_no_wrap(b.name.clone(), font_id, color);
+                let text_pos = r_screen.center_top() + egui::vec2(0.0, 4.0);
+                ui.painter().galley(text_pos, galley, color);
+            }
             let resp = ui.allocate_rect(r_screen, Sense::click());
             resp.context_menu(|ui| {
                 if ui.button("Info").clicked() {
