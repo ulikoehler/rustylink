@@ -23,6 +23,8 @@ html-escape = "0.2"
 # Optional GUI visualization using egui/eframe
 highlight = ["dep:syntect", "dep:once_cell"]
 egui = ["dep:eframe", "dep:egui", "dep:egui-phosphor", "dep:syntect", "dep:once_cell"]
+## Optional mask evaluation (parses very small subset of MATLAB mask scripts to show display text)
+mask = []
 
 [dependencies.egui-phosphor]
 version = "0.10"
@@ -45,3 +47,6 @@ optional = true
 [dependencies.once_cell]
 version = "1.20"
 optional = true
+
+[dev-dependencies]
+tempfile = "3.10"

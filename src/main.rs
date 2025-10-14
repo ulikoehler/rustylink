@@ -1,5 +1,6 @@
 mod model;
 mod parser;
+mod mask_eval;
 
 use anyhow::{Context, Result};
 use camino::{Utf8PathBuf};

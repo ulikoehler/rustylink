@@ -19,6 +19,12 @@ fn simple_system() -> System {
         mask: None,
         annotations: vec![],
         subsystem: Some(Box::new(sub_child)),
+        instance_data: None,
+        background_color: None,
+        show_name: None,
+        font_size: None,
+        font_weight: None,
+        mask_display_text: None,
     };
     System { properties: Default::default(), blocks: vec![sub_block], lines: vec![], annotations: vec![], chart: None }
 }

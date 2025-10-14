@@ -9,6 +9,9 @@ pub mod model;
 pub mod parser;
 pub mod label_place;
 
+// Optional mask evaluation feature
+pub mod mask_eval;
+
 // Optional GUI/egui functionality lives behind the `egui` feature flag.
 // This module provides an interactive viewer for Simulink subsystems and
 // is used by the example in examples/egui_viewer.rs.

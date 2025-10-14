@@ -57,6 +57,9 @@ pub struct Block {
     /// Optional font weight for block
     #[serde(default)]
     pub font_weight: Option<String>,
+    /// When mask feature enabled: evaluated display text from mask's Display script (e.g., disp(mytab{control}))
+    #[serde(default)]
+    pub mask_display_text: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

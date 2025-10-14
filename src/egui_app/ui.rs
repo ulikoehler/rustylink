@@ -573,7 +573,17 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let border_rgb = cfg.border.unwrap_or(crate::block_types::Rgb(180, 180, 200));
             let stroke = Stroke::new(2.0, Color32::from_rgb(border_rgb.0, border_rgb.1, border_rgb.2));
             painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
-            render_block_icon(&painter, b, r_screen);
+            // If mask display text is available (feature 'mask'), show it instead of icon
+            if let Some(text) = b.mask_display_text.as_ref() {
+                let font_size = b.font_size.unwrap_or(14) as f32;
+                let font_id = egui::FontId::proportional(font_size);
+                let color = Color32::BLACK;
+                let galley = painter.layout_no_wrap(text.clone(), font_id.clone(), color);
+                let pos = r_screen.center() - galley.size() * 0.5;
+                painter.galley(pos, galley, color);
+            } else {
+                render_block_icon(&painter, b, r_screen);
+            }
             let lines: Vec<&str> = b.name.split('\n').collect();
             let line_height = 16.0; let mut y = r_screen.bottom() + 2.0;
             for line in lines { let pos = Pos2::new(r_screen.center().x, y); painter.text(pos, Align2::CENTER_TOP, line, egui::FontId::proportional(14.0), Color32::from_rgb(40, 40, 40)); y += line_height; }

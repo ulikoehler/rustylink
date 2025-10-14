@@ -278,7 +278,7 @@ impl<S: ContentSource> SimulinkParser<S> {
                 codegen_terminate_code: c_codegen_term,
             })
         } else { None };
-    Ok(Block {
+        let mut blk = Block {
         block_type,
         name,
         sid,
@@ -297,7 +297,12 @@ impl<S: ContentSource> SimulinkParser<S> {
         show_name: None,
         font_size: None,
         font_weight: None,
-    })
+        mask_display_text: None,
+        };
+        if blk.mask_display_text.is_none() && blk.mask.as_ref().and_then(|m| m.display.as_ref()).is_some() {
+            crate::mask_eval::evaluate_mask_display(&mut blk);
+        }
+        Ok(blk)
     }
 }
 
@@ -951,7 +956,7 @@ fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
             codegen_terminate_code: c_codegen_term,
         })
     } else { None };
-    Ok(Block {
+    let mut blk = Block {
         block_type,
         name,
         sid,
@@ -970,7 +975,12 @@ fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
         show_name,
         font_size,
         font_weight,
-    })
+        mask_display_text: None,
+    };
+    if blk.mask_display_text.is_none() && blk.mask.as_ref().and_then(|m| m.display.as_ref()).is_some() {
+        crate::mask_eval::evaluate_mask_display(&mut blk);
+    }
+    Ok(blk)
 }
 
 fn parse_system_shallow(node: Node, base_dir: &Utf8Path) -> Result<System> {

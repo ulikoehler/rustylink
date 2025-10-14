@@ -55,3 +55,27 @@ println!("{}", serde_json::to_string_pretty(&system)?);
 
 - The data model is intentionally generic (maps for properties) to accommodate varying Simulink versions.
 - Extend `model.rs` to add more explicit types for blocks you care about.
+
+## Optional Features
+
+- `egui`: Interactive viewer UI.
+- `highlight`: Syntax highlighting support inside viewer.
+- `mask`: (Experimental) Simple mask display evaluation. When enabled, blocks with a mask whose `<Display>` is of the form `disp(var{param})` and whose `<Initialization>` defines `var={'A','B',...};` plus a popup `<MaskParameter Name="param">` with a numeric leading index in its `<Value>` will render the selected entry text inside the block instead of the default icon. This is a tiny custom parser – no MATLAB engine required.
+
+Example mask snippet supported:
+
+```xml
+<Mask>
+	<Display>disp(mytab{control})</Display>
+	<Initialization>mytab={'Position','Zero Torque','OFF'};</Initialization>
+	<MaskParameter Name="control" Type="popup">
+		<Value>1. Position Control</Value>
+	</MaskParameter>
+</Mask>
+```
+
+Enable via:
+
+```sh
+cargo run --features egui,mask --example egui_viewer -- MyModel.slx
+```

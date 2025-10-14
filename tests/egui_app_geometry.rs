@@ -19,6 +19,12 @@ fn test_ports_and_rect() {
         mask: None,
         annotations: vec![],
         subsystem: None,
+        instance_data: None,
+        background_color: None,
+        show_name: None,
+        font_size: None,
+        font_weight: None,
+        mask_display_text: None,
     };
     let r = parse_block_rect(&b).unwrap();
     let p_in = port_anchor_pos(r, "in", 1, Some(2));
