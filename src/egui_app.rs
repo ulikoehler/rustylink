@@ -513,7 +513,107 @@ impl eframe::App for SubsystemApp {
                 block_views.push((b, r_screen, resp.clicked()));
             }
 
-            let line_stroke = Stroke::new(2.0, Color32::LIGHT_GREEN);
+            // Precompute a block SID -> block name map for labeling fallbacks
+            let mut sid_to_name: HashMap<u32, String> = HashMap::new();
+            for (b, _r) in &blocks {
+                if let Some(sid) = b.sid {
+                    sid_to_name.insert(sid, b.name.clone());
+                }
+            }
+
+            // Build adjacency of lines: two lines are adjacent if they share a src/dst SID
+            // This helps us assign distinct rainbow colors to neighboring signals deterministically.
+            let mut line_adjacency: Vec<Vec<usize>> = vec![Vec::new(); current_system.lines.len()];
+            // Index endpoints per SID to compute adjacency quickly
+            let mut sid_to_lines: HashMap<u32, Vec<usize>> = HashMap::new();
+            for (i, l) in current_system.lines.iter().enumerate() {
+                if let Some(src) = &l.src { sid_to_lines.entry(src.sid).or_default().push(i); }
+                if let Some(dst) = &l.dst { sid_to_lines.entry(dst.sid).or_default().push(i); }
+                // also include branch destinations
+                fn collect_branch_sids(br: &crate::model::Branch, out: &mut Vec<u32>) {
+                    if let Some(dst) = &br.dst { out.push(dst.sid); }
+                    for sub in &br.branches { collect_branch_sids(sub, out); }
+                }
+                let mut br_sids = Vec::new();
+                for br in &l.branches { collect_branch_sids(br, &mut br_sids); }
+                for sid in br_sids { sid_to_lines.entry(sid).or_default().push(i); }
+            }
+            for (_sid, idxs) in &sid_to_lines {
+                for a in 0..idxs.len() {
+                    for b in (a+1)..idxs.len() {
+                        let i = idxs[a];
+                        let j = idxs[b];
+                        if !line_adjacency[i].contains(&j) { line_adjacency[i].push(j); }
+                        if !line_adjacency[j].contains(&i) { line_adjacency[j].push(i); }
+                    }
+                }
+            }
+
+            // Deterministic adjacency-aware rainbow color assignment
+            fn circular_dist(a: f32, b: f32) -> f32 {
+                let d = (a - b).abs();
+                d.min(1.0 - d)
+            }
+            fn hue_to_color32(h: f32) -> Color32 {
+                // Convert hue in [0,1) to RGB (simple HSV with s=0.85, v=0.95)
+                let s = 0.85f32;
+                let v = 0.95f32;
+                let h6 = (h * 6.0) % 6.0;
+                let c = v * s;
+                let x = c * (1.0 - ((h6 % 2.0) - 1.0).abs());
+                let (r1, g1, b1) = if h6 < 1.0 { (c, x, 0.0) }
+                else if h6 < 2.0 { (x, c, 0.0) }
+                else if h6 < 3.0 { (0.0, c, x) }
+                else if h6 < 4.0 { (0.0, x, c) }
+                else if h6 < 5.0 { (x, 0.0, c) } else { (c, 0.0, x) };
+                let m = v - c;
+                let (r, g, b) = (r1 + m, g1 + m, b1 + m);
+                Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
+            }
+            let n_lines = current_system.lines.len();
+            let palette: Vec<f32> = (0..n_lines).map(|i| (i as f32) / (n_lines.max(1) as f32)).collect();
+            // Order nodes by degree desc, then by index for determinism
+            let mut order: Vec<usize> = (0..n_lines).collect();
+            order.sort_by_key(|&i| (-(line_adjacency[i].len() as isize), i as isize));
+            let mut assigned_hues: Vec<Option<f32>> = vec![None; n_lines];
+            let mut remaining: Vec<f32> = palette.clone();
+            for i in order {
+                // Choose hue from remaining that maximizes minimum circular distance to already assigned neighbors
+                let neigh_hues: Vec<f32> = line_adjacency[i]
+                    .iter()
+                    .filter_map(|&j| assigned_hues[j])
+                    .collect();
+                let mut best_h = 0.0;
+                let mut best_score = -1.0f32;
+                for &h in &remaining {
+                    let score: f32 = if neigh_hues.is_empty() {
+                        // spread globally if no neighbor colors yet: maximize min distance to all used hues
+                        let used: Vec<f32> = assigned_hues.iter().flatten().copied().collect();
+                        if used.is_empty() { 1.0_f32 } else { used.iter().map(|&u| circular_dist(h, u)).fold(1.0_f32, |a, d| f32::min(a, d)) }
+                    } else {
+                        neigh_hues.iter().map(|&u| circular_dist(h, u)).fold(1.0_f32, |a, d| f32::min(a, d))
+                    };
+                    let s = score as f32;
+                    if s > best_score || (s == best_score && h < best_h) {
+                        best_score = s;
+                        best_h = h;
+                    }
+                }
+                assigned_hues[i] = Some(best_h);
+                if let Some(pos) = remaining.iter().position(|&x| (x - best_h).abs() < f32::EPSILON) {
+                    remaining.remove(pos);
+                }
+            }
+            let line_colors: Vec<Color32> = assigned_hues
+                .into_iter()
+                .enumerate()
+                .map(|(i, h)| {
+                    let default_h = (i as f32) / (n_lines.max(1) as f32);
+                    hue_to_color32(h.unwrap_or(default_h))
+                })
+                .collect();
+
+            let line_stroke_default = Stroke::new(2.0, Color32::LIGHT_GREEN);
             let mut port_counts: HashMap<(u32, u8), u32> = HashMap::new();
             fn reg_ep(ep: &EndpointRef, port_counts: &mut HashMap<(u32, u8), u32>) {
                 let key = (ep.sid, if ep.port_type == "out" { 1 } else { 0 });
@@ -540,8 +640,8 @@ impl eframe::App for SubsystemApp {
                 }
             }
 
-            let mut line_views: Vec<(&crate::model::Line, Vec<Pos2>, Pos2, bool)> = Vec::new();
-            for line in &current_system.lines {
+            let mut line_views: Vec<(&crate::model::Line, Vec<Pos2>, Pos2, bool, usize)> = Vec::new();
+            for (li, line) in current_system.lines.iter().enumerate() {
                 let Some(src) = line.src.as_ref() else {
                     eprintln!(
                         "Cannot draw line '{}': missing src endpoint",
@@ -595,7 +695,7 @@ impl eframe::App for SubsystemApp {
                 let resp = ui.allocate_rect(hit_rect, Sense::click());
                 let clicked = resp.clicked();
                 let main_anchor = *offsets_pts.last().unwrap_or(&cur);
-                line_views.push((line, screen_pts, main_anchor, clicked));
+                line_views.push((line, screen_pts, main_anchor, clicked, li));
             }
 
             fn draw_branch_rec(
@@ -634,13 +734,14 @@ impl eframe::App for SubsystemApp {
             }
 
             let painter = ui.painter();
-            for (line, screen_pts, main_anchor, clicked) in &line_views {
+            for (line, screen_pts, main_anchor, clicked, li) in &line_views {
+                let color = line_colors.get(*li).copied().unwrap_or(line_stroke_default.color);
+                let stroke = Stroke::new(2.0, color);
                 for seg in screen_pts.windows(2) {
-                    painter.line_segment([seg[0], seg[1]], line_stroke);
+                    painter.line_segment([seg[0], seg[1]], stroke);
                 }
-                let branch_color = Color32::from_rgb(120, 220, 120);
                 for br in &line.branches {
-                    draw_branch_rec(&painter, &to_screen, &sid_map, &port_counts, *main_anchor, br, branch_color);
+                    draw_branch_rec(&painter, &to_screen, &sid_map, &port_counts, *main_anchor, br, color);
                 }
                 if *clicked {
                     let cp = ctx.input(|i| i.pointer.interact_pos());
@@ -675,6 +776,159 @@ impl eframe::App for SubsystemApp {
                         }
                     }
                 }
+            }
+
+            // Place and render signal labels with collision avoidance
+            // Font sizes: blocks use ~14.0; signals use ~half
+            let block_label_font = 14.0f32;
+            let signal_font = (block_label_font * 0.5).round().max(7.0); // approx half, min 7
+            let sig_font_id = egui::FontId::proportional(signal_font);
+            let mut placed_label_rects: Vec<Rect> = Vec::new();
+            // Helper to expand rectangle by a factor around its center
+            fn expanded_rect(r: Rect, factor: f32) -> Rect {
+                let c = r.center();
+                let hw = r.width() * 0.5 * factor;
+                let hh = r.height() * 0.5 * factor;
+                Rect::from_center_size(c, Vec2::new(hw * 2.0, hh * 2.0))
+            }
+            // Render label for a given line polyline and chosen color
+            let mut draw_line_labels = |line: &crate::model::Line, screen_pts: &Vec<Pos2>, color: Color32| {
+                if screen_pts.len() < 2 { return; }
+                // Determine label text
+                let label_text = if let Some(name) = line.name.as_ref().and_then(|s| if s.trim().is_empty() { None } else { Some(s) }) {
+                    name.clone()
+                } else {
+                    let src_s = line.src.as_ref().and_then(|e| sid_to_name.get(&e.sid)).cloned().unwrap_or_else(|| format!("SID{}", line.src.as_ref().map(|e| e.sid).unwrap_or(0)));
+                    let dst_s = line.dst.as_ref().and_then(|e| sid_to_name.get(&e.sid)).cloned().unwrap_or_else(|| format!("SID{}", line.dst.as_ref().map(|e| e.sid).unwrap_or(0)));
+                    format!("{} → {}", src_s, dst_s)
+                };
+                // Build list of candidate segments (main polyline only), sorted by length desc
+                let mut segments: Vec<(Pos2, Pos2, f32)> = Vec::new();
+                for seg in screen_pts.windows(2) {
+                    let dx = seg[1].x - seg[0].x;
+                    let dy = seg[1].y - seg[0].y;
+                    let len = (dx*dx + dy*dy).sqrt();
+                    segments.push((seg[0], seg[1], len));
+                }
+                segments.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+
+                let mut final_rect: Option<Rect> = None;
+                let mut final_galley = None;
+                let mut best_score_overall = f32::INFINITY;
+
+                for (a, b, len) in segments {
+                    let horizontal = (a.y - b.y).abs() <= (a.x - b.x).abs();
+                    // Prepare text orientation: horizontal keeps as-is, vertical stacks characters with newlines
+                    let oriented_text = if horizontal {
+                        label_text.clone()
+                    } else {
+                        label_text
+                            .chars()
+                            .map(|c| c.to_string())
+                            .collect::<Vec<String>>()
+                            .join("\n")
+                    };
+                    let galley = ctx.fonts(|f| f.layout_no_wrap(oriented_text.clone(), sig_font_id.clone(), color));
+                    let size = galley.size();
+                    let seg_min = Pos2::new(a.x.min(b.x), a.y.min(b.y));
+                    let seg_max = Pos2::new(a.x.max(b.x), a.y.max(b.y));
+                    // Base center at middle of the segment
+                    let mut center = Pos2::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
+                    let mut perp_offset = if horizontal { Vec2::new(0.0, -6.0) } else { Vec2::new(8.0, 0.0) };
+                    // Allowed range along segment so that label stays fully within segment extents
+                    let (min_t, max_t, base_t, step_t, spill_penalty) = if horizontal {
+                        let half_w = 0.5 * size.x;
+                        let min_x = seg_min.x + half_w;
+                        let max_x = seg_max.x - half_w;
+                        let base = center.x.clamp(min_x, max_x);
+                        let spill = (size.x - (seg_max.x - seg_min.x)).max(0.0);
+                        (min_x, max_x, base, size.x.max(40.0) * 0.25, spill)
+                    } else {
+                        let half_h = 0.5 * size.y;
+                        let min_y = seg_min.y + half_h;
+                        let max_y = seg_max.y - half_h;
+                        let base = center.y.clamp(min_y, max_y);
+                        let spill = (size.y - (seg_max.y - seg_min.y)).max(0.0);
+                        (min_y, max_y, base, size.y.max(20.0) * 0.5, spill)
+                    };
+
+                    // Candidate search: slide along this segment and expand perpendicular offset deterministically
+                    let mut chosen_rect: Option<Rect> = None;
+                    let mut best_score = f32::INFINITY;
+                    let max_perp_multiples = 5;
+                    for k in 0..=max_perp_multiples {
+                        let cur_perp = Vec2::new(perp_offset.x * (1 + k as i32) as f32, perp_offset.y * (1 + k as i32) as f32);
+                        let max_span = (max_t - min_t).abs();
+                        let mut m = 0usize;
+                        loop {
+                            let delta = (m as f32) * step_t;
+                            let candidates = if m == 0 { vec![0.0] } else { vec![delta, -delta] };
+                            let mut progressed = false;
+                            for d in candidates {
+                                let mut c = center;
+                                if horizontal { c.x = (base_t + d).clamp(min_t, max_t); } else { c.y = (base_t + d).clamp(min_t, max_t); }
+                                let tl = Pos2::new(c.x + cur_perp.x - size.x * 0.5, c.y + cur_perp.y - size.y * 0.5);
+                                let br = Pos2::new(tl.x + size.x, tl.y + size.y);
+                                let rect = Rect::from_min_max(tl, br);
+                                let er = expanded_rect(rect, 1.5);
+                                let mut intersects = false;
+                                let mut max_inter_penalty = 0.0;
+                                for other in &placed_label_rects {
+                                    let o = expanded_rect(*other, 1.5);
+                                    if er.intersects(o) {
+                                        intersects = true;
+                                        let ix = (er.right() - o.left()).min(o.right() - er.left()).max(0.0);
+                                        let iy = (er.bottom() - o.top()).min(o.bottom() - er.top()).max(0.0);
+                                        let area = (ix * iy).max(0.0);
+                                        if area > max_inter_penalty { max_inter_penalty = area; }
+                                    }
+                                }
+                                // Penalty components: intersection area, center bias, and spill beyond segment extents
+                                let center_bias = if m == 0 && k == 0 { -1.0 } else { 0.0 };
+                                let spill_bias = spill_penalty * 100.0; // strongly discourage overflow of segment
+                                let score = (if intersects { max_inter_penalty } else { 0.0 }) + center_bias + spill_bias;
+                                if !intersects {
+                                    if score < best_score {
+                                        best_score = score;
+                                        chosen_rect = Some(rect);
+                                    }
+                                    // keep searching for possibly lower score with same segment
+                                } else if score < best_score {
+                                    best_score = score;
+                                    chosen_rect = Some(rect);
+                                }
+                                progressed = true;
+                            }
+                            if m == 0 && best_score.is_finite() && best_score <= 0.0 { break; }
+                            if best_score <= 0.0 { break; }
+                            m += 1;
+                            if delta > max_span + 1.0 { break; }
+                            if !progressed { break; }
+                        }
+                        if best_score <= 0.0 { break; }
+                    }
+
+                    if let Some(rect) = chosen_rect {
+                        if best_score < best_score_overall {
+                            best_score_overall = best_score;
+                            final_rect = Some(rect);
+                            final_galley = Some(galley);
+                        }
+                        if best_score <= 0.0 { break; }
+                    }
+                }
+
+                if let (Some(rect), Some(galley)) = (final_rect, final_galley) {
+                    let draw_pos = rect.min;
+                    painter.galley(draw_pos, galley, color);
+                    placed_label_rects.push(rect);
+                }
+            };
+
+            // Draw labels for each line using the computed colors and screen polylines
+            for (line, screen_pts, _main_anchor, _clicked, li) in &line_views {
+                let color = line_colors.get(*li).copied().unwrap_or(line_stroke_default.color);
+                draw_line_labels(line, screen_pts, color);
             }
 
             for (b, r_screen, clicked) in &block_views {
