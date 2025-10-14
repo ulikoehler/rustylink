@@ -653,6 +653,8 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             if !seen_port_labels.insert(key) { continue; }
             let Some(brect) = sid_screen_map.get(&sid).copied() else { continue; };
             let Some(block) = blocks.iter().find_map(|(b, _)| if b.sid.as_ref() == Some(&sid) { Some(*b) } else { None }) else { continue; };
+            // Do not show port labels if block has a mask
+            if block.mask_display_text.is_some() { continue; }
             let cfg = get_block_type_cfg(&block.block_type);
             if (is_input && !cfg.show_input_port_labels) || (!is_input && !cfg.show_output_port_labels) { continue; }
             let pname = block.ports.iter().filter(|p| p.port_type == if is_input { "in" } else { "out" } && p.index.unwrap_or(0) == index).filter_map(|p| {
