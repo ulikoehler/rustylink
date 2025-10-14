@@ -1,11 +1,14 @@
-# Simulink XML System Parser (Rust)
+# rustlylink
 
 <img src="docs/RustyLinkIcon.png" width="100">
 
-This crate parses Simulink `.xml` system descriptions (extracted from `.slx`) into a Rust data model and can output JSON.
+This crate parses Simulink `slx` files into a JSON representation and optionally provides code to display or analyze the model.
 
-- Recursively resolves `<System Ref="..."/>` and parses nested systems.
-- Captures system properties, blocks (including ports and block properties), and lines with branches.
+![](docs/Screenshot.png)
+
+This viewer is intended to be a starting point for building your own tools around Simulink models. While it does not intend to be a complete Simulink viewer (many features are unsupported), it is still useful for automation tasks.
+
+**You don't need a MATLAB or Simulink license or installation to use this tool.**
 
 ## Quick start
 
@@ -18,12 +21,10 @@ cargo build
 - Run against your workspace root system:
 
 ```sh
-cargo run -- ../simulink/systems/system_root.xml > parsed.json
+cargo run --features egui,highlight --example egui_viewer -- MyModel.slx
 ```
 
-If you run without an argument, it will try `simulink/systems/system_root.xml` relative to the current directory.
-
-## Examples
+## Non-GUI examples
 
 Print an ASCII tree of SubSystems in a model (works with `.slx` or individual XML):
 
