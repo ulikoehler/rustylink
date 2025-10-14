@@ -182,7 +182,22 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
             if let Some(sid) = &b.sid { sid_screen_map.insert(sid.clone(), r_screen); }
             let cfg = get_block_type_cfg(&b.block_type);
-            let bg = cfg.background.map(|c| Color32::from_rgb(c.0, c.1, c.2)).unwrap_or_else(|| Color32::from_rgb(210, 210, 210));
+            // If block.background_color is set, override type color
+            let bg = if let Some(ref color_str) = b.background_color {
+                // Simple color name mapping, extend as needed
+                match color_str.to_lowercase().as_str() {
+                    "yellow" => Color32::YELLOW,
+                    "red" => Color32::RED,
+                    "green" => Color32::GREEN,
+                    "blue" => Color32::BLUE,
+                    "black" => Color32::BLACK,
+                    "white" => Color32::WHITE,
+                    "gray" | "grey" => Color32::from_rgb(128,128,128),
+                    _ => Color32::from_rgb(210, 210, 210), // fallback
+                }
+            } else {
+                cfg.background.map(|c| Color32::from_rgb(c.0, c.1, c.2)).unwrap_or_else(|| Color32::from_rgb(210, 210, 210))
+            };
             ui.painter().rect_filled(r_screen, 6.0, bg);
             let resp = ui.allocate_rect(r_screen, Sense::click());
             resp.context_menu(|ui| {

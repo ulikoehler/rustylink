@@ -278,7 +278,26 @@ impl<S: ContentSource> SimulinkParser<S> {
                 codegen_terminate_code: c_codegen_term,
             })
         } else { None };
-    Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem, c_function, instance_data, mask, annotations })
+    Ok(Block {
+        block_type,
+        name,
+        sid,
+        position,
+        zorder,
+        commented,
+        is_matlab_function,
+        properties,
+        ports,
+        subsystem,
+        c_function,
+        instance_data,
+        mask,
+        annotations,
+        background_color: None,
+        show_name: None,
+        font_size: None,
+        font_weight: None,
+    })
     }
 }
 
