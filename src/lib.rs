@@ -14,3 +14,18 @@ pub mod label_place;
 // is used by the example in examples/egui_viewer.rs.
 #[cfg(feature = "egui")]
 pub mod egui_app;
+
+// Block type registry and configuration (egui feature)
+#[cfg(feature = "egui")]
+pub mod block_types;
+
+// Re-export core API so downstream users can easily access/modify the registry
+#[cfg(feature = "egui")]
+pub use block_types::{
+	BlockTypeConfig,
+	IconSpec,
+	Rgb,
+	get_block_type_config_map,
+	set_block_type_config,
+	update_block_type_config,
+};

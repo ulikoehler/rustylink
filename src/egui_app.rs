@@ -13,7 +13,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use egui::text::LayoutJob;
-use egui_phosphor::variants::regular;
+// phosphor icons are configured via block_types; no direct use here
+use crate::block_types::{self, BlockTypeConfig, IconSpec, Rgb};
 use crate::label_place::{self, Config as LabelConfig, Measurer as LabelMeasurer, Vec2f as V2, RectF as RF};
 
 use crate::model::{Block, Chart, EndpointRef, System};
@@ -223,20 +224,25 @@ pub fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect) {
     let icon_center = rect.center();
     let font = egui::FontId::new(icon_size, egui::FontFamily::Name("phosphor".into()));
     let dark_icon = Color32::from_rgb(40, 40, 40); // dark color for icons
-    match block.block_type.as_str() {
-        "Product" => {
-            painter.text(icon_center, Align2::CENTER_CENTER, regular::X, font, dark_icon);
+    // Lookup icon from centralized registry
+    let cfg = get_block_type_cfg(&block.block_type);
+    if let Some(icon) = cfg.icon {
+        match icon {
+            IconSpec::Phosphor(glyph) => {
+                painter.text(icon_center, Align2::CENTER_CENTER, glyph, font, dark_icon);
+            }
         }
-        "Constant" => {
-            painter.text(icon_center, Align2::CENTER_CENTER, regular::WRENCH, font, dark_icon);
-        }
-        "Scope" => {
-            painter.text(icon_center, Align2::CENTER_CENTER, regular::WAVE_SINE, font, dark_icon);
-        }
-        "ManualSwitch" => {
-            painter.text(icon_center, Align2::CENTER_CENTER, regular::TOGGLE_LEFT, font, dark_icon);
-        }
-        _ => {}
+    }
+}
+
+fn rgb_to_color32(c: Rgb) -> Color32 { Color32::from_rgb(c.0, c.1, c.2) }
+
+fn get_block_type_cfg(block_type: &str) -> BlockTypeConfig {
+    let map = block_types::get_block_type_config_map();
+    if let Ok(g) = map.read() {
+        g.get(block_type).cloned().unwrap_or_default()
+    } else {
+        BlockTypeConfig::default()
     }
 }
 
@@ -520,9 +526,10 @@ impl eframe::App for SubsystemApp {
                 }
                 let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
                 if let Some(sid) = b.sid { sid_screen_map.insert(sid, r_screen); }
-                // Draw block background with light gray color
-                let light_gray = Color32::from_rgb(230, 230, 230);
-                ui.painter().rect_filled(r_screen, 6.0, light_gray);
+                // Draw block background with configured color if provided
+                let cfg = get_block_type_cfg(&b.block_type);
+                let bg = cfg.background.map(rgb_to_color32).unwrap_or_else(|| Color32::from_rgb(210, 210, 210));
+                ui.painter().rect_filled(r_screen, 6.0, bg);
                 let resp = ui.allocate_rect(r_screen, Sense::click());
                 block_views.push((b, r_screen, resp.clicked()));
             }
@@ -1048,9 +1055,10 @@ impl eframe::App for SubsystemApp {
             }
 
             for (b, r_screen, clicked) in &block_views {
-                let fill = Color32::from_rgb(210, 210, 210); // light gray
-                let stroke = Stroke::new(2.0, Color32::from_rgb(180, 180, 200));
-                painter.rect_filled(*r_screen, 4.0, fill);
+                let cfg = get_block_type_cfg(&b.block_type);
+                // background already filled earlier; now draw border using config
+                let border_rgb = cfg.border.unwrap_or(Rgb(180, 180, 200));
+                let stroke = Stroke::new(2.0, rgb_to_color32(border_rgb));
                 painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
 
                 render_block_icon(&painter, b, r_screen);
@@ -1129,6 +1137,11 @@ impl eframe::App for SubsystemApp {
                 if !seen_port_labels.insert(key) { continue; }
                 let Some(brect) = sid_screen_map.get(&sid).copied() else { continue; };
                 let Some(block) = sid_to_block.get(&sid) else { continue; };
+                // Respect configuration for showing port labels
+                let cfg = get_block_type_cfg(&block.block_type);
+                if (is_input && !cfg.show_input_port_labels) || (!is_input && !cfg.show_output_port_labels) {
+                    continue;
+                }
                 // Choose the correct port set
                 let pname = block
                     .ports
