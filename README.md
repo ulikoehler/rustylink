@@ -4,6 +4,8 @@
 
 This crate parses Simulink `slx` files into a JSON representation and optionally provides code to display or analyze the model.
 
+**Important note:** At the moment, we only support the R2025a+ file format. At the moment, there are no plans to support older formats, but contributions are welcome.
+
 ![](docs/Screenshot.png)
 
 This viewer is intended to be a starting point for building your own tools around Simulink models. While it does not intend to be a complete Simulink viewer (many features are unsupported), it is still useful for automation tasks.
