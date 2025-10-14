@@ -219,15 +219,6 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                 cfg.background.map(|c| Color32::from_rgb(c.0, c.1, c.2)).unwrap_or_else(|| Color32::from_rgb(210, 210, 210))
             };
             ui.painter().rect_filled(r_screen, 6.0, bg);
-            // Only show block name if show_name is not set to false
-            let show_name = b.show_name.unwrap_or(true);
-            if show_name {
-                let font_id = egui::FontId::proportional(14.0);
-                let color = Color32::BLACK;
-                let galley = ui.painter().layout_no_wrap(b.name.clone(), font_id, color);
-                let text_pos = r_screen.center_top() + egui::vec2(0.0, 4.0);
-                ui.painter().galley(text_pos, galley, color);
-            }
             let resp = ui.allocate_rect(r_screen, Sense::click());
             resp.context_menu(|ui| {
                 if ui.button("Info").clicked() {
