@@ -141,6 +141,15 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
             ..Default::default()
         },
     );
+        m.insert(
+            "Terminator".to_string(),
+            BlockTypeConfig {
+                icon: Some(IconSpec::Phosphor(regular::BACKSPACE)),
+                show_input_port_labels: false,
+                show_output_port_labels: false,
+                ..Default::default()
+            },
+        );
 
     m
 }
