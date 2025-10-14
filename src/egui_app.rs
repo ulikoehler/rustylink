@@ -782,7 +782,8 @@ impl eframe::App for SubsystemApp {
             // Place and render signal labels with collision avoidance via label_place module
             // Font sizes: blocks use ~14.0; signals use ~half
             let block_label_font = 14.0f32;
-            let signal_font = (block_label_font * 0.5).round().max(7.0);
+            // Previously signal font was approx half the block font. Increase by 1.5x.
+            let signal_font = (block_label_font * 0.5 * 1.5).round().max(7.0);
             let sig_font_id = egui::FontId::proportional(signal_font);
 
             struct EguiMeasurer<'a> { ctx: &'a egui::Context, font: egui::FontId, color: Color32 }
