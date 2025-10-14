@@ -1,10 +1,10 @@
 use crate::model::*;
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use camino::{Utf8Path, Utf8PathBuf};
+use rayon::prelude::*;
 use roxmltree::{Document, Node};
 use std::collections::BTreeMap;
 use std::io::Read;
-use rayon::prelude::*;
 
 pub trait ContentSource {
     fn read_to_string(&mut self, path: &Utf8Path) -> Result<String>;
@@ -17,7 +17,9 @@ pub struct FsSource;
 impl FsSource {
     fn list_dir_impl(&mut self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
         let mut files = Vec::new();
-        for entry in std::fs::read_dir(path.as_std_path()).with_context(|| format!("Read dir {}", path))? {
+        for entry in
+            std::fs::read_dir(path.as_std_path()).with_context(|| format!("Read dir {}", path))?
+        {
             let entry = entry?;
             if entry.file_type()?.is_file() {
                 let p = camino::Utf8PathBuf::from_path_buf(entry.path())
@@ -34,7 +36,9 @@ impl ContentSource for FsSource {
         Ok(std::fs::read_to_string(path.as_str())
             .with_context(|| format!("Failed to read {}", path))?)
     }
-    fn list_dir(&mut self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>> { self.list_dir_impl(path) }
+    fn list_dir(&mut self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
+        self.list_dir_impl(path)
+    }
 }
 
 pub struct ZipSource<R: Read + std::io::Seek> {
@@ -67,8 +71,14 @@ impl<R: Read + std::io::Seek> ContentSource for ZipSource<R> {
 
     fn list_dir(&mut self, path: &Utf8Path) -> Result<Vec<Utf8PathBuf>> {
         let mut files = Vec::new();
-        let mut prefix = path.as_str().trim_start_matches("./").trim_start_matches('/').to_string();
-        if !prefix.is_empty() && !prefix.ends_with('/') { prefix.push('/'); }
+        let mut prefix = path
+            .as_str()
+            .trim_start_matches("./")
+            .trim_start_matches('/')
+            .to_string();
+        if !prefix.is_empty() && !prefix.ends_with('/') {
+            prefix.push('/');
+        }
         for i in 0..self.zip.len() {
             let name = self.zip.by_index(i)?.name().to_string();
             if name.starts_with(&prefix) {
@@ -98,7 +108,14 @@ pub struct SimulinkParser<S: ContentSource> {
 
 impl<S: ContentSource> SimulinkParser<S> {
     pub fn new(root_dir: impl AsRef<Utf8Path>, source: S) -> Self {
-    Self { root_dir: root_dir.as_ref().to_path_buf(), source, charts_by_id: BTreeMap::new(), system_to_chart_map: BTreeMap::new(), sid_to_chart_id: BTreeMap::new(), systems_shallow_by_path: BTreeMap::new() }
+        Self {
+            root_dir: root_dir.as_ref().to_path_buf(),
+            source,
+            charts_by_id: BTreeMap::new(),
+            system_to_chart_map: BTreeMap::new(),
+            sid_to_chart_id: BTreeMap::new(),
+            systems_shallow_by_path: BTreeMap::new(),
+        }
     }
 
     pub fn parse_system_file(&mut self, path: impl AsRef<Utf8Path>) -> Result<System> {
@@ -109,7 +126,8 @@ impl<S: ContentSource> SimulinkParser<S> {
         self.try_preload_systems_for(path);
         // Parse requested system shallowly, then link references using preloaded systems
         let text = self.source.read_to_string(path)?;
-        let doc = Document::parse(&text).with_context(|| format!("Failed to parse XML {}", path))?;
+        let doc =
+            Document::parse(&text).with_context(|| format!("Failed to parse XML {}", path))?;
         let system_node = doc
             .descendants()
             .find(|n| n.has_tag_name("System"))
@@ -118,7 +136,7 @@ impl<S: ContentSource> SimulinkParser<S> {
             .parent()
             .map(|p| p.to_owned())
             .unwrap_or_else(|| self.root_dir.clone());
-    let mut sys = crate::block::parse_system_shallow(system_node, base_dir_owned.as_path())?;
+        let mut sys = crate::block::parse_system_shallow(system_node, base_dir_owned.as_path())?;
         self.link_system_refs(&mut sys, base_dir_owned.as_path());
         Ok(sys)
     }
@@ -142,19 +160,25 @@ impl<S: ContentSource> SimulinkParser<S> {
                 "Line" => {
                     lines.push(crate::block::parse_line_node(child)?);
                 }
-                "Annotation" => {
-                    match crate::block::parse_annotation_node(child) {
-                        Ok(a) => annotations.push(a),
-                        Err(err) => eprintln!("[rustylink] Warning: failed to parse <Annotation>: {}", err),
+                "Annotation" => match crate::block::parse_annotation_node(child) {
+                    Ok(a) => annotations.push(a),
+                    Err(err) => {
+                        eprintln!("[rustylink] Warning: failed to parse <Annotation>: {}", err)
                     }
-                }
+                },
                 unknown => {
                     println!("Unknown tag in System: {}", unknown);
                 }
             }
         }
 
-        Ok(System { properties, blocks, lines, annotations, chart: None })
+        Ok(System {
+            properties,
+            blocks,
+            lines,
+            annotations,
+            chart: None,
+        })
     }
 
     fn parse_block(&mut self, node: Node, base_dir: &Utf8Path) -> Result<Block> {
@@ -165,7 +189,9 @@ impl<S: ContentSource> SimulinkParser<S> {
 
 // Block-related parsing helpers were refactored into `src/block.rs`.
 
-fn matches_ignore_case(a: &str, b: &str) -> bool { a.eq_ignore_ascii_case(b) }
+fn matches_ignore_case(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+}
 
 pub(crate) fn resolve_system_reference(reference: &str, base_dir: &Utf8Path) -> Utf8PathBuf {
     // The XML uses values like "system_22" or "system_22.xml"; files are in sibling directory or same base.
@@ -174,7 +200,11 @@ pub(crate) fn resolve_system_reference(reference: &str, base_dir: &Utf8Path) -> 
         candidate.set_extension("xml");
     }
     // If not absolute, join with base_dir
-    let path = if candidate.is_absolute() { candidate } else { base_dir.join(candidate) };
+    let path = if candidate.is_absolute() {
+        candidate
+    } else {
+        base_dir.join(candidate)
+    };
     path
 }
 
@@ -211,7 +241,10 @@ impl<S: ContentSource> SimulinkParser<S> {
         if let Ok(paths) = self.source.list_dir(&stateflow_dir) {
             let chart_paths: Vec<Utf8PathBuf> = paths
                 .into_iter()
-                .filter(|p| p.file_name().is_some_and(|f| f.starts_with("chart_") && f.ends_with(".xml")))
+                .filter(|p| {
+                    p.file_name()
+                        .is_some_and(|f| f.starts_with("chart_") && f.ends_with(".xml"))
+                })
                 .collect();
             // Read texts sequentially (ContentSource is &mut self), then parse in parallel
             let mut texts: Vec<(String, String)> = Vec::new();
@@ -236,10 +269,18 @@ impl<S: ContentSource> SimulinkParser<S> {
         }
     }
 
-    pub fn get_charts(&self) -> &BTreeMap<u32, Chart> { &self.charts_by_id }
-    pub fn get_system_to_chart_map(&self) -> &BTreeMap<String, u32> { &self.system_to_chart_map }
-    pub fn get_chart(&self, id: u32) -> Option<&Chart> { self.charts_by_id.get(&id) }
-    pub fn get_sid_to_chart_map(&self) -> &BTreeMap<String, u32> { &self.sid_to_chart_id }
+    pub fn get_charts(&self) -> &BTreeMap<u32, Chart> {
+        &self.charts_by_id
+    }
+    pub fn get_system_to_chart_map(&self) -> &BTreeMap<String, u32> {
+        &self.system_to_chart_map
+    }
+    pub fn get_chart(&self, id: u32) -> Option<&Chart> {
+        self.charts_by_id.get(&id)
+    }
+    pub fn get_sid_to_chart_map(&self) -> &BTreeMap<String, u32> {
+        &self.sid_to_chart_id
+    }
 }
 
 pub(crate) fn parse_points(s: &str) -> Vec<Point> {
@@ -252,7 +293,9 @@ pub(crate) fn parse_points(s: &str) -> Vec<Point> {
     let mut points = Vec::new();
     for pair in inner.split(';') {
         let pair = pair.trim();
-        if pair.is_empty() { continue; }
+        if pair.is_empty() {
+            continue;
+        }
         // split by comma
         let mut it = pair.split(',').map(|v| v.trim()).filter(|t| !t.is_empty());
         if let (Some(x), Some(y)) = (it.next(), it.next()) {
@@ -277,7 +320,11 @@ pub(crate) fn parse_endpoint(s: &str) -> Result<EndpointRef> {
         .ok_or_else(|| anyhow!("Invalid endpoint port format: {}", s))?;
     let port_type = ptype.trim().to_string();
     let port_index: u32 = pidx_str.trim().parse()?;
-    Ok(EndpointRef { sid, port_type, port_index })
+    Ok(EndpointRef {
+        sid,
+        port_type,
+        port_index,
+    })
 }
 
 // ---------------- Free helper functions and shallow parsing ----------------
@@ -285,7 +332,8 @@ pub(crate) fn parse_endpoint(s: &str) -> Result<EndpointRef> {
 // Block-related parsing helpers were moved to `src/block.rs`.
 
 fn parse_chart_from_text(text: &str, path_hint: Option<&str>) -> Result<Chart> {
-    let doc = Document::parse(text).with_context(|| format!("Failed to parse XML {}", path_hint.unwrap_or("<chart>")))?;
+    let doc = Document::parse(text)
+        .with_context(|| format!("Failed to parse XML {}", path_hint.unwrap_or("<chart>")))?;
     let chart_node = doc
         .descendants()
         .find(|n| n.is_element() && n.has_tag_name("chart"))
@@ -293,30 +341,47 @@ fn parse_chart_from_text(text: &str, path_hint: Option<&str>) -> Result<Chart> {
 
     // Collect top-level properties
     let mut properties = BTreeMap::new();
-    for p in chart_node.children().filter(|c| c.is_element() && c.has_tag_name("P")) {
+    for p in chart_node
+        .children()
+        .filter(|c| c.is_element() && c.has_tag_name("P"))
+    {
         if let Some(nm) = p.attribute("Name") {
             properties.insert(nm.to_string(), p.text().unwrap_or("").to_string());
         }
     }
 
-    let id = chart_node.attribute("id").and_then(|s| s.parse::<u32>().ok());
+    let id = chart_node
+        .attribute("id")
+        .and_then(|s| s.parse::<u32>().ok());
     let name = properties.get("name").cloned();
 
     // EML name
     let eml_name = chart_node
         .children()
         .find(|c| c.is_element() && c.has_tag_name("eml"))
-        .and_then(|eml| eml.children().find(|c| c.is_element() && c.has_tag_name("P") && c.attribute("Name") == Some("name")))
+        .and_then(|eml| {
+            eml.children().find(|c| {
+                c.is_element() && c.has_tag_name("P") && c.attribute("Name") == Some("name")
+            })
+        })
         .and_then(|p| p.text())
         .map(|s| s.to_string());
 
     // Script: search for P Name="script" under any <state>/<eml>
     let mut script: Option<String> = None;
-    for st in chart_node.descendants().filter(|c| c.is_element() && c.has_tag_name("state")) {
-        if let Some(eml) = st.children().find(|c| c.is_element() && c.has_tag_name("eml")) {
+    for st in chart_node
+        .descendants()
+        .filter(|c| c.is_element() && c.has_tag_name("state"))
+    {
+        if let Some(eml) = st
+            .children()
+            .find(|c| c.is_element() && c.has_tag_name("eml"))
+        {
             if let Some(scr) = eml
                 .children()
-                .find(|c| c.is_element() && c.has_tag_name("P") && c.attribute("Name") == Some("script"))
+                .find(|c| {
+                    c.is_element() && c.has_tag_name("P") && c.attribute("Name") == Some("script")
+                })
                 .and_then(|p| p.text())
             {
                 script = Some(scr.to_string());
@@ -328,9 +393,14 @@ fn parse_chart_from_text(text: &str, path_hint: Option<&str>) -> Result<Chart> {
     // Ports: inputs and outputs based on <data> nodes and their <P Name="scope">
     let mut inputs = Vec::new();
     let mut outputs = Vec::new();
-    for data in chart_node.descendants().filter(|c| c.is_element() && c.has_tag_name("data")) {
+    for data in chart_node
+        .descendants()
+        .filter(|c| c.is_element() && c.has_tag_name("data"))
+    {
         let port_name = data.attribute("name").unwrap_or("").to_string();
-        if port_name.is_empty() { continue; }
+        if port_name.is_empty() {
+            continue;
+        }
         let mut scope: Option<String> = None;
         let mut size: Option<String> = None;
         let mut method: Option<String> = None;
@@ -359,21 +429,27 @@ fn parse_chart_from_text(text: &str, path_hint: Option<&str>) -> Result<Chart> {
                     for pp in child.children().filter(|c| c.is_element()) {
                         match pp.tag_name().name() {
                             "array" => {
-                                if let Some(szp) = pp
-                                    .children()
-                                    .find(|c| c.is_element() && c.has_tag_name("P") && c.attribute("Name") == Some("size"))
-                                {
+                                if let Some(szp) = pp.children().find(|c| {
+                                    c.is_element()
+                                        && c.has_tag_name("P")
+                                        && c.attribute("Name") == Some("size")
+                                }) {
                                     size = szp.text().map(|s| s.to_string());
                                 }
                             }
                             "type" => {
-                                for tprop in pp.children().filter(|c| c.is_element() && c.has_tag_name("P")) {
+                                for tprop in pp
+                                    .children()
+                                    .filter(|c| c.is_element() && c.has_tag_name("P"))
+                                {
                                     if let Some(nm) = tprop.attribute("Name") {
                                         let val = tprop.text().unwrap_or("").to_string();
                                         match nm {
                                             "method" => method = Some(val),
                                             "primitive" => primitive = Some(val),
-                                            "isSigned" => is_signed = val.parse::<i32>().ok().map(|v| v != 0),
+                                            "isSigned" => {
+                                                is_signed = val.parse::<i32>().ok().map(|v| v != 0)
+                                            }
                                             "wordLength" => word_length = val.parse::<u32>().ok(),
                                             _ => {}
                                         }
@@ -381,10 +457,11 @@ fn parse_chart_from_text(text: &str, path_hint: Option<&str>) -> Result<Chart> {
                                 }
                             }
                             "unit" => {
-                                if let Some(up) = pp
-                                    .children()
-                                    .find(|c| c.is_element() && c.has_tag_name("P") && c.attribute("Name") == Some("name"))
-                                {
+                                if let Some(up) = pp.children().find(|c| {
+                                    c.is_element()
+                                        && c.has_tag_name("P")
+                                        && c.attribute("Name") == Some("name")
+                                }) {
                                     unit = up.text().map(|s| s.to_string());
                                 }
                             }
@@ -408,7 +485,18 @@ fn parse_chart_from_text(text: &str, path_hint: Option<&str>) -> Result<Chart> {
             }
         }
 
-        let port = ChartPort { name: port_name, size, method, primitive, is_signed, word_length, complexity, frame, data_type, unit };
+        let port = ChartPort {
+            name: port_name,
+            size,
+            method,
+            primitive,
+            is_signed,
+            word_length,
+            complexity,
+            frame,
+            data_type,
+            unit,
+        };
         match scope.as_deref() {
             Some("INPUT_DATA") => inputs.push(port),
             Some("OUTPUT_DATA") => outputs.push(port),
@@ -416,7 +504,15 @@ fn parse_chart_from_text(text: &str, path_hint: Option<&str>) -> Result<Chart> {
         }
     }
 
-    Ok(Chart { id, name, eml_name, script, inputs, outputs, properties })
+    Ok(Chart {
+        id,
+        name,
+        eml_name,
+        script,
+        inputs,
+        outputs,
+        properties,
+    })
 }
 
 impl<S: ContentSource> SimulinkParser<S> {
@@ -439,14 +535,19 @@ impl<S: ContentSource> SimulinkParser<S> {
         if let Ok(paths) = self.source.list_dir(&systems_dir) {
             let sys_paths: Vec<Utf8PathBuf> = paths
                 .into_iter()
-                .filter(|p| p.file_name().is_some_and(|f| f.starts_with("system_") && f.ends_with(".xml")))
+                .filter(|p| {
+                    p.file_name()
+                        .is_some_and(|f| f.starts_with("system_") && f.ends_with(".xml"))
+                })
                 .collect();
             // Avoid re-parsing if already loaded (basic check)
             let to_read: Vec<Utf8PathBuf> = sys_paths
                 .into_iter()
                 .filter(|p| !self.systems_shallow_by_path.contains_key(p.as_str()))
                 .collect();
-            if to_read.is_empty() { return; }
+            if to_read.is_empty() {
+                return;
+            }
             // Read texts sequentially
             let mut pairs: Vec<(Utf8PathBuf, String)> = Vec::new();
             for p in &to_read {
@@ -477,7 +578,8 @@ impl<S: ContentSource> SimulinkParser<S> {
             // Merge serially
             for (p, res) in parsed {
                 if let Ok(sys) = res {
-                    self.systems_shallow_by_path.insert(p.as_str().to_string(), sys);
+                    self.systems_shallow_by_path
+                        .insert(p.as_str().to_string(), sys);
                 }
             }
         }

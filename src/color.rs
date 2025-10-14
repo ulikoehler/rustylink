@@ -3,7 +3,7 @@ pub fn parse_color(val: &str) -> Option<String> {
     let val = val.trim();
     if val.starts_with('[') && val.ends_with(']') {
         // Parse [r,g,b] array, e.g. [1.0, 0.411765, 0.380392]
-        let inner = &val[1..val.len()-1];
+        let inner = &val[1..val.len() - 1];
         let parts: Vec<&str> = inner.split(',').map(|s| s.trim()).collect();
         if parts.len() == 3 {
             let r = parts[0].parse::<f32>().unwrap_or(0.0);

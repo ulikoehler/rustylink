@@ -6,7 +6,11 @@ use std::fs::File;
 use std::io::BufReader;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Find and print every ManualSwitch block in a Simulink model")]
+#[command(
+    author,
+    version,
+    about = "Find and print every ManualSwitch block in a Simulink model"
+)]
 struct Cli {
     /// Path to .slx (zip) or system XML file
     #[arg(value_name = "SIMULINK_FILE")]
@@ -25,7 +29,9 @@ fn main() -> Result<()> {
         parser.parse_system_file(&root)?
     } else {
         let mut parser = SimulinkParser::new(".", FsSource);
-        parser.parse_system_file(&path).with_context(|| format!("Failed to parse {}", path))?
+        parser
+            .parse_system_file(&path)
+            .with_context(|| format!("Failed to parse {}", path))?
     };
 
     // Find ManualSwitch blocks and print with their subsystem path
@@ -41,7 +47,10 @@ fn main() -> Result<()> {
         } else {
             format!("/{}/{}", path.join("/"), blk.name)
         };
-        println!("Found ManualSwitch: {} (type: {})", full_path, blk.block_type);
+        println!(
+            "Found ManualSwitch: {} (type: {})",
+            full_path, blk.block_type
+        );
         if !blk.properties.is_empty() {
             println!("  properties:");
             for (k, v) in &blk.properties {

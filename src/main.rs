@@ -1,10 +1,9 @@
 // Use the library crate's modules instead of redefining them here.
 
 use anyhow::{Context, Result};
-use camino::{Utf8PathBuf};
-use rustylink::parser::{FsSource, SimulinkParser, ZipSource};
+use camino::Utf8PathBuf;
 use clap::Parser;
-
+use rustylink::parser::{FsSource, SimulinkParser, ZipSource};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Parse Simulink .slx or XML system files to JSON", long_about = None)]
@@ -33,7 +32,9 @@ fn main() -> Result<()> {
             parser.parse_system_file(&root)?
         } else {
             let mut parser = SimulinkParser::new(&root_dir, FsSource);
-            parser.parse_system_file(&path).with_context(|| format!("Failed to parse {}", path))?
+            parser
+                .parse_system_file(&path)
+                .with_context(|| format!("Failed to parse {}", path))?
         };
         let json = serde_json::to_string_pretty(&system)?;
         println!("{}", json);
@@ -41,11 +42,136 @@ fn main() -> Result<()> {
         // Report unknown tags and block types
         let mut unknown_tags = std::collections::BTreeSet::new();
         let mut unknown_block_types = std::collections::BTreeSet::new();
-        let known_tags = ["System", "Block", "Line", "P", "PortCounts", "PortProperties", "Port", "Branch"];
-        let known_block_types = [
-            "SubSystem", "Inport", "Outport", "Gain", "Sum", "Product", "Constant", "Scope", "Integrator", "S-Function", "Switch", "Mux", "Demux", "UnitDelay", "DiscreteTransferFcn", "DiscreteFilter", "DiscreteStateSpace", "TransferFcn", "StateSpace", "From", "Goto", "Selector", "Display", "Saturate", "RelationalOperator", "LogicalOperator", "CompareToZero", "CompareToConstant", "Lookup_n-D", "Lookup", "Fcn", "MATLABFcn", "DataStoreRead", "DataStoreWrite", "DataStoreMemory", "Merge", "MultiPortSwitch", "RateTransition", "ZeroOrderHold", "TriggeredSubsystem", "EnabledSubsystem", "ActionPort", "If", "IfActionSubsystem", "ForEach", "ForEachSubsystem", "WhileIterator", "WhileSubsystem", "ModelReference", "BusCreator", "BusSelector", "BusAssignment", "BusElement", "BusToVector", "VectorToBus", "SignalConversion", "Sqrt", "Abs", "MinMax", "MaxMin", "Min", "Max", "SumOfElements", "SineWave", "Step", "Ramp", "PulseGenerator", "RandomNumber", "UniformRandomNumber", "RepeatingSequence", "RepeatingSequenceStair", "RepeatingSequenceRamp", "TriggeredDelay", "TriggeredSampleAndHold", "TriggeredToWorkspace", "TriggeredWriteToFile", "TriggeredReadFromFile", "TriggeredFromWorkspace", "TriggeredReadFromFile", "TriggeredWriteToFile", "TriggeredToWorkspace", "TriggeredFromWorkspace", "TriggeredSubsystem", "EnabledSubsystem", "IfActionSubsystem", "ForEachSubsystem", "WhileSubsystem", "ModelReference", "BusCreator", "BusSelector", "BusAssignment", "BusElement", "BusToVector", "VectorToBus", "SignalConversion", "Sqrt", "Abs", "MinMax", "MaxMin", "Min", "Max", "SumOfElements", "SineWave", "Step", "Ramp", "PulseGenerator", "RandomNumber", "UniformRandomNumber", "RepeatingSequence", "RepeatingSequenceStair", "RepeatingSequenceRamp"
+        let known_tags = [
+            "System",
+            "Block",
+            "Line",
+            "P",
+            "PortCounts",
+            "PortProperties",
+            "Port",
+            "Branch",
         ];
-        fn scan_xml(path: &Utf8PathBuf, unknown_tags: &mut std::collections::BTreeSet<String>, unknown_block_types: &mut std::collections::BTreeSet<String>, known_tags: &[&str], known_block_types: &[&str]) -> Result<()> {
+        let known_block_types = [
+            "SubSystem",
+            "Inport",
+            "Outport",
+            "Gain",
+            "Sum",
+            "Product",
+            "Constant",
+            "Scope",
+            "Integrator",
+            "S-Function",
+            "Switch",
+            "Mux",
+            "Demux",
+            "UnitDelay",
+            "DiscreteTransferFcn",
+            "DiscreteFilter",
+            "DiscreteStateSpace",
+            "TransferFcn",
+            "StateSpace",
+            "From",
+            "Goto",
+            "Selector",
+            "Display",
+            "Saturate",
+            "RelationalOperator",
+            "LogicalOperator",
+            "CompareToZero",
+            "CompareToConstant",
+            "Lookup_n-D",
+            "Lookup",
+            "Fcn",
+            "MATLABFcn",
+            "DataStoreRead",
+            "DataStoreWrite",
+            "DataStoreMemory",
+            "Merge",
+            "MultiPortSwitch",
+            "RateTransition",
+            "ZeroOrderHold",
+            "TriggeredSubsystem",
+            "EnabledSubsystem",
+            "ActionPort",
+            "If",
+            "IfActionSubsystem",
+            "ForEach",
+            "ForEachSubsystem",
+            "WhileIterator",
+            "WhileSubsystem",
+            "ModelReference",
+            "BusCreator",
+            "BusSelector",
+            "BusAssignment",
+            "BusElement",
+            "BusToVector",
+            "VectorToBus",
+            "SignalConversion",
+            "Sqrt",
+            "Abs",
+            "MinMax",
+            "MaxMin",
+            "Min",
+            "Max",
+            "SumOfElements",
+            "SineWave",
+            "Step",
+            "Ramp",
+            "PulseGenerator",
+            "RandomNumber",
+            "UniformRandomNumber",
+            "RepeatingSequence",
+            "RepeatingSequenceStair",
+            "RepeatingSequenceRamp",
+            "TriggeredDelay",
+            "TriggeredSampleAndHold",
+            "TriggeredToWorkspace",
+            "TriggeredWriteToFile",
+            "TriggeredReadFromFile",
+            "TriggeredFromWorkspace",
+            "TriggeredReadFromFile",
+            "TriggeredWriteToFile",
+            "TriggeredToWorkspace",
+            "TriggeredFromWorkspace",
+            "TriggeredSubsystem",
+            "EnabledSubsystem",
+            "IfActionSubsystem",
+            "ForEachSubsystem",
+            "WhileSubsystem",
+            "ModelReference",
+            "BusCreator",
+            "BusSelector",
+            "BusAssignment",
+            "BusElement",
+            "BusToVector",
+            "VectorToBus",
+            "SignalConversion",
+            "Sqrt",
+            "Abs",
+            "MinMax",
+            "MaxMin",
+            "Min",
+            "Max",
+            "SumOfElements",
+            "SineWave",
+            "Step",
+            "Ramp",
+            "PulseGenerator",
+            "RandomNumber",
+            "UniformRandomNumber",
+            "RepeatingSequence",
+            "RepeatingSequenceStair",
+            "RepeatingSequenceRamp",
+        ];
+        fn scan_xml(
+            path: &Utf8PathBuf,
+            unknown_tags: &mut std::collections::BTreeSet<String>,
+            unknown_block_types: &mut std::collections::BTreeSet<String>,
+            known_tags: &[&str],
+            known_block_types: &[&str],
+        ) -> Result<()> {
             let text = std::fs::read_to_string(path)?;
             let doc = roxmltree::Document::parse(&text)?;
             for node in doc.descendants().filter(|n| n.is_element()) {
@@ -68,13 +194,24 @@ fn main() -> Result<()> {
         if simulink_dir.exists() {
             for entry in walkdir::WalkDir::new(simulink_dir) {
                 let entry = entry?;
-                if entry.path().extension().map(|e| e == "xml").unwrap_or(false) {
+                if entry
+                    .path()
+                    .extension()
+                    .map(|e| e == "xml")
+                    .unwrap_or(false)
+                {
                     xml_files.push(Utf8PathBuf::from_path_buf(entry.path().to_path_buf()).unwrap());
                 }
             }
         }
         for xml in &xml_files {
-            let _ = scan_xml(xml, &mut unknown_tags, &mut unknown_block_types, &known_tags, &known_block_types);
+            let _ = scan_xml(
+                xml,
+                &mut unknown_tags,
+                &mut unknown_block_types,
+                &known_tags,
+                &known_block_types,
+            );
         }
         let result = serde_json::json!({
             "unknown_tags": unknown_tags,

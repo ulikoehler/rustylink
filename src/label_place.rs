@@ -29,22 +29,44 @@
 use std::cmp::Ordering;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Vec2f { pub x: f32, pub y: f32 }
+pub struct Vec2f {
+    pub x: f32,
+    pub y: f32,
+}
 
 impl Vec2f {
-    pub fn new(x: f32, y: f32) -> Self { Self { x, y } }
+    pub fn new(x: f32, y: f32) -> Self {
+        Self { x, y }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RectF { pub min: Vec2f, pub max: Vec2f }
+pub struct RectF {
+    pub min: Vec2f,
+    pub max: Vec2f,
+}
 
 impl RectF {
-    pub fn from_min_max(min: Vec2f, max: Vec2f) -> Self { Self { min, max } }
-    pub fn center(&self) -> Vec2f { Vec2f::new((self.min.x + self.max.x) * 0.5, (self.min.y + self.max.y) * 0.5) }
-    pub fn width(&self) -> f32 { self.max.x - self.min.x }
-    pub fn height(&self) -> f32 { self.max.y - self.min.y }
+    pub fn from_min_max(min: Vec2f, max: Vec2f) -> Self {
+        Self { min, max }
+    }
+    pub fn center(&self) -> Vec2f {
+        Vec2f::new(
+            (self.min.x + self.max.x) * 0.5,
+            (self.min.y + self.max.y) * 0.5,
+        )
+    }
+    pub fn width(&self) -> f32 {
+        self.max.x - self.min.x
+    }
+    pub fn height(&self) -> f32 {
+        self.max.y - self.min.y
+    }
     pub fn intersects(&self, other: RectF) -> bool {
-        !(self.max.x <= other.min.x || other.max.x <= self.min.x || self.max.y <= other.min.y || other.max.y <= self.min.y)
+        !(self.max.x <= other.min.x
+            || other.max.x <= self.min.x
+            || self.max.y <= other.min.y
+            || other.max.y <= self.min.y)
     }
 }
 
@@ -88,8 +110,16 @@ fn expanded_rect(r: RectF, factor: f32) -> RectF {
 
 /// Place a label along a polyline (list of points in screen space).
 /// Returns the chosen rectangle and orientation.
-pub fn place_label(polyline: &[Vec2f], text: &str, measurer: &dyn Measurer, cfg: Config, placed: &[RectF]) -> Option<PlacementResult> {
-    if polyline.len() < 2 { return None; }
+pub fn place_label(
+    polyline: &[Vec2f],
+    text: &str,
+    measurer: &dyn Measurer,
+    cfg: Config,
+    placed: &[RectF],
+) -> Option<PlacementResult> {
+    if polyline.len() < 2 {
+        return None;
+    }
 
     // Build segments and sort by length descending
     let mut segs: Vec<(usize, Vec2f, Vec2f, f32)> = Vec::new();
@@ -97,7 +127,7 @@ pub fn place_label(polyline: &[Vec2f], text: &str, measurer: &dyn Measurer, cfg:
         let (a, b) = (w[0], w[1]);
         let dx = b.x - a.x;
         let dy = b.y - a.y;
-        let len = (dx*dx + dy*dy).sqrt();
+        let len = (dx * dx + dy * dy).sqrt();
         segs.push((i, a, b, len));
     }
     segs.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(Ordering::Equal));
@@ -110,15 +140,21 @@ pub fn place_label(polyline: &[Vec2f], text: &str, measurer: &dyn Measurer, cfg:
         let oriented_text = if horizontal {
             text.to_string()
         } else {
-            text.chars().map(|c| c.to_string()).collect::<Vec<String>>().join("\n")
+            text.chars()
+                .map(|c| c.to_string())
+                .collect::<Vec<String>>()
+                .join("\n")
         };
         let (w, h) = measurer.measure(&oriented_text);
-        let seg_min_x = a.x.min(b.x); let seg_max_x = a.x.max(b.x);
-        let seg_min_y = a.y.min(b.y); let seg_max_y = a.y.max(b.y);
+        let seg_min_x = a.x.min(b.x);
+        let seg_max_x = a.x.max(b.x);
+        let seg_min_y = a.y.min(b.y);
+        let seg_max_y = a.y.max(b.y);
         // Center point of the segment
-    let cx = (a.x + b.x) * 0.5; let cy = (a.y + b.y) * 0.5;
-    let base_off_x = if horizontal { 0.0 } else { cfg.perp_offset };
-    let base_off_y = if horizontal { -cfg.perp_offset } else { 0.0 };
+        let cx = (a.x + b.x) * 0.5;
+        let cy = (a.y + b.y) * 0.5;
+        let base_off_x = if horizontal { 0.0 } else { cfg.perp_offset };
+        let base_off_y = if horizontal { -cfg.perp_offset } else { 0.0 };
 
         // Allowed extent for center so label stays within segment bounds
         let (min_t, max_t, base_t, step_t, spill) = if horizontal {
@@ -134,7 +170,13 @@ pub fn place_label(polyline: &[Vec2f], text: &str, measurer: &dyn Measurer, cfg:
                 (mid, mid, mid)
             };
             let spill = (w - seg_len).max(0.0);
-            (minx, maxx, base, (w.max(40.0) * cfg.step_fraction).max(1.0), spill)
+            (
+                minx,
+                maxx,
+                base,
+                (w.max(40.0) * cfg.step_fraction).max(1.0),
+                spill,
+            )
         } else {
             let seg_len = seg_max_y - seg_min_y;
             let half = 0.5 * h; // slide along y
@@ -147,7 +189,13 @@ pub fn place_label(polyline: &[Vec2f], text: &str, measurer: &dyn Measurer, cfg:
                 (mid, mid, mid)
             };
             let spill = (h - seg_len).max(0.0);
-            (miny, maxy, base, (h.max(20.0) * cfg.step_fraction).max(1.0), spill)
+            (
+                miny,
+                maxy,
+                base,
+                (h.max(20.0) * cfg.step_fraction).max(1.0),
+                spill,
+            )
         };
 
         let mut chosen: Option<(RectF, f32)> = None; // (rect, score)
@@ -160,12 +208,21 @@ pub fn place_label(polyline: &[Vec2f], text: &str, measurer: &dyn Measurer, cfg:
             let mut m = 0usize;
             loop {
                 let delta = (m as f32) * step_t;
-                let ds: Vec<f32> = if m == 0 { vec![0.0] } else { vec![delta, -delta] };
+                let ds: Vec<f32> = if m == 0 {
+                    vec![0.0]
+                } else {
+                    vec![delta, -delta]
+                };
                 let mut progressed = false;
                 for d in ds {
-                    let mut ccx = cx; let mut ccy = cy;
-                    if horizontal { ccx = (base_t + d).clamp(min_t, max_t); } else { ccy = (base_t + d).clamp(min_t, max_t); }
-                    let tl = Vec2f::new(ccx + off_x - w*0.5, ccy + off_y - h*0.5);
+                    let mut ccx = cx;
+                    let mut ccy = cy;
+                    if horizontal {
+                        ccx = (base_t + d).clamp(min_t, max_t);
+                    } else {
+                        ccy = (base_t + d).clamp(min_t, max_t);
+                    }
+                    let tl = Vec2f::new(ccx + off_x - w * 0.5, ccy + off_y - h * 0.5);
                     let br = Vec2f::new(tl.x + w, tl.y + h);
                     let rect = RectF::from_min_max(tl, br);
                     let er = expanded_rect(rect, cfg.expand_factor);
@@ -185,26 +242,42 @@ pub fn place_label(polyline: &[Vec2f], text: &str, measurer: &dyn Measurer, cfg:
                     let spill_bias = spill * 100.0; // strong penalty for spill
                     let score = (if intersect { overlap } else { 0.0 }) + center_bias + spill_bias;
                     if !intersect {
-                        if score < best_score { best_score = score; chosen = Some((rect, score)); }
+                        if score < best_score {
+                            best_score = score;
+                            chosen = Some((rect, score));
+                        }
                     } else if score < best_score {
-                        best_score = score; chosen = Some((rect, score));
+                        best_score = score;
+                        chosen = Some((rect, score));
                     }
                     progressed = true;
                 }
-                if m == 0 && best_score.is_finite() && best_score <= 0.0 { break; }
-                if best_score <= 0.0 { break; }
+                if m == 0 && best_score.is_finite() && best_score <= 0.0 {
+                    break;
+                }
+                if best_score <= 0.0 {
+                    break;
+                }
                 m += 1;
-                if delta > max_span + 1.0 { break; }
-                if !progressed { break; }
+                if delta > max_span + 1.0 {
+                    break;
+                }
+                if !progressed {
+                    break;
+                }
             }
-            if best_score <= 0.0 { break; }
+            if best_score <= 0.0 {
+                break;
+            }
         }
 
         if let Some((rect, score)) = chosen {
-            if best_overall.map(|(_,_,s)| score < s).unwrap_or(true) {
+            if best_overall.map(|(_, _, s)| score < s).unwrap_or(true) {
                 best_overall = Some((rect, horizontal, score));
             }
-            if score <= 0.0 { break; }
+            if score <= 0.0 {
+                break;
+            }
         }
     }
 

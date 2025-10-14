@@ -1,9 +1,11 @@
-use rustylink::parser::{ContentSource, SimulinkParser};
-use camino::Utf8PathBuf;
 use anyhow::Result;
+use camino::Utf8PathBuf;
+use rustylink::parser::{ContentSource, SimulinkParser};
 use std::collections::HashMap;
 
-struct MemSource { files: HashMap<String, String> }
+struct MemSource {
+    files: HashMap<String, String>,
+}
 impl ContentSource for MemSource {
     fn read_to_string(&mut self, path: &camino::Utf8Path) -> Result<String> {
         self.files
@@ -15,7 +17,9 @@ impl ContentSource for MemSource {
         let prefix = path.as_str().trim_end_matches('/').to_string() + "/";
         let mut out = Vec::new();
         for k in self.files.keys() {
-            if k.starts_with(&prefix) { out.push(Utf8PathBuf::from(k.clone())); }
+            if k.starts_with(&prefix) {
+                out.push(Utf8PathBuf::from(k.clone()));
+            }
         }
         Ok(out)
     }
@@ -50,7 +54,15 @@ fn parse_block_instance_data_kv() {
     let b0 = &system.blocks[0];
     assert_eq!(b0.name, "Detect Increase7");
     let id = b0.instance_data.as_ref().expect("InstanceData present");
-    assert_eq!(id.properties.get("ContentPreviewEnabled").map(|s| s.as_str()), Some("off"));
+    assert_eq!(
+        id.properties
+            .get("ContentPreviewEnabled")
+            .map(|s| s.as_str()),
+        Some("off")
+    );
     assert_eq!(id.properties.get("vinit").map(|s| s.as_str()), Some("0.0"));
-    assert_eq!(id.properties.get("OutDataTypeStr").map(|s| s.as_str()), Some("boolean"));
+    assert_eq!(
+        id.properties.get("OutDataTypeStr").map(|s| s.as_str()),
+        Some("boolean")
+    );
 }

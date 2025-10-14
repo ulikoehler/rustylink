@@ -1,10 +1,12 @@
 #![cfg(feature = "egui")]
 
-use eframe::egui::{self, Align2, Color32, Rect};
 use crate::block_types::{self, BlockTypeConfig, IconSpec, Rgb};
 use crate::model::Block;
+use eframe::egui::{self, Align2, Color32, Rect};
 
-pub(crate) fn rgb_to_color32(c: Rgb) -> Color32 { Color32::from_rgb(c.0, c.1, c.2) }
+pub(crate) fn rgb_to_color32(c: Rgb) -> Color32 {
+    Color32::from_rgb(c.0, c.1, c.2)
+}
 
 pub(crate) fn get_block_type_cfg(block_type: &str) -> BlockTypeConfig {
     let map = block_types::get_block_type_config_map();

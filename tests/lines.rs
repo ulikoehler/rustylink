@@ -1,6 +1,6 @@
-use rustylink::parser::{ContentSource, SimulinkParser};
-use camino::Utf8PathBuf;
 use anyhow::Result;
+use camino::Utf8PathBuf;
+use rustylink::parser::{ContentSource, SimulinkParser};
 use std::collections::HashMap;
 
 struct MemSource {
@@ -8,20 +8,22 @@ struct MemSource {
 }
 
 impl ContentSource for MemSource {
-  fn read_to_string(&mut self, path: &camino::Utf8Path) -> Result<String> {
+    fn read_to_string(&mut self, path: &camino::Utf8Path) -> Result<String> {
         self.files
             .get(path.as_str())
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("not found: {}", path))
     }
-  fn list_dir(&mut self, path: &camino::Utf8Path) -> Result<Vec<Utf8PathBuf>> {
-    let prefix = path.as_str().trim_end_matches('/').to_string() + "/";
-    let mut out = Vec::new();
-    for k in self.files.keys() {
-      if k.starts_with(&prefix) { out.push(Utf8PathBuf::from(k.clone())); }
+    fn list_dir(&mut self, path: &camino::Utf8Path) -> Result<Vec<Utf8PathBuf>> {
+        let prefix = path.as_str().trim_end_matches('/').to_string() + "/";
+        let mut out = Vec::new();
+        for k in self.files.keys() {
+            if k.starts_with(&prefix) {
+                out.push(Utf8PathBuf::from(k.clone()));
+            }
+        }
+        Ok(out)
     }
-    Ok(out)
-  }
 }
 
 #[test]
@@ -71,18 +73,23 @@ fn parse_lines_and_branches_points_and_endpoints() {
 
     // Src endpoint parsed
     let src = freq.src.as_ref().expect("src present");
-  assert_eq!(src.sid, "5");
+    assert_eq!(src.sid, "5");
     assert_eq!(src.port_type, "out");
     assert_eq!(src.port_index, 1);
 
     // Branches parsed, with nested points and dst endpoint
     assert!(freq.branches.len() >= 2);
     // One branch should have Dst 11#in:2 and a single point [0, -105]
-  let b = freq
-    .branches
-    .iter()
-    .find(|b| b.dst.as_ref().map(|d| (d.sid.as_str(), d.port_type.as_str(), d.port_index)) == Some(("11", "in", 2)))
-    .expect("branch to 11#in:2");
+    let b = freq
+        .branches
+        .iter()
+        .find(|b| {
+            b.dst
+                .as_ref()
+                .map(|d| (d.sid.as_str(), d.port_type.as_str(), d.port_index))
+                == Some(("11", "in", 2))
+        })
+        .expect("branch to 11#in:2");
     assert_eq!(b.points.len(), 1);
     assert_eq!((b.points[0].x, b.points[0].y), (0, -105));
 }

@@ -5,15 +5,17 @@
 
 #![cfg(feature = "egui")]
 
-mod navigation;
-mod text;
 mod geometry;
+mod navigation;
 mod render;
 mod state;
+mod text;
 mod ui;
 
 pub use geometry::{endpoint_pos, endpoint_pos_with_target, parse_block_rect, port_anchor_pos};
-pub use navigation::{collect_subsystems_paths, resolve_subsystem_by_path, resolve_subsystem_by_vec};
+pub use navigation::{
+    collect_subsystems_paths, resolve_subsystem_by_path, resolve_subsystem_by_vec,
+};
 pub use render::render_block_icon;
 pub use state::{
     BlockContextMenuItem, BlockDialog, BlockDialogButton, ChartView, SignalContextMenuItem,

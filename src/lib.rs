@@ -1,15 +1,14 @@
+pub mod block;
 /// Simulink System XML parser.
 ///
 /// This crate provides a `SimulinkParser` to load and parse Simulink XML system
 /// descriptions into strongly-typed Rust structures.
 ///
 /// The binary `rustylink` demonstrates usage and prints the parsed JSON.
-
 pub mod color;
+pub mod label_place;
 pub mod model;
 pub mod parser;
-pub mod block;
-pub mod label_place;
 
 // Optional mask evaluation feature
 pub mod mask_eval;
@@ -27,10 +26,6 @@ pub mod block_types;
 // Re-export core API so downstream users can easily access/modify the registry
 #[cfg(feature = "egui")]
 pub use block_types::{
-	BlockTypeConfig,
-	IconSpec,
-	Rgb,
-	get_block_type_config_map,
-	set_block_type_config,
-	update_block_type_config,
+    BlockTypeConfig, IconSpec, Rgb, get_block_type_config_map, set_block_type_config,
+    update_block_type_config,
 };

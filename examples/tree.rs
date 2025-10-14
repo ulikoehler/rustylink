@@ -7,7 +7,11 @@ use std::fs::File;
 use std::io::BufReader;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Print an ASCII tree of SubSystems in a Simulink model")]
+#[command(
+    author,
+    version,
+    about = "Print an ASCII tree of SubSystems in a Simulink model"
+)]
 struct Cli {
     /// Path to .slx (zip) or system XML file
     #[arg(value_name = "SIMULINK_FILE")]
@@ -26,7 +30,9 @@ fn main() -> Result<()> {
         parser.parse_system_file(&root)?
     } else {
         let mut parser = SimulinkParser::new(".", FsSource);
-        parser.parse_system_file(&path).with_context(|| format!("Failed to parse {}", path))?
+        parser
+            .parse_system_file(&path)
+            .with_context(|| format!("Failed to parse {}", path))?
     };
 
     // Print ASCII tree of subsystems
@@ -35,7 +41,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn print_system_tree(system: &System, prefix: &str, is_last: bool) {
+fn print_system_tree(system: &System, prefix: &str, _is_last: bool) {
     // Print top-level header only when called at root: system has properties maybe 'Name'
     let title = system
         .properties
@@ -50,13 +56,7 @@ fn print_system_tree(system: &System, prefix: &str, is_last: bool) {
     let mut subs: Vec<(&str, &Block)> = system
         .blocks
         .iter()
-        .filter_map(|b| {
-            if let Some(sub) = &b.subsystem {
-                Some((b.name.as_str(), b))
-            } else {
-                None
-            }
-        })
+        .filter_map(|b| if b.subsystem.is_some() { Some((b.name.as_str(), b)) } else { None })
         .collect();
 
     // sort by name for deterministic output

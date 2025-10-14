@@ -1,7 +1,7 @@
 #![cfg(feature = "egui")]
 
-use eframe::egui::{Pos2, Rect};
 use crate::model::{Block, EndpointRef};
+use eframe::egui::{Pos2, Rect};
 
 /// Parse the block rectangle from a Simulink block's `Position` property.
 /// Expects a string of the form "[l, t, r, b]".
@@ -51,7 +51,12 @@ pub fn endpoint_pos(r: Rect, ep: &EndpointRef, num_ports: Option<u32>) -> Pos2 {
 }
 
 /// Variant that tries to match a target Y (e.g., last polyline Y) to keep the final segment horizontal
-pub fn endpoint_pos_with_target(r: Rect, ep: &EndpointRef, num_ports: Option<u32>, target_y: Option<f32>) -> Pos2 {
+pub fn endpoint_pos_with_target(
+    r: Rect,
+    ep: &EndpointRef,
+    num_ports: Option<u32>,
+    target_y: Option<f32>,
+) -> Pos2 {
     let mut p = endpoint_pos(r, ep, num_ports);
     if let Some(ty) = target_y {
         let mut y = ty;

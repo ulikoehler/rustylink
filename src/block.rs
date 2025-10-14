@@ -12,7 +12,10 @@ pub fn parse_annotation_node(node: Node) -> Result<Annotation> {
     let mut text: Option<String> = None;
     let mut properties: BTreeMap<String, String> = BTreeMap::new();
 
-    for child in node.children().filter(|c| c.is_element() && c.has_tag_name("P")) {
+    for child in node
+        .children()
+        .filter(|c| c.is_element() && c.has_tag_name("P"))
+    {
         if let Some(nm) = child.attribute("Name") {
             let val = child.text().unwrap_or("").to_string();
             match nm {
@@ -28,7 +31,14 @@ pub fn parse_annotation_node(node: Node) -> Result<Annotation> {
         }
     }
 
-    Ok(Annotation { sid, text, position, zorder, interpreter, properties })
+    Ok(Annotation {
+        sid,
+        text,
+        position,
+        zorder,
+        interpreter,
+        properties,
+    })
 }
 
 pub fn parse_mask_node(node: Node) -> Result<Mask> {
@@ -57,13 +67,23 @@ pub fn parse_mask_node(node: Node) -> Result<Mask> {
         }
     }
 
-    Ok(Mask { display, description, initialization, help, parameters, dialog })
+    Ok(Mask {
+        display,
+        description,
+        initialization,
+        help,
+        parameters,
+        dialog,
+    })
 }
 
 pub fn parse_instance_data_node(node: Node) -> Result<InstanceData> {
     // <InstanceData> contains multiple <P Name="...">value</P>
     let mut props: BTreeMap<String, String> = BTreeMap::new();
-    for p in node.children().filter(|c| c.is_element() && c.has_tag_name("P")) {
+    for p in node
+        .children()
+        .filter(|c| c.is_element() && c.has_tag_name("P"))
+    {
         if let Some(nm) = p.attribute("Name") {
             let val = p.text().unwrap_or("").to_string();
             props.insert(nm.to_string(), val);
@@ -116,9 +136,14 @@ pub fn parse_mask_parameter_node(node: Node) -> MaskParameter {
             "TypeOptions" => {
                 for to in child.children().filter(|c| c.is_element()) {
                     if to.has_tag_name("Option") {
-                        if let Some(t) = to.text() { type_options.push(t.to_string()); }
+                        if let Some(t) = to.text() {
+                            type_options.push(t.to_string());
+                        }
                     } else {
-                        println!("Unknown tag in MaskParameter TypeOptions: {}", to.tag_name().name());
+                        println!(
+                            "Unknown tag in MaskParameter TypeOptions: {}",
+                            to.tag_name().name()
+                        );
                     }
                 }
             }
@@ -129,7 +154,16 @@ pub fn parse_mask_parameter_node(node: Node) -> MaskParameter {
         }
     }
 
-    MaskParameter { name, param_type, prompt, value, callback, tunable, visible, type_options }
+    MaskParameter {
+        name,
+        param_type,
+        prompt,
+        value,
+        callback,
+        tunable,
+        visible,
+        type_options,
+    }
 }
 
 pub fn parse_dialog_control_node(node: Node) -> DialogControl {
@@ -167,14 +201,25 @@ pub fn parse_dialog_control_node(node: Node) -> DialogControl {
         match child.tag_name().name() {
             "Prompt" => prompt = child.text().map(|s| s.to_string()),
             "DialogControl" => children.push(parse_dialog_control_node(child)),
-            other => println!("Unknown tag in DialogControl(Name='{}'): {}", name.clone().unwrap_or_default(), other),
+            other => println!(
+                "Unknown tag in DialogControl(Name='{}'): {}",
+                name.clone().unwrap_or_default(),
+                other
+            ),
         }
     }
 
-    DialogControl { control_type, name, prompt, children }
+    DialogControl {
+        control_type,
+        name,
+        prompt,
+        children,
+    }
 }
 
-fn matches_ignore_case(a: &str, b: &str) -> bool { a.eq_ignore_ascii_case(b) }
+fn matches_ignore_case(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+}
 
 pub fn parse_branch_node(node: Node) -> Result<Branch> {
     let mut name = None;
@@ -206,7 +251,14 @@ pub fn parse_branch_node(node: Node) -> Result<Branch> {
         }
     }
 
-    Ok(Branch { name, zorder, dst, points: points_list, labels, branches })
+    Ok(Branch {
+        name,
+        zorder,
+        dst,
+        points: points_list,
+        labels,
+        branches,
+    })
 }
 
 pub fn parse_line_node(node: Node) -> Result<Line> {
@@ -243,7 +295,15 @@ pub fn parse_line_node(node: Node) -> Result<Line> {
         }
     }
 
-    Ok(Line { name, zorder, src, dst, points: points_list, labels, branches })
+    Ok(Line {
+        name,
+        zorder,
+        src,
+        dst,
+        points: points_list,
+        labels,
+        branches,
+    })
 }
 
 pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
@@ -289,16 +349,36 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                             properties.insert(name_attr.to_string(), value);
                         }
                         "SFBlockType" => {
-                            if value == "MATLAB Function" { is_matlab_function = true; }
+                            if value == "MATLAB Function" {
+                                is_matlab_function = true;
+                            }
                             properties.insert(name_attr.to_string(), value);
                         }
                         // Capture CFunction code snippets
-                        "OutputCode" => { c_output_code = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
-                        "StartCode" => { c_start_code = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
-                        "TerminateCode" => { c_term_code = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
-                        "CodegenOutputCode" => { c_codegen_output = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
-                        "CodegenStartCode" => { c_codegen_start = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
-                        "CodegenTerminateCode" => { c_codegen_term = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
+                        "OutputCode" => {
+                            c_output_code = Some(value.clone());
+                            properties.insert(name_attr.to_string(), value);
+                        }
+                        "StartCode" => {
+                            c_start_code = Some(value.clone());
+                            properties.insert(name_attr.to_string(), value);
+                        }
+                        "TerminateCode" => {
+                            c_term_code = Some(value.clone());
+                            properties.insert(name_attr.to_string(), value);
+                        }
+                        "CodegenOutputCode" => {
+                            c_codegen_output = Some(value.clone());
+                            properties.insert(name_attr.to_string(), value);
+                        }
+                        "CodegenStartCode" => {
+                            c_codegen_start = Some(value.clone());
+                            properties.insert(name_attr.to_string(), value);
+                        }
+                        "CodegenTerminateCode" => {
+                            c_codegen_term = Some(value.clone());
+                            properties.insert(name_attr.to_string(), value);
+                        }
                         "BackgroundColor" => {
                             background_color = crate::color::parse_color(&value);
                         }
@@ -321,16 +401,26 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                 let _ = child;
             }
             "PortProperties" => {
-                for pnode in child.children().filter(|c| c.is_element() && c.has_tag_name("Port")) {
+                for pnode in child
+                    .children()
+                    .filter(|c| c.is_element() && c.has_tag_name("Port"))
+                {
                     let mut pprops = BTreeMap::new();
                     let port_type = pnode.attribute("Type").unwrap_or("").to_string();
                     let index = pnode.attribute("Index").and_then(|s| s.parse::<u32>().ok());
-                    for pp in pnode.children().filter(|c| c.is_element() && c.has_tag_name("P")) {
+                    for pp in pnode
+                        .children()
+                        .filter(|c| c.is_element() && c.has_tag_name("P"))
+                    {
                         if let Some(nm) = pp.attribute("Name") {
                             pprops.insert(nm.to_string(), pp.text().unwrap_or("").to_string());
                         }
                     }
-                    ports.push(Port { port_type, index, properties: pprops });
+                    ports.push(Port {
+                        port_type,
+                        index,
+                        properties: pprops,
+                    });
                 }
             }
             "System" => {
@@ -341,28 +431,34 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                     // Inline nested system: parse shallow
                     match parse_system_shallow(child, base_dir) {
                         Ok(sys) => subsystem = Some(Box::new(sys)),
-                        Err(err) => eprintln!("[rustylink] Warning: failed to parse inline system: {}", err),
+                        Err(err) => eprintln!(
+                            "[rustylink] Warning: failed to parse inline system: {}",
+                            err
+                        ),
                     }
                 }
             }
-            "Mask" => {
-                match parse_mask_node(child) {
-                    Ok(m) => mask = Some(m),
-                    Err(err) => eprintln!("[rustylink] Error parsing <Mask> in block '{}': {}", name, err),
-                }
-            }
-            "InstanceData" => {
-                match parse_instance_data_node(child) {
-                    Ok(id) => instance_data = Some(id),
-                    Err(err) => eprintln!("[rustylink] Warning: failed to parse <InstanceData> in block '{}': {}", name, err),
-                }
-            }
-            "Annotation" => {
-                match parse_annotation_node(child) {
-                    Ok(a) => annotations.push(a),
-                    Err(err) => eprintln!("[rustylink] Warning: failed to parse <Annotation> in block '{}': {}", name, err),
-                }
-            }
+            "Mask" => match parse_mask_node(child) {
+                Ok(m) => mask = Some(m),
+                Err(err) => eprintln!(
+                    "[rustylink] Error parsing <Mask> in block '{}': {}",
+                    name, err
+                ),
+            },
+            "InstanceData" => match parse_instance_data_node(child) {
+                Ok(id) => instance_data = Some(id),
+                Err(err) => eprintln!(
+                    "[rustylink] Warning: failed to parse <InstanceData> in block '{}': {}",
+                    name, err
+                ),
+            },
+            "Annotation" => match parse_annotation_node(child) {
+                Ok(a) => annotations.push(a),
+                Err(err) => eprintln!(
+                    "[rustylink] Warning: failed to parse <Annotation> in block '{}': {}",
+                    name, err
+                ),
+            },
             unknown => {
                 println!("Unknown tag in Block: {}", unknown);
             }
@@ -381,7 +477,9 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
             codegen_start_code: c_codegen_start,
             codegen_terminate_code: c_codegen_term,
         })
-    } else { None };
+    } else {
+        None
+    };
     let mut blk = Block {
         block_type,
         name,
@@ -403,7 +501,9 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
         font_weight,
         mask_display_text: None,
     };
-    if blk.mask_display_text.is_none() && blk.mask.as_ref().and_then(|m| m.display.as_ref()).is_some() {
+    if blk.mask_display_text.is_none()
+        && blk.mask.as_ref().and_then(|m| m.display.as_ref()).is_some()
+    {
         crate::mask_eval::evaluate_mask_display(&mut blk);
     }
     Ok(blk)
@@ -436,16 +536,20 @@ pub fn parse_system_shallow(node: Node, base_dir: &Utf8Path) -> Result<System> {
             "Line" => {
                 lines.push(parse_line_node(child)?);
             }
-            "Annotation" => {
-                match parse_annotation_node(child) {
-                    Ok(a) => annotations.push(a),
-                    Err(err) => eprintln!("[rustylink] Warning: failed to parse <Annotation>: {}", err),
-                }
-            }
+            "Annotation" => match parse_annotation_node(child) {
+                Ok(a) => annotations.push(a),
+                Err(err) => eprintln!("[rustylink] Warning: failed to parse <Annotation>: {}", err),
+            },
             unknown => {
                 println!("Unknown tag in System: {}", unknown);
             }
         }
     }
-    Ok(System { properties, blocks, lines, annotations, chart: None })
+    Ok(System {
+        properties,
+        blocks,
+        lines,
+        annotations,
+        chart: None,
+    })
 }

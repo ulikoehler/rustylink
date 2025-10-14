@@ -2714,6 +2714,7 @@ dependencies = [
  "egui-phosphor",
  "html-escape",
  "once_cell",
+ "quick-xml 0.38.3",
  "rayon",
  "roxmltree",
  "serde",

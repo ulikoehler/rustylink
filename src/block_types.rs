@@ -141,15 +141,15 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
             ..Default::default()
         },
     );
-        m.insert(
-            "Terminator".to_string(),
-            BlockTypeConfig {
-                icon: Some(IconSpec::Phosphor(regular::BACKSPACE)),
-                show_input_port_labels: false,
-                show_output_port_labels: false,
-                ..Default::default()
-            },
-        );
+    m.insert(
+        "Terminator".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Phosphor(regular::BACKSPACE)),
+            show_input_port_labels: false,
+            show_output_port_labels: false,
+            ..Default::default()
+        },
+    );
 
     m
 }
@@ -180,7 +180,9 @@ where
 {
     let map = get_block_type_config_map();
     if let Ok(mut w) = map.write() {
-        let entry = w.entry(block_type.to_string()).or_insert_with(BlockTypeConfig::default);
+        let entry = w
+            .entry(block_type.to_string())
+            .or_insert_with(BlockTypeConfig::default);
         f(entry);
     }
 }

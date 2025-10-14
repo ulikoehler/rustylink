@@ -7,7 +7,10 @@ use crate::model::System;
 pub fn resolve_subsystem_by_path<'a>(root: &'a System, path: &str) -> Option<&'a System> {
     let mut cur: &System = root;
     let p = path.trim();
-    let mut parts = p.trim_start_matches('/').split('/').filter(|s| !s.is_empty());
+    let mut parts = p
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|s| !s.is_empty());
     for name in parts.by_ref() {
         let mut found = None;
         for b in &cur.blocks {

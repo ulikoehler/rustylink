@@ -1,17 +1,17 @@
 #![cfg(feature = "egui")]
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
+use eframe::egui::{self, Vec2};
 
-use crate::model::{Block, Chart, EndpointRef, System};
+use crate::model::{Block, Chart, System};
 
-use super::geometry::{endpoint_pos, endpoint_pos_with_target, parse_block_rect, port_anchor_pos};
+// use super::geometry::parse_block_rect;
 use super::navigation::{collect_subsystems_paths, resolve_subsystem_by_vec};
-use super::render::{get_block_type_cfg, render_block_icon, rgb_to_color32};
-use super::text::{highlight_query_job, matlab_syntax_job};
-use crate::label_place::{self, Config as LabelConfig, Measurer as LabelMeasurer, Vec2f as V2, RectF as RF};
+// use super::render::get_block_type_cfg;
+// use super::text::highlight_query_job;
+// use crate::label_place::{self};
 
 /// Data needed to open a chart popup.
 #[derive(Clone)]
@@ -97,7 +97,12 @@ pub struct SubsystemApp {
 
 impl SubsystemApp {
     /// Create a new app showing the provided `root` system.
-    pub fn new(root: System, initial_path: Vec<String>, charts: BTreeMap<u32, Chart>, chart_map: BTreeMap<String, u32>) -> Self {
+    pub fn new(
+        root: System,
+        initial_path: Vec<String>,
+        charts: BTreeMap<u32, Chart>,
+        chart_map: BTreeMap<String, u32>,
+    ) -> Self {
         let all = collect_subsystems_paths(&root);
         Self {
             root,
@@ -121,8 +126,12 @@ impl SubsystemApp {
     }
 
     /// Register a custom button in the signal dialog.
-    pub fn add_signal_dialog_button<F, G>(&mut self, label: impl Into<String>, filter: F, on_click: G)
-    where
+    pub fn add_signal_dialog_button<F, G>(
+        &mut self,
+        label: impl Into<String>,
+        filter: F,
+        on_click: G,
+    ) where
         F: Fn(&crate::model::Line) -> bool + Send + Sync + 'static,
         G: Fn(&crate::model::Line) + Send + Sync + 'static,
     {
@@ -134,8 +143,12 @@ impl SubsystemApp {
     }
 
     /// Register a custom button in the block dialog.
-    pub fn add_block_dialog_button<F, G>(&mut self, label: impl Into<String>, filter: F, on_click: G)
-    where
+    pub fn add_block_dialog_button<F, G>(
+        &mut self,
+        label: impl Into<String>,
+        filter: F,
+        on_click: G,
+    ) where
         F: Fn(&Block) -> bool + Send + Sync + 'static,
         G: Fn(&Block) + Send + Sync + 'static,
     {
@@ -147,8 +160,12 @@ impl SubsystemApp {
     }
 
     /// Register a custom context menu item for signals.
-    pub fn add_signal_context_menu_item<F, G>(&mut self, label: impl Into<String>, filter: F, on_click: G)
-    where
+    pub fn add_signal_context_menu_item<F, G>(
+        &mut self,
+        label: impl Into<String>,
+        filter: F,
+        on_click: G,
+    ) where
         F: Fn(&crate::model::Line) -> bool + Send + Sync + 'static,
         G: Fn(&crate::model::Line) + Send + Sync + 'static,
     {
@@ -160,8 +177,12 @@ impl SubsystemApp {
     }
 
     /// Register a custom context menu item for blocks.
-    pub fn add_block_context_menu_item<F, G>(&mut self, label: impl Into<String>, filter: F, on_click: G)
-    where
+    pub fn add_block_context_menu_item<F, G>(
+        &mut self,
+        label: impl Into<String>,
+        filter: F,
+        on_click: G,
+    ) where
         F: Fn(&Block) -> bool + Send + Sync + 'static,
         G: Fn(&Block) + Send + Sync + 'static,
     {
@@ -218,7 +239,11 @@ impl SubsystemApp {
         let mut m: Vec<Vec<String>> = self
             .all_subsystems
             .iter()
-            .filter(|p| p.last().map(|n| n.to_lowercase().contains(&ql)).unwrap_or(false))
+            .filter(|p| {
+                p.last()
+                    .map(|n| n.to_lowercase().contains(&ql))
+                    .unwrap_or(false)
+            })
             .cloned()
             .collect();
         m.sort_by(|a, b| a.len().cmp(&b.len()).then_with(|| a.cmp(b)));

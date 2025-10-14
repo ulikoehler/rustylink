@@ -1,15 +1,26 @@
 use rustylink::label_place::*;
 
 struct FixedMeasurer(f32, f32);
-impl Measurer for FixedMeasurer { fn measure(&self, _text: &str) -> (f32, f32) { (self.0, self.1) } }
+impl Measurer for FixedMeasurer {
+    fn measure(&self, _text: &str) -> (f32, f32) {
+        (self.0, self.1)
+    }
+}
 
 #[test]
 fn places_on_longest_horizontal_segment() {
-    let poly = vec![Vec2f::new(0.0, 0.0), Vec2f::new(200.0, 0.0), Vec2f::new(200.0, 50.0)];
+    let poly = vec![
+        Vec2f::new(0.0, 0.0),
+        Vec2f::new(200.0, 0.0),
+        Vec2f::new(200.0, 50.0),
+    ];
     let meas = FixedMeasurer(60.0, 12.0);
     let res = place_label(&poly, "Label", &meas, Config::default(), &[]).unwrap();
     assert!(res.horizontal);
-    assert!(res.rect.min.x >= 70.0 && res.rect.max.x <= 130.0, "centered within long segment");
+    assert!(
+        res.rect.min.x >= 70.0 && res.rect.max.x <= 130.0,
+        "centered within long segment"
+    );
     assert!(res.rect.min.y < 0.0, "placed with upward offset");
 }
 
@@ -19,7 +30,10 @@ fn respects_vertical_orientation() {
     let meas = FixedMeasurer(10.0, 80.0); // tall when vertical
     let res = place_label(&poly, "AB", &meas, Config::default(), &[]).unwrap();
     assert!(!res.horizontal);
-    assert!(res.rect.min.y >= 60.0 && res.rect.max.y <= 140.0, "within vertical segment");
+    assert!(
+        res.rect.min.y >= 60.0 && res.rect.max.y <= 140.0,
+        "within vertical segment"
+    );
     assert!(res.rect.min.x > 0.0, "placed with rightward offset");
 }
 
@@ -27,7 +41,10 @@ fn respects_vertical_orientation() {
 fn avoids_collisions_with_expanded_boxes() {
     let poly = vec![Vec2f::new(0.0, 0.0), Vec2f::new(200.0, 0.0)];
     let meas = FixedMeasurer(80.0, 12.0);
-    let cfg = Config { expand_factor: 1.5, ..Default::default() };
+    let cfg = Config {
+        expand_factor: 1.5,
+        ..Default::default()
+    };
     let first = place_label(&poly, "A", &meas, cfg, &[]).unwrap();
     let placed = vec![first.rect];
     let second = place_label(&poly, "B", &meas, cfg, &placed).unwrap();
@@ -36,7 +53,10 @@ fn avoids_collisions_with_expanded_boxes() {
         let c = r.center();
         let hw = r.width() * 0.5 * f;
         let hh = r.height() * 0.5 * f;
-        RectF::from_min_max(Vec2f::new(c.x - hw, c.y - hh), Vec2f::new(c.x + hw, c.y + hh))
+        RectF::from_min_max(
+            Vec2f::new(c.x - hw, c.y - hh),
+            Vec2f::new(c.x + hw, c.y + hh),
+        )
     }
     let a = expand(first.rect, cfg.expand_factor);
     let b = expand(second.rect, cfg.expand_factor);
@@ -46,7 +66,11 @@ fn avoids_collisions_with_expanded_boxes() {
 #[test]
 fn penalizes_spill_prefers_other_segment() {
     // Two segments: one too short for label, one long enough
-    let poly = vec![Vec2f::new(0.0, 0.0), Vec2f::new(40.0, 0.0), Vec2f::new(120.0, 0.0)];
+    let poly = vec![
+        Vec2f::new(0.0, 0.0),
+        Vec2f::new(40.0, 0.0),
+        Vec2f::new(120.0, 0.0),
+    ];
     let meas = FixedMeasurer(80.0, 12.0);
     let res = place_label(&poly, "Label", &meas, Config::default(), &[]).unwrap();
     // Expect it to pick the long second segment (center near 80)

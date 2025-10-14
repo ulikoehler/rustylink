@@ -10,9 +10,12 @@ use camino::Utf8PathBuf;
 #[cfg(feature = "egui")]
 use clap::Parser;
 #[cfg(feature = "egui")]
-use rustylink::{egui_app, parser::{FsSource, SimulinkParser, ZipSource}};
-#[cfg(feature = "egui")]
 use eframe::egui;
+#[cfg(feature = "egui")]
+use rustylink::{
+    egui_app,
+    parser::{FsSource, SimulinkParser, ZipSource},
+};
 
 #[cfg(feature = "egui")]
 #[derive(Parser, Debug)]
@@ -53,7 +56,9 @@ fn main() -> Result<()> {
     } else {
         let root_dir = Utf8PathBuf::from(".");
         let mut parser = SimulinkParser::new(&root_dir, FsSource);
-        let sys = parser.parse_system_file(&path).with_context(|| format!("Failed to parse {}", path))?;
+        let sys = parser
+            .parse_system_file(&path)
+            .with_context(|| format!("Failed to parse {}", path))?;
         let charts = parser.get_charts().clone();
         let mut chart_map: std::collections::BTreeMap<String, u32> = parser
             .get_sid_to_chart_map()
@@ -99,14 +104,19 @@ fn main() -> Result<()> {
         "Print block name",
         |_| true,
         |block| {
-            println!("Block context action: {} ({})", block.name, block.block_type);
+            println!(
+                "Block context action: {} ({})",
+                block.name, block.block_type
+            );
         },
     );
 
     // Create and run the native window here to keep windowing in the example.
     // Load and apply window icon from the repository (embedded at compile time)
     let mut viewport = egui::ViewportBuilder::default().with_maximized(true);
-    if let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!("../docs/RustyLinkIconSmall.png")) {
+    if let Ok(icon) =
+        eframe::icon_data::from_png_bytes(include_bytes!("../docs/RustyLinkIconSmall.png"))
+    {
         viewport = viewport.with_icon(icon);
     }
     let options = eframe::NativeOptions {
@@ -120,9 +130,10 @@ fn main() -> Result<()> {
             // Register phosphor font once at startup so icons render.
             let mut font_definitions = egui::FontDefinitions::default();
             egui_phosphor::add_to_fonts(&mut font_definitions, egui_phosphor::Variant::Regular);
-            font_definitions
-                .families
-                .insert(egui::FontFamily::Name("phosphor".into()), vec!["phosphor".into()]);
+            font_definitions.families.insert(
+                egui::FontFamily::Name("phosphor".into()),
+                vec!["phosphor".into()],
+            );
             cc.egui_ctx.set_fonts(font_definitions);
             cc.egui_ctx.set_visuals(egui::Visuals::light());
             Ok(Box::new(app.clone()))
@@ -134,5 +145,7 @@ fn main() -> Result<()> {
 
 #[cfg(not(feature = "egui"))]
 fn main() {
-    eprintln!("This example requires the 'egui' feature. Try: cargo run --features egui --example egui_viewer -- <file> -s <system>");
+    eprintln!(
+        "This example requires the 'egui' feature. Try: cargo run --features egui --example egui_viewer -- <file> -s <system>"
+    );
 }

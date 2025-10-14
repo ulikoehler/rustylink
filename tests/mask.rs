@@ -1,5 +1,5 @@
-use rustylink::parser::{SimulinkParser, FsSource};
 use camino::Utf8PathBuf;
+use rustylink::parser::{FsSource, SimulinkParser};
 use std::fs;
 
 // Helper to write a temporary XML file structure
@@ -28,10 +28,16 @@ fn test_mask_display_evaluated() {
     // Create another system file referencing the block system (simulate root)
     let root_path = systems_dir.join("system_1.xml");
     fs::write(&root_path, xml).unwrap();
-  let root_utf8 = Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf()).unwrap();
-  let mut parser = SimulinkParser::new(&root_utf8, FsSource);
-    let system = parser.parse_system_file(Utf8PathBuf::from_path_buf(root_path.clone()).unwrap()).unwrap();
+    let root_utf8 = Utf8PathBuf::from_path_buf(temp_dir.path().to_path_buf()).unwrap();
+    let mut parser = SimulinkParser::new(&root_utf8, FsSource);
+    let system = parser
+        .parse_system_file(Utf8PathBuf::from_path_buf(root_path.clone()).unwrap())
+        .unwrap();
     // Find block
-    let blk = system.blocks.iter().find(|b| b.name == "Choose Application7").expect("block");
+    let blk = system
+        .blocks
+        .iter()
+        .find(|b| b.name == "Choose Application7")
+        .expect("block");
     assert_eq!(blk.mask_display_text.as_deref(), Some("Position"));
 }
