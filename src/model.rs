@@ -149,6 +149,7 @@ pub struct Mask {
 pub enum MaskParamType {
     Popup,
     Edit,
+    Checkbox,
     Unknown(String),
 }
 
@@ -171,6 +172,7 @@ pub enum DialogControlType {
     Group,
     Text,
     Edit,
+    CheckBox,
     Unknown(String),
 }
 

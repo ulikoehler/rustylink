@@ -341,6 +341,7 @@ impl<S: ContentSource> SimulinkParser<S> {
         let param_type = match tattr {
             t if t.eq_ignore_ascii_case("popup") => MaskParamType::Popup,
             t if t.eq_ignore_ascii_case("edit") => MaskParamType::Edit,
+            t if t.eq_ignore_ascii_case("checkbox") => MaskParamType::Checkbox,
             other => {
                 println!("Unknown MaskParameter Type: {} (Name='{}')", other, name);
                 MaskParamType::Unknown(other.to_string())
@@ -397,6 +398,7 @@ impl<S: ContentSource> SimulinkParser<S> {
             t if t.eq_ignore_ascii_case("Group") => DialogControlType::Group,
             t if t.eq_ignore_ascii_case("Text") => DialogControlType::Text,
             t if t.eq_ignore_ascii_case("Edit") => DialogControlType::Edit,
+            t if t.eq_ignore_ascii_case("CheckBox") => DialogControlType::CheckBox,
             other => {
                 println!("Unknown DialogControl Type: {}", other);
                 DialogControlType::Unknown(other.to_string())
@@ -621,6 +623,7 @@ fn parse_mask_parameter_node(node: Node) -> MaskParameter {
     let param_type = match tattr {
         t if t.eq_ignore_ascii_case("popup") => MaskParamType::Popup,
         t if t.eq_ignore_ascii_case("edit") => MaskParamType::Edit,
+        t if t.eq_ignore_ascii_case("checkbox") => MaskParamType::Checkbox,
         other => {
             println!("Unknown MaskParameter Type: {} (Name='{}')", other, name);
             MaskParamType::Unknown(other.to_string())
@@ -678,6 +681,7 @@ fn parse_dialog_control_node(node: Node) -> DialogControl {
         t if t.eq_ignore_ascii_case("Group") => DialogControlType::Group,
         t if t.eq_ignore_ascii_case("Text") => DialogControlType::Text,
         t if t.eq_ignore_ascii_case("Edit") => DialogControlType::Edit,
+        t if t.eq_ignore_ascii_case("CheckBox") => DialogControlType::CheckBox,
         other => {
             println!("Unknown DialogControl Type: {}", other);
             DialogControlType::Unknown(other.to_string())
