@@ -813,10 +813,31 @@ impl eframe::App for SubsystemApp {
                 let already: Vec<RF> = placed_label_rects.iter().map(|r| RF::from_min_max(V2{ x: r.left(), y: r.top() }, V2{ x: r.right(), y: r.bottom() })).collect();
                 if let Some(result) = label_place::place_label(&poly, &label_text, &meas, cfg, &already) {
                     // Recreate galley in chosen orientation; place_label encodes vertical as stacked characters
-                    let oriented_text = if result.horizontal { label_text.clone() } else { label_text.chars().map(|c| c.to_string()).collect::<Vec<_>>().join("\n") };
+                    let oriented_text = if result.horizontal {
+                        label_text.clone()
+                    } else {
+                        let mut s = String::new();
+                        for (i, ch) in label_text.chars().enumerate() {
+                            if i > 0 { s.push('\n'); }
+                            s.push(ch);
+                        }
+                        s
+                    };
                     let galley = ctx.fonts(|f| f.layout_no_wrap(oriented_text, sig_font_id.clone(), color));
                     let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
                     painter.galley(draw_pos, galley, color);
+                    // Debug print for every label: text + position/size in screen space
+                    let w = result.rect.max.x - result.rect.min.x;
+                    let h = result.rect.max.y - result.rect.min.y;
+                    println!(
+                        "label: text='{}' orientation={} at ({:.2}, {:.2}) size {:.2}x{:.2}",
+                        label_text,
+                        if result.horizontal { "horizontal" } else { "vertical" },
+                        result.rect.min.x,
+                        result.rect.min.y,
+                        w,
+                        h
+                    );
                     placed_label_rects.push(Rect::from_min_max(
                         Pos2::new(result.rect.min.x, result.rect.min.y),
                         Pos2::new(result.rect.max.x, result.rect.max.y),

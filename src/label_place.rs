@@ -122,19 +122,32 @@ pub fn place_label(polyline: &[Vec2f], text: &str, measurer: &dyn Measurer, cfg:
 
         // Allowed extent for center so label stays within segment bounds
         let (min_t, max_t, base_t, step_t, spill) = if horizontal {
+            let seg_len = seg_max_x - seg_min_x;
             let half = 0.5 * w; // slide along x
             let min_x = seg_min_x + half;
             let max_x = seg_max_x - half;
-            let base = cx.clamp(min_x, max_x);
-            let spill = (w - (seg_max_x - seg_min_x)).max(0.0);
-            (min_x, max_x, base, (w.max(40.0) * cfg.step_fraction).max(1.0), spill)
+            let (minx, maxx, base) = if min_x <= max_x {
+                (min_x, max_x, cx.clamp(min_x, max_x))
+            } else {
+                // Label wider than segment: collapse range to segment center to avoid clamp panic
+                let mid = (seg_min_x + seg_max_x) * 0.5;
+                (mid, mid, mid)
+            };
+            let spill = (w - seg_len).max(0.0);
+            (minx, maxx, base, (w.max(40.0) * cfg.step_fraction).max(1.0), spill)
         } else {
+            let seg_len = seg_max_y - seg_min_y;
             let half = 0.5 * h; // slide along y
             let min_y = seg_min_y + half;
             let max_y = seg_max_y - half;
-            let base = cy.clamp(min_y, max_y);
-            let spill = (h - (seg_max_y - seg_min_y)).max(0.0);
-            (min_y, max_y, base, (h.max(20.0) * cfg.step_fraction).max(1.0), spill)
+            let (miny, maxy, base) = if min_y <= max_y {
+                (min_y, max_y, cy.clamp(min_y, max_y))
+            } else {
+                let mid = (seg_min_y + seg_max_y) * 0.5;
+                (mid, mid, mid)
+            };
+            let spill = (h - seg_len).max(0.0);
+            (miny, maxy, base, (h.max(20.0) * cfg.step_fraction).max(1.0), spill)
         };
 
         let mut chosen: Option<(RectF, f32)> = None; // (rect, score)
