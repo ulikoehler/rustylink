@@ -1,5 +1,7 @@
 # Simulink XML System Parser (Rust)
 
+<img src="docs/RustyLinkIcon.png" width="100">
+
 This crate parses Simulink `.xml` system descriptions (extracted from `.slx`) into a Rust data model and can output JSON.
 
 - Recursively resolves `<System Ref="..."/>` and parses nested systems.
