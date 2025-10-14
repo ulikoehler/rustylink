@@ -84,7 +84,24 @@ fn main() -> Result<()> {
         Vec::new()
     };
 
-    let app = egui_app::SubsystemApp::new(root_system, initial_path, charts, chart_map);
+    let mut app = egui_app::SubsystemApp::new(root_system, initial_path, charts, chart_map);
+
+    // Demo: add custom context menu items for signals and blocks
+    app.add_signal_context_menu_item(
+        "Print signal name",
+        |_| true,
+        |line| {
+            let name = line.name.clone().unwrap_or_else(|| "<unnamed>".to_string());
+            println!("Signal context action: {}", name);
+        },
+    );
+    app.add_block_context_menu_item(
+        "Print block name",
+        |_| true,
+        |block| {
+            println!("Block context action: {} ({})", block.name, block.block_type);
+        },
+    );
 
     // Create and run the native window here to keep windowing in the example.
     let options = eframe::NativeOptions {

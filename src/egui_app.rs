@@ -10,6 +10,7 @@
 #![cfg(feature = "egui")]
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::Arc;
 
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use egui::text::LayoutJob;
@@ -262,6 +263,58 @@ pub struct SignalDialog {
     pub open: bool,
 }
 
+/// Data for a selected block information dialog.
+#[derive(Clone)]
+pub struct BlockDialog {
+    pub title: String,
+    pub block: Block,
+    pub open: bool,
+}
+
+/// Button specification for customizing the Signal dialog.
+///
+/// The button is only shown when `filter` returns true for the selected line.
+/// When clicked, `on_click` is invoked with a reference to that line.
+#[derive(Clone)]
+pub struct SignalDialogButton {
+    pub label: String,
+    pub filter: Arc<dyn Fn(&crate::model::Line) -> bool + Send + Sync>,
+    pub on_click: Arc<dyn Fn(&crate::model::Line) + Send + Sync>,
+}
+
+/// Button specification for customizing the Block dialog.
+///
+/// The button is only shown when `filter` returns true for the selected block.
+/// When clicked, `on_click` is invoked with a reference to that block.
+#[derive(Clone)]
+pub struct BlockDialogButton {
+    pub label: String,
+    pub filter: Arc<dyn Fn(&Block) -> bool + Send + Sync>,
+    pub on_click: Arc<dyn Fn(&Block) + Send + Sync>,
+}
+
+/// Context menu item specification for signals.
+///
+/// The entry is only shown when `filter` returns true for the selected line.
+/// When clicked, `on_click` is invoked with a reference to that line.
+#[derive(Clone)]
+pub struct SignalContextMenuItem {
+    pub label: String,
+    pub filter: Arc<dyn Fn(&crate::model::Line) -> bool + Send + Sync>,
+    pub on_click: Arc<dyn Fn(&crate::model::Line) + Send + Sync>,
+}
+
+/// Context menu item specification for blocks.
+///
+/// The entry is only shown when `filter` returns true for the selected block.
+/// When clicked, `on_click` is invoked with a reference to that block.
+#[derive(Clone)]
+pub struct BlockContextMenuItem {
+    pub label: String,
+    pub filter: Arc<dyn Fn(&Block) -> bool + Send + Sync>,
+    pub on_click: Arc<dyn Fn(&Block) + Send + Sync>,
+}
+
 /// Interactive Egui application that displays and navigates a Simulink subsystem tree.
 #[derive(Clone)]
 pub struct SubsystemApp {
@@ -277,6 +330,15 @@ pub struct SubsystemApp {
     pub charts: BTreeMap<u32, Chart>,
     pub chart_map: BTreeMap<String, u32>,
     pub signal_view: Option<SignalDialog>,
+    pub block_view: Option<BlockDialog>,
+    /// Custom buttons to render inside the signal dialog.
+    pub signal_buttons: Vec<SignalDialogButton>,
+    /// Custom buttons to render inside the block dialog.
+    pub block_buttons: Vec<BlockDialogButton>,
+    /// Custom context menu items for signals.
+    pub signal_menu_items: Vec<SignalContextMenuItem>,
+    /// Custom context menu items for blocks.
+    pub block_menu_items: Vec<BlockContextMenuItem>,
 }
 
 impl SubsystemApp {
@@ -296,7 +358,64 @@ impl SubsystemApp {
             charts,
             chart_map,
             signal_view: None,
+            block_view: None,
+            signal_buttons: Vec::new(),
+            block_buttons: Vec::new(),
+            signal_menu_items: Vec::new(),
+            block_menu_items: Vec::new(),
         }
+    }
+
+    /// Register a custom button in the signal dialog.
+    pub fn add_signal_dialog_button<F, G>(&mut self, label: impl Into<String>, filter: F, on_click: G)
+    where
+        F: Fn(&crate::model::Line) -> bool + Send + Sync + 'static,
+        G: Fn(&crate::model::Line) + Send + Sync + 'static,
+    {
+        self.signal_buttons.push(SignalDialogButton {
+            label: label.into(),
+            filter: Arc::new(filter),
+            on_click: Arc::new(on_click),
+        });
+    }
+
+    /// Register a custom button in the block dialog.
+    pub fn add_block_dialog_button<F, G>(&mut self, label: impl Into<String>, filter: F, on_click: G)
+    where
+        F: Fn(&Block) -> bool + Send + Sync + 'static,
+        G: Fn(&Block) + Send + Sync + 'static,
+    {
+        self.block_buttons.push(BlockDialogButton {
+            label: label.into(),
+            filter: Arc::new(filter),
+            on_click: Arc::new(on_click),
+        });
+    }
+
+    /// Register a custom context menu item for signals.
+    pub fn add_signal_context_menu_item<F, G>(&mut self, label: impl Into<String>, filter: F, on_click: G)
+    where
+        F: Fn(&crate::model::Line) -> bool + Send + Sync + 'static,
+        G: Fn(&crate::model::Line) + Send + Sync + 'static,
+    {
+        self.signal_menu_items.push(SignalContextMenuItem {
+            label: label.into(),
+            filter: Arc::new(filter),
+            on_click: Arc::new(on_click),
+        });
+    }
+
+    /// Register a custom context menu item for blocks.
+    pub fn add_block_context_menu_item<F, G>(&mut self, label: impl Into<String>, filter: F, on_click: G)
+    where
+        F: Fn(&Block) -> bool + Send + Sync + 'static,
+        G: Fn(&Block) + Send + Sync + 'static,
+    {
+        self.block_menu_items.push(BlockContextMenuItem {
+            label: label.into(),
+            filter: Arc::new(filter),
+            on_click: Arc::new(on_click),
+        });
     }
 
     /// Get the current subsystem based on `self.path`.
@@ -415,7 +534,8 @@ impl eframe::App for SubsystemApp {
 
         let mut navigate_to_from_block: Option<Vec<String>> = None;
         let mut open_chart: Option<ChartView> = None;
-    let mut open_signal: Option<SignalDialog> = None;
+        let mut open_signal: Option<SignalDialog> = None;
+        let mut open_block: Option<BlockDialog> = None;
         let mut staged_zoom = self.zoom;
         let mut staged_pan = self.pan;
         let mut staged_reset = self.reset_view;
@@ -531,6 +651,22 @@ impl eframe::App for SubsystemApp {
                 let bg = cfg.background.map(rgb_to_color32).unwrap_or_else(|| Color32::from_rgb(210, 210, 210));
                 ui.painter().rect_filled(r_screen, 6.0, bg);
                 let resp = ui.allocate_rect(r_screen, Sense::click());
+                // Attach context menu for blocks
+                resp.context_menu(|ui| {
+                    if ui.button("Info").clicked() {
+                        let title = format!("{} ({})", b.name, b.block_type);
+                        open_block = Some(BlockDialog { title, block: (*b).clone(), open: true });
+                        ui.close();
+                    }
+                    for item in &self.block_menu_items {
+                        if (item.filter)(b) {
+                            if ui.button(&item.label).clicked() {
+                                (item.on_click)(b);
+                                ui.close();
+                            }
+                        }
+                    }
+                });
                 block_views.push((b, r_screen, resp.clicked()));
             }
 
@@ -683,7 +819,7 @@ impl eframe::App for SubsystemApp {
                 }
             }
 
-            let mut line_views: Vec<(&crate::model::Line, Vec<Pos2>, Pos2, bool, usize)> = Vec::new();
+            let mut line_views: Vec<(&crate::model::Line, Vec<Pos2>, Pos2, bool, usize, Vec<(Pos2, Pos2)>)> = Vec::new();
             // Requests to draw port labels inside blocks after blocks are drawn: (sid, port_index, is_input, y_screen)
             let mut port_label_requests: Vec<(u32, u32, bool, f32)> = Vec::new();
             for (li, line) in current_system.lines.iter().enumerate() {
@@ -741,15 +877,52 @@ impl eframe::App for SubsystemApp {
                     min_y = min_y.min(p.y);
                     max_y = max_y.max(p.y);
                 }
+                // Build all segments including branches in screen space for hit detection and labeling
+                let mut segments_all: Vec<(Pos2, Pos2)> = Vec::new();
+                for seg in screen_pts.windows(2) {
+                    segments_all.push((seg[0], seg[1]));
+                }
+                for br in &line.branches {
+                    collect_branch_segments_rec(&to_screen, &sid_map, &port_counts, *offsets_pts.last().unwrap_or(&cur), br, &mut segments_all);
+                }
+                // Expand bounding box across all segments
+                for (a, b) in &segments_all {
+                    min_x = min_x.min(a.x.min(b.x));
+                    max_x = max_x.max(a.x.max(b.x));
+                    min_y = min_y.min(a.y.min(b.y));
+                    max_y = max_y.max(a.y.max(b.y));
+                }
                 let pad = 8.0;
                 let hit_rect = Rect::from_min_max(
                     Pos2::new(min_x - pad, min_y - pad),
                     Pos2::new(max_x + pad, max_y + pad),
                 );
                 let resp = ui.allocate_rect(hit_rect, Sense::click());
+                // Right-click context menu for signals on the whole hit area
+                let li_copy = li;
+                resp.context_menu(|ui| {
+                    if ui.button("Info").clicked() {
+                        let line = &current_system.lines[li_copy];
+                        let title = line
+                            .name
+                            .clone()
+                            .unwrap_or_else(|| line.src.as_ref().and_then(|s| sid_to_name.get(&s.sid)).cloned().unwrap_or("<signal>".into()));
+                        open_signal = Some(SignalDialog { title, line_idx: li_copy, open: true });
+                        ui.close();
+                    }
+                    let line_ref = &current_system.lines[li_copy];
+                    for item in &self.signal_menu_items {
+                        if (item.filter)(line_ref) {
+                            if ui.button(&item.label).clicked() {
+                                (item.on_click)(line_ref);
+                                ui.close();
+                            }
+                        }
+                    }
+                });
                 let clicked = resp.clicked();
                 let main_anchor = *offsets_pts.last().unwrap_or(&cur);
-                line_views.push((line, screen_pts, main_anchor, clicked, li));
+                line_views.push((line, screen_pts, main_anchor, clicked, li, segments_all));
             }
 
             // Draw an arrow head at the end of a segment pointing to `tip`
@@ -810,7 +983,7 @@ impl eframe::App for SubsystemApp {
             }
 
             let painter = ui.painter();
-            for (line, screen_pts, main_anchor, clicked, li) in &line_views {
+            for (line, screen_pts, main_anchor, clicked, li, _segments_all) in &line_views {
                 let color = line_colors.get(*li).copied().unwrap_or(line_stroke_default.color);
                 let stroke = Stroke::new(2.0, color);
                 for seg in screen_pts.windows(2) {
@@ -832,23 +1005,22 @@ impl eframe::App for SubsystemApp {
                     let cp = ctx.input(|i| i.pointer.interact_pos());
                     if let Some(cp) = cp {
                         let mut min_dist = f32::INFINITY;
-                        for seg in screen_pts.windows(2) {
-                            let a = seg[0];
-                            let b = seg[1];
-                            let ab_x = b.x - a.x;
-                            let ab_y = b.y - a.y;
-                            let ap_x = cp.x - a.x;
-                            let ap_y = cp.y - a.y;
-                            let ab_len2 = (ab_x * ab_x + ab_y * ab_y).max(1e-6);
-                            let t = (ap_x * ab_x + ap_y * ab_y) / ab_len2;
-                            let t_clamped = t.max(0.0).min(1.0);
-                            let proj_x = a.x + ab_x * t_clamped;
-                            let proj_y = a.y + ab_y * t_clamped;
-                            let dx = cp.x - proj_x;
-                            let dy = cp.y - proj_y;
-                            let dist = (dx * dx + dy * dy).sqrt();
-                            if dist < min_dist {
-                                min_dist = dist;
+                        // Compute distance to nearest segment among all (including branches)
+                        if let Some((_line_ref, _pts, _anchor, _c, _idx, segments_all)) = line_views.iter().find(|(_, _, _, _, idx, _)| idx == li) {
+                            for (a, b) in segments_all {
+                                let ab_x = b.x - a.x;
+                                let ab_y = b.y - a.y;
+                                let ap_x = cp.x - a.x;
+                                let ap_y = cp.y - a.y;
+                                let ab_len2 = (ab_x * ab_x + ab_y * ab_y).max(1e-6);
+                                let t = (ap_x * ab_x + ap_y * ab_y) / ab_len2;
+                                let t_clamped = t.max(0.0).min(1.0);
+                                let proj_x = a.x + ab_x * t_clamped;
+                                let proj_y = a.y + ab_y * t_clamped;
+                                let dx = cp.x - proj_x;
+                                let dy = cp.y - proj_y;
+                                let dist = (dx * dx + dy * dy).sqrt();
+                                if dist < min_dist { min_dist = dist; }
                             }
                         }
                         let threshold = 8.0;
@@ -915,18 +1087,13 @@ impl eframe::App for SubsystemApp {
             let mut signal_label_rects: Vec<(Rect, usize)> = Vec::new();
             let mut draw_line_labels = |line: &crate::model::Line, screen_pts: &Vec<Pos2>, main_anchor: Pos2, color: Color32, line_idx: usize| {
                 if screen_pts.len() < 2 { return; }
-                let label_text = if let Some(name) = line.name.as_ref().and_then(|s| if s.trim().is_empty() { None } else { Some(s) }) {
-                    name.clone()
-                } else {
-                    let src_s = line.src.as_ref().and_then(|e| sid_to_name.get(&e.sid)).cloned().unwrap_or_else(|| format!("SID{}", line.src.as_ref().map(|e| e.sid).unwrap_or(0)));
-                    let dst_s = line.dst.as_ref().and_then(|e| sid_to_name.get(&e.sid)).cloned().unwrap_or_else(|| format!("SID{}", line.dst.as_ref().map(|e| e.sid).unwrap_or(0)));
-                    // Use a Unicode triangle arrow for a nicer arrow glyph
-                    if dst_s == "SID0" {
-                        format!("{} ⏵", src_s)
-                    } else {
-                        format!("{} ⏵ {}", src_s, dst_s)
-                    }
-                };
+                // If this is an unnamed net, do not render any name label.
+                let Some(label_text) = line
+                    .name
+                    .as_ref()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()) else { return; };
 
                 // Build list of all segments for this line, including branches, in screen space
                 let mut segments: Vec<(Pos2, Pos2)> = Vec::new();
@@ -1008,8 +1175,7 @@ impl eframe::App for SubsystemApp {
                             let galley = ctx.fonts(|f| f.layout_no_wrap(oriented_text.clone(), font_id.clone(), color));
                             let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
                             painter.galley(draw_pos, galley, color);
-                            let w = result.rect.max.x - result.rect.min.x;
-                            let h = result.rect.max.y - result.rect.min.y;
+                            // keep rectangle as-is; debug sizes removed to avoid unused warnings
                             /*println!(
                                 "label: text='{}' orientation={} at ({:.2}, {:.2}) size {:.2}x{:.2}",
                                 candidate.replace('\n', "\\n"),
@@ -1040,7 +1206,7 @@ impl eframe::App for SubsystemApp {
             };
 
             // Draw labels for each line using the computed colors and screen polylines
-            for (line, screen_pts, _main_anchor, _clicked, li) in &line_views {
+            for (line, screen_pts, _main_anchor, _clicked, li, _segments_all) in &line_views {
                 let color = line_colors.get(*li).copied().unwrap_or(line_stroke_default.color);
                 draw_line_labels(line, screen_pts, *_main_anchor, color, *li);
             }
@@ -1056,6 +1222,27 @@ impl eframe::App for SubsystemApp {
                         .unwrap_or_else(|| line.src.as_ref().and_then(|s| sid_to_name.get(&s.sid)).cloned().unwrap_or("<signal>".into()));
                     open_signal = Some(SignalDialog { title, line_idx: li, open: true });
                 }
+                // Also provide context menu directly on the label rect
+                resp.context_menu(|ui| {
+                    if ui.button("Info").clicked() {
+                        let line = &current_system.lines[li];
+                        let title = line
+                            .name
+                            .clone()
+                            .unwrap_or_else(|| line.src.as_ref().and_then(|s| sid_to_name.get(&s.sid)).cloned().unwrap_or("<signal>".into()));
+                        open_signal = Some(SignalDialog { title, line_idx: li, open: true });
+                        ui.close();
+                    }
+                    let line_ref = &current_system.lines[li];
+                    for item in &self.signal_menu_items {
+                        if (item.filter)(line_ref) {
+                            if ui.button(&item.label).clicked() {
+                                (item.on_click)(line_ref);
+                                ui.close();
+                            }
+                        }
+                    }
+                });
             }
 
             for (b, r_screen, clicked) in &block_views {
@@ -1104,6 +1291,9 @@ impl eframe::App for SubsystemApp {
                                     .unwrap_or_else(|| b.name.clone());
                                 let script = chart.script.clone().unwrap_or_default();
                                 open_chart = Some(ChartView { title, script, open: true });
+                                // Also open generic block info dialog as requested
+                                let title_b = format!("{} ({})", b.name, b.block_type);
+                                open_block = Some(BlockDialog { title: title_b, block: (*b).clone(), open: true });
                             } else {
                                 println!("MATLAB Function clicked but chart id {} not found", cid);
                             }
@@ -1127,10 +1317,9 @@ impl eframe::App for SubsystemApp {
                             );
                         }
                     } else {
-                        println!(
-                            "Clicked block: type='{}' name='{}' sid={:?}",
-                            b.block_type, b.name, b.sid
-                        );
+                        // Open a block info dialog for non-subsystem blocks
+                        let title = format!("{} ({})", b.name, b.block_type);
+                        open_block = Some(BlockDialog { title, block: (*b).clone(), open: true });
                     }
                 }
             }
@@ -1196,6 +1385,9 @@ impl eframe::App for SubsystemApp {
         }
         if let Some(sd) = open_signal {
             self.signal_view = Some(sd);
+        }
+        if let Some(bd) = open_block {
+            self.block_view = Some(bd);
         }
         if clear_search {
             self.search_query.clear();
@@ -1294,6 +1486,21 @@ impl eframe::App for SubsystemApp {
                                     ui.label(format!("{} • {}{} ({}): {}", bname, if d.port_type=="in"{"In"}else{"Out"}, d.port_index, d.port_type, pname));
                                 }
                             });
+
+                            // Custom user-provided actions
+                            if !self.signal_buttons.is_empty() {
+                                ui.separator();
+                                ui.label(RichText::new("Actions").strong());
+                                ui.horizontal_wrapped(|ui| {
+                                    for btn in &self.signal_buttons {
+                                        if (btn.filter)(line) {
+                                            if ui.button(&btn.label).clicked() {
+                                                (btn.on_click)(line);
+                                            }
+                                        }
+                                    }
+                                });
+                            }
                         } else {
                             ui.colored_label(Color32::RED, "Selected signal no longer exists in this view");
                         }
@@ -1303,6 +1510,76 @@ impl eframe::App for SubsystemApp {
             if let Some(sd_mut) = &mut self.signal_view {
                 sd_mut.open = open_flag;
                 if !sd_mut.open { self.signal_view = None; }
+            }
+        }
+
+        // Render block info dialog if open
+        if let Some(bd) = &self.block_view {
+            let mut open_flag = bd.open;
+            let block = bd.block.clone();
+            egui::Window::new(format!("Block: {}", bd.title))
+                .open(&mut open_flag)
+                .resizable(true)
+                .vscroll(true)
+                .min_width(360.0)
+                .min_height(220.0)
+                .show(ctx, |ui| {
+                    // General information
+                    ui.label(RichText::new("General").strong());
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(format!("Name: {}", block.name));
+                        ui.label(format!("Type: {}", block.block_type));
+                        if let Some(sid) = block.sid { ui.label(format!("SID: {}", sid)); }
+                        if let Some(z) = &block.zorder { ui.label(format!("Z: {}", z)); }
+                        if block.commented { ui.label("commented"); }
+                    });
+                    ui.separator();
+
+                    // Properties list
+                    egui::CollapsingHeader::new("Properties").default_open(true).show(ui, |ui| {
+                        if block.properties.is_empty() { ui.label("<none>"); }
+                        for (k, v) in &block.properties { ui.horizontal(|ui| { ui.label(RichText::new(k).strong()); ui.label(v); }); }
+                    });
+
+                    // Ports grouped by type
+                    egui::CollapsingHeader::new("Ports").default_open(true).show(ui, |ui| {
+                        if block.ports.is_empty() { ui.label("<none>"); return; }
+                        let mut ins: Vec<&crate::model::Port> = block.ports.iter().filter(|p| p.port_type == "in").collect();
+                        let mut outs: Vec<&crate::model::Port> = block.ports.iter().filter(|p| p.port_type == "out").collect();
+                        ins.sort_by_key(|p| p.index.unwrap_or(0));
+                        outs.sort_by_key(|p| p.index.unwrap_or(0));
+                        if !ins.is_empty() { ui.label(RichText::new("Inputs").strong()); }
+                        for p in ins {
+                            let idx = p.index.unwrap_or(0);
+                            let name = p.properties.get("Name").or_else(|| p.properties.get("name")).cloned().unwrap_or_else(|| format!("In{}", idx));
+                            ui.label(format!("{}{}: {}", "In", idx, name));
+                        }
+                        if !outs.is_empty() { ui.separator(); ui.label(RichText::new("Outputs").strong()); }
+                        for p in outs {
+                            let idx = p.index.unwrap_or(0);
+                            let name = p.properties.get("Name").or_else(|| p.properties.get("name")).cloned().unwrap_or_else(|| format!("Out{}", idx));
+                            ui.label(format!("{}{}: {}", "Out", idx, name));
+                        }
+                    });
+
+                    // Custom user-provided actions
+                    if !self.block_buttons.is_empty() {
+                        ui.separator();
+                        ui.label(RichText::new("Actions").strong());
+                        ui.horizontal_wrapped(|ui| {
+                            for btn in &self.block_buttons {
+                                if (btn.filter)(&block) {
+                                    if ui.button(&btn.label).clicked() {
+                                        (btn.on_click)(&block);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                });
+            if let Some(bd_mut) = &mut self.block_view {
+                bd_mut.open = open_flag;
+                if !bd_mut.open { self.block_view = None; }
             }
         }
     }

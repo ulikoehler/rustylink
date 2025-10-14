@@ -11,6 +11,17 @@ impl ContentSource for MemSource {
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("not found: {}", path))
     }
+  fn list_dir(&mut self, path: &camino::Utf8Path) -> Result<Vec<Utf8PathBuf>> {
+    // Return all files that reside under the given logical directory prefix
+    let prefix = path.as_str().trim_end_matches('/').to_string() + "/";
+    let mut out = Vec::new();
+    for k in self.files.keys() {
+      if k.starts_with(&prefix) {
+        out.push(Utf8PathBuf::from(k.clone()));
+      }
+    }
+    Ok(out)
+  }
 }
 
 #[test]
