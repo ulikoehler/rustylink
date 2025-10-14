@@ -162,6 +162,9 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                         if ui.small_button("−").clicked() { zoom_by(0.9); }
                         if ui.small_button("+").clicked() { zoom_by(1.1); }
                         if ui.small_button("Reset").clicked() { staged_reset = true; }
+                        // Display current zoom level as percent
+                        let percent = (staged_zoom * 100.0).round() as i32;
+                        ui.label(format!("{}%", percent));
                     });
                 });
             });
