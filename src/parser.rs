@@ -52,13 +52,15 @@ pub struct SimulinkParser<S: ContentSource> {
     source: S,
     // Pre-parsed charts by id
     charts_by_id: BTreeMap<u32, Chart>,
-    // Mapping from Simulink block path/name to chart id as taken from stateflow/machine.xml <instance>
+    // Mapping from Simulink block path/name to chart id (from machine.xml if available)
     system_to_chart_map: BTreeMap<String, u32>,
+    // Mapping from block SID to chart id (resolved directly from System Ref -> chart_*.xml when possible)
+    sid_to_chart_id: BTreeMap<u32, u32>,
 }
 
 impl<S: ContentSource> SimulinkParser<S> {
     pub fn new(root_dir: impl AsRef<Utf8Path>, source: S) -> Self {
-        Self { root_dir: root_dir.as_ref().to_path_buf(), source, charts_by_id: BTreeMap::new(), system_to_chart_map: BTreeMap::new() }
+    Self { root_dir: root_dir.as_ref().to_path_buf(), source, charts_by_id: BTreeMap::new(), system_to_chart_map: BTreeMap::new(), sid_to_chart_id: BTreeMap::new() }
     }
 
     pub fn parse_system_file(&mut self, path: impl AsRef<Utf8Path>) -> Result<System> {
@@ -171,13 +173,20 @@ impl<S: ContentSource> SimulinkParser<S> {
                             Ok(sys) => {
                                 subsystem = Some(Box::new(sys));
                             }
-                            Err(err) => {
+                            Err(_err) => {
                                 // Tolerate missing referenced system files (e.g. MATLAB Function blocks
                                 // that map to Stateflow charts only). Keep subsystem unset and continue.
                                 /*eprintln!(
                                     "[rustylink] Warning: failed to parse referenced system '{}': {}",
                                     resolved, err
                                 );*/
+                            }
+                        }
+                        // Additionally, try to resolve chart_*.xml directly from this reference and map SID -> chart id
+                        if let Some(sid_val) = sid {
+                            let chart_path = resolve_chart_reference_from_system_ref(reference, base_dir);
+                            if let Ok(chart) = SimulinkParser::parse_chart_file(self, &chart_path) {
+                                if let Some(cid) = chart.id { self.charts_by_id.entry(cid).or_insert(chart.clone()); self.sid_to_chart_id.entry(sid_val).or_insert(cid); }
                             }
                         }
                     } else {
@@ -491,6 +500,7 @@ impl<S: ContentSource> SimulinkParser<S> {
     pub fn get_charts(&self) -> &BTreeMap<u32, Chart> { &self.charts_by_id }
     pub fn get_system_to_chart_map(&self) -> &BTreeMap<String, u32> { &self.system_to_chart_map }
     pub fn get_chart(&self, id: u32) -> Option<&Chart> { self.charts_by_id.get(&id) }
+    pub fn get_sid_to_chart_map(&self) -> &BTreeMap<u32, u32> { &self.sid_to_chart_id }
 }
 
 fn parse_points(s: &str) -> Vec<Point> {

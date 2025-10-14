@@ -40,14 +40,21 @@ fn main() -> Result<()> {
         let root = Utf8PathBuf::from("simulink/systems/system_root.xml");
         let sys = parser.parse_system_file(&root)?;
         let charts = parser.get_charts().clone();
-        let chart_map = parser.get_system_to_chart_map().clone();
+        // Prefer SID-based chart mapping; fall back to name-based if needed at render time
+        let chart_map = parser.get_sid_to_chart_map()
+            .iter()
+            .map(|(sid, cid)| (sid.to_string(), *cid))
+            .collect();
         (sys, charts, chart_map)
     } else {
         let root_dir = Utf8PathBuf::from(".");
         let mut parser = SimulinkParser::new(&root_dir, FsSource);
         let sys = parser.parse_system_file(&path).with_context(|| format!("Failed to parse {}", path))?;
         let charts = parser.get_charts().clone();
-        let chart_map = parser.get_system_to_chart_map().clone();
+        let chart_map = parser.get_sid_to_chart_map()
+            .iter()
+            .map(|(sid, cid)| (sid.to_string(), *cid))
+            .collect();
         (sys, charts, chart_map)
     };
 

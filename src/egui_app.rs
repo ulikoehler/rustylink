@@ -9,7 +9,7 @@
 
 #![cfg(feature = "egui")]
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use egui::text::LayoutJob;
@@ -248,6 +248,14 @@ pub struct ChartView {
     pub open: bool,
 }
 
+/// Data for a selected signal information dialog.
+#[derive(Clone)]
+pub struct SignalDialog {
+    pub title: String,
+    pub line_idx: usize,
+    pub open: bool,
+}
+
 /// Interactive Egui application that displays and navigates a Simulink subsystem tree.
 #[derive(Clone)]
 pub struct SubsystemApp {
@@ -262,6 +270,7 @@ pub struct SubsystemApp {
     pub chart_view: Option<ChartView>,
     pub charts: BTreeMap<u32, Chart>,
     pub chart_map: BTreeMap<String, u32>,
+    pub signal_view: Option<SignalDialog>,
 }
 
 impl SubsystemApp {
@@ -280,6 +289,7 @@ impl SubsystemApp {
             chart_view: None,
             charts,
             chart_map,
+            signal_view: None,
         }
     }
 
@@ -399,6 +409,7 @@ impl eframe::App for SubsystemApp {
 
         let mut navigate_to_from_block: Option<Vec<String>> = None;
         let mut open_chart: Option<ChartView> = None;
+    let mut open_signal: Option<SignalDialog> = None;
         let mut staged_zoom = self.zoom;
         let mut staged_pan = self.pan;
         let mut staged_reset = self.reset_view;
@@ -500,13 +511,15 @@ impl eframe::App for SubsystemApp {
                 Pos2::new(x, y)
             };
 
-            let mut sid_map: HashMap<u32, Rect> = HashMap::new();
+            let mut sid_map: HashMap<u32, Rect> = HashMap::new(); // world-space rects
+            let mut sid_screen_map: HashMap<u32, Rect> = HashMap::new(); // screen-space rects
             let mut block_views: Vec<(&Block, Rect, bool)> = Vec::new();
             for (b, r) in &blocks {
                 if let Some(sid) = b.sid {
                     sid_map.insert(sid, *r);
                 }
                 let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
+                if let Some(sid) = b.sid { sid_screen_map.insert(sid, r_screen); }
                 // Draw block background with light gray color
                 let light_gray = Color32::from_rgb(230, 230, 230);
                 ui.painter().rect_filled(r_screen, 6.0, light_gray);
@@ -514,11 +527,13 @@ impl eframe::App for SubsystemApp {
                 block_views.push((b, r_screen, resp.clicked()));
             }
 
-            // Precompute a block SID -> block name map for labeling fallbacks
+            // Precompute a block SID -> block name map for labeling fallbacks and lookup
             let mut sid_to_name: HashMap<u32, String> = HashMap::new();
+            let mut sid_to_block: HashMap<u32, &Block> = HashMap::new();
             for (b, _r) in &blocks {
                 if let Some(sid) = b.sid {
                     sid_to_name.insert(sid, b.name.clone());
+                    sid_to_block.insert(sid, b);
                 }
             }
 
@@ -662,6 +677,8 @@ impl eframe::App for SubsystemApp {
             }
 
             let mut line_views: Vec<(&crate::model::Line, Vec<Pos2>, Pos2, bool, usize)> = Vec::new();
+            // Requests to draw port labels inside blocks after blocks are drawn: (sid, port_index, is_input, y_screen)
+            let mut port_label_requests: Vec<(u32, u32, bool, f32)> = Vec::new();
             for (li, line) in current_system.lines.iter().enumerate() {
                 let Some(src) = line.src.as_ref() else {
                     eprintln!(
@@ -687,12 +704,21 @@ impl eframe::App for SubsystemApp {
                     offsets_pts.push(cur);
                 }
                 let mut screen_pts: Vec<Pos2> = offsets_pts.iter().map(|p| to_screen(*p)).collect();
+                // Record output port label aligned with the source anchor Y
+                if let Some(src_ep) = line.src.as_ref() {
+                    let src_screen = *screen_pts.get(0).unwrap_or(&to_screen(cur));
+                    port_label_requests.push((src_ep.sid, src_ep.port_index, false, src_screen.y));
+                }
                 if let Some(dst) = line.dst.as_ref() {
                     if let Some(dr) = sid_map.get(&dst.sid) {
                         let num_dst = port_counts.get(&(dst.sid, if dst.port_type == "out" { 1 } else { 0 })).copied();
                         let dst_pt = endpoint_pos_with_target(*dr, dst, num_dst, Some(cur.y));
                         let dst_screen = to_screen(dst_pt);
                         screen_pts.push(dst_screen);
+                        // Record input port label aligned with the actual destination contact Y
+                        if dst.port_type == "in" {
+                            port_label_requests.push((dst.sid, dst.port_index, true, dst_screen.y));
+                        }
                     }
                 }
                 if screen_pts.is_empty() {
@@ -719,6 +745,23 @@ impl eframe::App for SubsystemApp {
                 line_views.push((line, screen_pts, main_anchor, clicked, li));
             }
 
+            // Draw an arrow head at the end of a segment pointing to `tip`
+            fn draw_arrowhead(painter: &egui::Painter, tail: Pos2, tip: Pos2, color: Color32) {
+                // TODO(arrowheads): consider scaling with zoom
+                let size = 8.0_f32;
+                let dir = Vec2::new(tip.x - tail.x, tip.y - tail.y);
+                let len = (dir.x * dir.x + dir.y * dir.y).sqrt().max(1e-3);
+                let ux = dir.x / len;
+                let uy = dir.y / len;
+                // perpendicular
+                let px = -uy;
+                let py = ux;
+                let base = Pos2::new(tip.x - ux * size, tip.y - uy * size);
+                let left = Pos2::new(base.x + px * (size * 0.6), base.y + py * (size * 0.6));
+                let right = Pos2::new(base.x - px * (size * 0.6), base.y - py * (size * 0.6));
+                painter.add(egui::Shape::convex_polygon(vec![tip, left, right], color, Stroke::NONE));
+            }
+
             fn draw_branch_rec(
                 painter: &egui::Painter,
                 to_screen: &dyn Fn(Pos2) -> Pos2,
@@ -727,6 +770,7 @@ impl eframe::App for SubsystemApp {
                 start: Pos2,
                 br: &crate::model::Branch,
                 color: Color32,
+                port_label_requests: &mut Vec<(u32, u32, bool, f32)>,
             ) {
                 let mut pts: Vec<Pos2> = vec![start];
                 let mut cur = start;
@@ -741,16 +785,20 @@ impl eframe::App for SubsystemApp {
                     if let Some(dr) = sid_map.get(&dstb.sid) {
                         let num_dst = port_counts.get(&(dstb.sid, if dstb.port_type == "out" { 1 } else { 0 })).copied();
                         let end_pt = endpoint_pos_with_target(*dr, dstb, num_dst, Some(cur.y));
-                        painter.line_segment(
-                            [to_screen(*pts.last().unwrap_or(&cur)), to_screen(end_pt)],
-                            Stroke::new(2.0, color),
-                        );
+                        let last = *pts.last().unwrap_or(&cur);
+                        let a = to_screen(last);
+                        let b = to_screen(end_pt);
+                        painter.line_segment([a, b], Stroke::new(2.0, color));
+                        // Draw arrowhead only when contacting an input
+                        if dstb.port_type == "in" { draw_arrowhead(painter, a, b, color); }
+                        // Record input port label aligned with actual branch destination contact
+                        if dstb.port_type == "in" { port_label_requests.push((dstb.sid, dstb.port_index, true, b.y)); }
                     } else {
                         eprintln!("Cannot draw branch to dst SID {}", dstb.sid);
                     }
                 }
                 for sub in &br.branches {
-                    draw_branch_rec(painter, to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, color);
+                    draw_branch_rec(painter, to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, color, port_label_requests);
                 }
             }
 
@@ -761,8 +809,17 @@ impl eframe::App for SubsystemApp {
                 for seg in screen_pts.windows(2) {
                     painter.line_segment([seg[0], seg[1]], stroke);
                 }
+                // Draw arrowhead for main destination if present
+                if let Some(dst) = &line.dst {
+                    if dst.port_type == "in" && screen_pts.len() >= 2 {
+                        let n = screen_pts.len();
+                        let a = screen_pts[n - 2];
+                        let b = screen_pts[n - 1];
+                        draw_arrowhead(&painter, a, b, color);
+                    }
+                }
                 for br in &line.branches {
-                    draw_branch_rec(&painter, &to_screen, &sid_map, &port_counts, *main_anchor, br, color);
+                    draw_branch_rec(&painter, &to_screen, &sid_map, &port_counts, *main_anchor, br, color, &mut port_label_requests);
                 }
                 if *clicked {
                     let cp = ctx.input(|i| i.pointer.interact_pos());
@@ -789,11 +846,11 @@ impl eframe::App for SubsystemApp {
                         }
                         let threshold = 8.0;
                         if min_dist <= threshold {
-                            println!(
-                                "Clicked line: '{}' (min_dist={:.1})",
-                                line.name.as_deref().unwrap_or("<unnamed>"),
-                                min_dist
-                            );
+                            let title = line
+                                .name
+                                .clone()
+                                .unwrap_or_else(|| sid_to_name.get(&line.src.as_ref().map(|s| s.sid).unwrap_or(0)).cloned().unwrap_or("<signal>".into()));
+                            open_signal = Some(SignalDialog { title, line_idx: *li, open: true });
                         }
                     }
                 }
@@ -804,7 +861,6 @@ impl eframe::App for SubsystemApp {
             let block_label_font = 14.0f32;
             // Previously signal font was approx half the block font, then 1.5x. Increase by another 1.5x now.
             let signal_font = (block_label_font * 0.5 * 1.5 * 1.5).round().max(7.0);
-            let sig_font_id = egui::FontId::proportional(signal_font);
 
             struct EguiMeasurer<'a> { ctx: &'a egui::Context, font: egui::FontId, color: Color32 }
             impl<'a> LabelMeasurer for EguiMeasurer<'a> {
@@ -849,7 +905,8 @@ impl eframe::App for SubsystemApp {
                 }
             }
 
-            let mut draw_line_labels = |line: &crate::model::Line, screen_pts: &Vec<Pos2>, main_anchor: Pos2, color: Color32| {
+            let mut signal_label_rects: Vec<(Rect, usize)> = Vec::new();
+            let mut draw_line_labels = |line: &crate::model::Line, screen_pts: &Vec<Pos2>, main_anchor: Pos2, color: Color32, line_idx: usize| {
                 if screen_pts.len() < 2 { return; }
                 let label_text = if let Some(name) = line.name.as_ref().and_then(|s| if s.trim().is_empty() { None } else { Some(s) }) {
                     name.clone()
@@ -876,7 +933,6 @@ impl eframe::App for SubsystemApp {
                 }
                 let Some((sa, sb)) = best_seg else { return; };
                 let poly: Vec<V2> = vec![V2{ x: sa.x, y: sa.y }, V2{ x: sb.x, y: sb.y }];
-                let meas = EguiMeasurer { ctx, font: sig_font_id.clone(), color };
                 // Avoid collisions with already placed labels, with blocks, and with this line's own segments
                 let mut avoid_rects: Vec<RF> = placed_label_rects
                     .iter()
@@ -907,8 +963,6 @@ impl eframe::App for SubsystemApp {
                     let meas = EguiMeasurer { ctx, font: font_id.clone(), color };
                     let candidate_texts: Vec<String> = if !tried_wrap && label_text.contains(' ') {
                         // Build a two-line wrap at closest space to center
-                        let chars: Vec<char> = label_text.chars().collect();
-                        let mid = chars.len() / 2;
                         let bytes: Vec<(usize, char)> = label_text.char_indices().collect();
                         let mut best_split = None;
                         let mut best_dist = usize::MAX;
@@ -954,10 +1008,12 @@ impl eframe::App for SubsystemApp {
                                 w,
                                 h
                             );
-                            placed_label_rects.push(Rect::from_min_max(
+                            let rect = Rect::from_min_max(
                                 Pos2::new(result.rect.min.x, result.rect.min.y),
                                 Pos2::new(result.rect.max.x, result.rect.max.y),
-                            ));
+                            );
+                            placed_label_rects.push(rect);
+                            signal_label_rects.push((rect, line_idx));
                             final_drawn = true;
                             break;
                         }
@@ -975,7 +1031,20 @@ impl eframe::App for SubsystemApp {
             // Draw labels for each line using the computed colors and screen polylines
             for (line, screen_pts, _main_anchor, _clicked, li) in &line_views {
                 let color = line_colors.get(*li).copied().unwrap_or(line_stroke_default.color);
-                draw_line_labels(line, screen_pts, *_main_anchor, color);
+                draw_line_labels(line, screen_pts, *_main_anchor, color, *li);
+            }
+
+            // Make signal labels clickable to open the info dialog
+            for (r, li) in signal_label_rects {
+                let resp = ui.interact(r, ui.id().with(("signal_label", li)), Sense::click());
+                if resp.clicked() {
+                    let line = &current_system.lines[li];
+                    let title = line
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| line.src.as_ref().and_then(|s| sid_to_name.get(&s.sid)).cloned().unwrap_or("<signal>".into()));
+                    open_signal = Some(SignalDialog { title, line_idx: li, open: true });
+                }
             }
 
             for (b, r_screen, clicked) in &block_views {
@@ -1003,13 +1072,18 @@ impl eframe::App for SubsystemApp {
                 if *clicked {
                     if b.block_type == "SubSystem" {
                         if b.is_matlab_function {
+                            // Prefer SID-based mapping if chart_map keys are SIDs
+                            let sid_key = b.sid.map(|s| s.to_string());
+                            let by_sid = sid_key.as_ref().and_then(|k| self.chart_map.get(k)).cloned();
+                            // Fallback: name-based mapping from machine.xml path
                             let mut instance_name = if path_snapshot.is_empty() {
                                 b.name.clone()
                             } else {
                                 format!("{}/{}", path_snapshot.join("/"), b.name)
                             };
                             instance_name = instance_name.trim_matches('/').to_string();
-                            if let Some(cid) = self.chart_map.get(&instance_name).cloned() {
+                            let cid_opt = by_sid.or_else(|| self.chart_map.get(&instance_name).cloned());
+                            if let Some(cid) = cid_opt {
                                 if let Some(chart) = self.charts.get(&cid) {
                                     let title = chart
                                         .name
@@ -1045,6 +1119,50 @@ impl eframe::App for SubsystemApp {
                     }
                 }
             }
+
+            // Draw port labels after blocks so they are visible on top
+            // TODO(port labels): Consider caching measurements per unique (text, font)
+            let mut seen_port_labels: HashSet<(u32, u32, bool, i32)> = HashSet::new(); // (sid, index, is_input, y_center_rounded)
+            let font_id = egui::FontId::proportional(12.0);
+            for (sid, index, is_input, y) in port_label_requests {
+                let key = (sid, index, is_input, y.round() as i32);
+                if !seen_port_labels.insert(key) { continue; }
+                let Some(brect) = sid_screen_map.get(&sid).copied() else { continue; };
+                let Some(block) = sid_to_block.get(&sid) else { continue; };
+                // Choose the correct port set
+                let pname = block
+                    .ports
+                    .iter()
+                    .filter(|p| p.port_type == if is_input { "in" } else { "out" } && p.index.unwrap_or(0) == index)
+                    .filter_map(|p| {
+                        p.properties.get("Name").cloned()
+                            .or_else(|| p.properties.get("PropagatedSignals").cloned())
+                            .or_else(|| p.properties.get("name").cloned())
+                            .or_else(|| Some(format!("{}{}", if is_input { "In" } else { "Out" }, index)))
+                    })
+                    .next()
+                    .unwrap_or_else(|| format!("{}{}", if is_input { "In" } else { "Out" }, index));
+
+                let galley = ctx.fonts(|f| f.layout_no_wrap(pname.clone(), font_id.clone(), Color32::from_rgb(40,40,40)));
+                let size = galley.size();
+                let avail = brect.width() - 8.0; // margin
+                if size.x <= avail {
+                    // Vertically center the text at the requested Y and clamp inside block bounds.
+                    // Use safe min/max to handle cases where text is taller than the block height.
+                    let half_h = size.y * 0.5;
+                    let y_min = brect.top();
+                    let y_max = (brect.bottom() - size.y).max(y_min);
+                    let y_top = (y - half_h).max(y_min).min(y_max);
+                    let pos = if is_input {
+                        // Left inside
+                        Pos2::new(brect.left() + 4.0, y_top)
+                    } else {
+                        // Right inside, right-align text
+                        Pos2::new(brect.right() - 4.0 - size.x, y_top)
+                    };
+                    painter.galley(pos, galley, Color32::from_rgb(40,40,40));
+                }
+            }
         });
 
         if let Some(p) = navigate_to_from_block.or(navigate_to) {
@@ -1055,6 +1173,9 @@ impl eframe::App for SubsystemApp {
         self.reset_view = staged_reset;
         if let Some(cv) = open_chart {
             self.chart_view = Some(cv);
+        }
+        if let Some(sd) = open_signal {
+            self.signal_view = Some(sd);
         }
         if clear_search {
             self.search_query.clear();
@@ -1078,6 +1199,90 @@ impl eframe::App for SubsystemApp {
             cv.open = open_flag;
             if !cv.open {
                 self.chart_view = None;
+            }
+        }
+
+        // Render signal info dialog if open
+        if let Some(sd) = &self.signal_view {
+            let mut open_flag = sd.open;
+            let title = format!("Signal: {}", sd.title);
+            // Move required data out before mutably borrowing self
+            let sys = self.current_system().map(|s| s.clone());
+            let line_idx = sd.line_idx;
+            egui::Window::new(title)
+                .open(&mut open_flag)
+                .resizable(true)
+                .vscroll(true)
+                .min_width(360.0)
+                .min_height(200.0)
+                .show(ctx, |ui| {
+                    if let Some(sys) = &sys {
+                        if let Some(line) = sys.lines.get(line_idx) {
+                            // Basic info
+                            ui.label(RichText::new("General").strong());
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(format!("Name: {}", line.name.clone().unwrap_or("<unnamed>".into())));
+                                if let Some(z) = &line.zorder { ui.label(format!("Z: {}", z)); }
+                            });
+                            ui.separator();
+
+                            // Collect inputs (source) and outputs (dst + branches)
+                            let mut outputs: Vec<EndpointRef> = Vec::new();
+                            fn collect_branch_dsts(br: &crate::model::Branch, out: &mut Vec<EndpointRef>) {
+                                if let Some(d) = &br.dst { out.push(d.clone()); }
+                                for s in &br.branches { collect_branch_dsts(s, out); }
+                            }
+                            if let Some(d) = &line.dst { outputs.push(d.clone()); }
+                            for b in &line.branches { collect_branch_dsts(b, &mut outputs); }
+
+                            egui::CollapsingHeader::new("Inputs").default_open(true).show(ui, |ui| {
+                                if let Some(src) = &line.src {
+                                    let bname = sys
+                                        .blocks
+                                        .iter()
+                                        .find(|b| b.sid == Some(src.sid))
+                                        .map(|b| b.name.clone())
+                                        .unwrap_or_else(|| format!("SID{}", src.sid));
+                                    let pname = sys
+                                        .blocks
+                                        .iter()
+                                        .find(|b| b.sid == Some(src.sid))
+                                        .and_then(|b| b.ports.iter().find(|p| p.port_type == src.port_type && p.index.unwrap_or(0) == src.port_index))
+                                        .and_then(|p| p.properties.get("Name").cloned().or_else(|| p.properties.get("name").cloned()))
+                                        .unwrap_or_else(|| format!("{}{}", if src.port_type=="in"{"In"}else{"Out"}, src.port_index));
+                                    ui.label(format!("{} • {}{} ({}): {}", bname, if src.port_type=="in"{"In"}else{"Out"}, src.port_index, src.port_type, pname));
+                                } else {
+                                    ui.label("<no source>");
+                                }
+                            });
+                            egui::CollapsingHeader::new("Outputs").default_open(true).show(ui, |ui| {
+                                if outputs.is_empty() { ui.label("<none>"); }
+                                for d in outputs {
+                                    let bname = sys
+                                        .blocks
+                                        .iter()
+                                        .find(|b| b.sid == Some(d.sid))
+                                        .map(|b| b.name.clone())
+                                        .unwrap_or_else(|| format!("SID{}", d.sid));
+                                    let pname = sys
+                                        .blocks
+                                        .iter()
+                                        .find(|b| b.sid == Some(d.sid))
+                                        .and_then(|b| b.ports.iter().find(|p| p.port_type == d.port_type && p.index.unwrap_or(0) == d.port_index))
+                                        .and_then(|p| p.properties.get("Name").cloned().or_else(|| p.properties.get("name").cloned()))
+                                        .unwrap_or_else(|| format!("{}{}", if d.port_type=="in"{"In"}else{"Out"}, d.port_index));
+                                    ui.label(format!("{} • {}{} ({}): {}", bname, if d.port_type=="in"{"In"}else{"Out"}, d.port_index, d.port_type, pname));
+                                }
+                            });
+                        } else {
+                            ui.colored_label(Color32::RED, "Selected signal no longer exists in this view");
+                        }
+                    }
+                });
+            // Now update the open flag mutably
+            if let Some(sd_mut) = &mut self.signal_view {
+                sd_mut.open = open_flag;
+                if !sd_mut.open { self.signal_view = None; }
             }
         }
     }
