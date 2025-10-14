@@ -20,6 +20,7 @@ fn simple_system() -> System {
         position: Some("[100, 100, 160, 140]".into()),
         zorder: None,
         commented: false,
+        name_location: rustylink::model::NameLocation::Bottom,
         is_matlab_function: false,
         properties: Default::default(),
         ports: vec![],
@@ -33,6 +34,7 @@ fn simple_system() -> System {
         font_size: None,
         font_weight: None,
         mask_display_text: None,
+        value: None,
     };
     System {
         properties: Default::default(),

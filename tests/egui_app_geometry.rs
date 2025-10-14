@@ -12,6 +12,7 @@ fn test_ports_and_rect() {
         position: Some("[10, 20, 50, 60]".into()),
         zorder: None,
         commented: false,
+        name_location: rustylink::model::NameLocation::Bottom,
         is_matlab_function: false,
         properties: Default::default(),
         ports: vec![],
@@ -25,6 +26,7 @@ fn test_ports_and_rect() {
         font_size: None,
         font_weight: None,
         mask_display_text: None,
+        value: None,
     };
     let r = parse_block_rect(&b).unwrap();
     let p_in = port_anchor_pos(r, "in", 1, Some(2));

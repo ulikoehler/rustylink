@@ -333,6 +333,7 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
     let mut font_size: Option<u32> = None;
     let mut font_weight: Option<String> = None;
     let mut block_value: Option<String> = None;
+    let mut name_location: crate::model::NameLocation = crate::model::NameLocation::Bottom;
 
     for child in node.children().filter(|c| c.is_element()) {
         match child.tag_name().name() {
@@ -391,6 +392,18 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                         }
                         "FontWeight" => {
                             font_weight = Some(value);
+                        }
+                        "NameLocation" => {
+                            // top/bottom/left/right (case-insensitive). Default handled by field default.
+                            let loc = match value.trim().to_ascii_lowercase().as_str() {
+                                "top" => crate::model::NameLocation::Top,
+                                "bottom" => crate::model::NameLocation::Bottom,
+                                "left" => crate::model::NameLocation::Left,
+                                "right" => crate::model::NameLocation::Right,
+                                _ => crate::model::NameLocation::Bottom,
+                            };
+                            name_location = loc;
+                            properties.insert(name_attr.to_string(), value);
                         }
                         "Value" => {
                             // Keep raw textual value; also store into properties
@@ -493,6 +506,7 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
         position,
         zorder,
         commented,
+        name_location,
         is_matlab_function,
         properties,
         ports,

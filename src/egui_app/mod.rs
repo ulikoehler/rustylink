@@ -9,7 +9,7 @@ mod geometry;
 mod navigation;
 mod render;
 mod state;
-mod text;
+pub mod text;
 mod ui;
 
 pub use geometry::{endpoint_pos, endpoint_pos_with_target, parse_block_rect, port_anchor_pos};

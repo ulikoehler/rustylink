@@ -11,6 +11,7 @@ fn test_eval_simple() {
         position: None,
         zorder: None,
         commented: false,
+        name_location: rustylink::model::NameLocation::Bottom,
         is_matlab_function: false,
         properties: BTreeMap::new(),
         ports: vec![],
@@ -40,6 +41,7 @@ fn test_eval_simple() {
         font_size: None,
         font_weight: None,
         mask_display_text: None,
+        value: None,
     };
     evaluate_mask_display(&mut block);
     assert_eq!(block.mask_display_text.as_deref(), Some("Position"));

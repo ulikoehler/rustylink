@@ -625,22 +625,71 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             } else {
                 render_block_icon(&painter, b, r_screen, font_scale);
             }
-            // Respect ShowName flag when drawing label beneath the block. If value is shown, do not draw the name label
+            // Respect ShowName flag when drawing label near the block according to NameLocation.
+            // If value is shown or mask display is used, do not draw the name label
             let show_name = b.show_name.unwrap_or(true);
             let suppress_label = b.mask.is_some() || b.value.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false);
             if show_name && !suppress_label {
                 let lines: Vec<&str> = b.name.split('\n').collect();
-                let line_height = 16.0 * font_scale; let mut y = r_screen.bottom() + 2.0 * font_scale;
-                for line in lines {
-                    let pos = Pos2::new(r_screen.center().x, y);
-                    painter.text(
-                        pos,
-                        Align2::CENTER_TOP,
-                        line,
-                        egui::FontId::proportional(10.0 * font_scale),
-                        Color32::from_rgb(40, 40, 40),
-                    );
-                    y += line_height;
+                let font = egui::FontId::proportional(10.0 * font_scale);
+                let color = Color32::from_rgb(40, 40, 40);
+                let line_height = 16.0 * font_scale;
+                match b.name_location {
+                    crate::model::NameLocation::Bottom => {
+                        let mut y = r_screen.bottom() + 2.0 * font_scale;
+                        for line in lines.iter().copied() {
+                            let pos = Pos2::new(r_screen.center().x, y);
+                            painter.text(pos, Align2::CENTER_TOP, line, font.clone(), color);
+                            y += line_height;
+                        }
+                    }
+                    crate::model::NameLocation::Top => {
+                        // Mirror of bottom: start just above the block and stack upwards.
+                        // Keep the first line closest to the block (same as bottom behavior).
+                        let mut y = r_screen.top() - 2.0 * font_scale;
+                        for line in lines.iter().copied() {
+                            let pos = Pos2::new(r_screen.center().x, y);
+                            painter.text(pos, Align2::CENTER_BOTTOM, line, font.clone(), color);
+                            y -= line_height;
+                        }
+                    }
+                    crate::model::NameLocation::Left => {
+                        // Place labels to the left of the block without overlap: align each line's right edge
+                        // to r_screen.left() - gap.
+                        let mut galleys: Vec<(std::sync::Arc<egui::Galley>, f32)> = Vec::new();
+                        for line in lines.iter().copied() {
+                            let galley = painter.layout_no_wrap(line.to_string(), font.clone(), color);
+                            galleys.push((galley, line_height));
+                        }
+                        let total_h = (lines.len() as f32) * line_height;
+                        let mut y = r_screen.center().y - total_h * 0.5;
+                        let gap = 2.0 * font_scale;
+                        let x_right = r_screen.left() - gap;
+                        for (galley, lh) in galleys {
+                            let pos = Pos2::new(x_right - galley.size().x, y);
+                            painter.galley(pos, galley, color);
+                            y += lh;
+                        }
+                    }
+                    crate::model::NameLocation::Right => {
+                        // Place labels to the right of the block
+                        let mut galleys: Vec<(std::sync::Arc<egui::Galley>, f32)> = Vec::new();
+                        let mut max_w = 0.0f32;
+                        for line in lines.iter().copied() {
+                            let galley = painter.layout_no_wrap(line.to_string(), font.clone(), color);
+                            max_w = max_w.max(galley.size().x);
+                            galleys.push((galley, line_height));
+                        }
+                        let total_h = (lines.len() as f32) * line_height;
+                        let mut y = r_screen.center().y - total_h * 0.5;
+                        let x = r_screen.right() + 2.0 * font_scale;
+                        for (galley, lh) in galleys {
+                            // draw at left-top; ensure we offset slightly from block on the right
+                            let pos = Pos2::new(x + 2.0 * font_scale, y);
+                            painter.galley(pos, galley, color);
+                            y += lh;
+                        }
+                    }
                 }
             }
             if *clicked {

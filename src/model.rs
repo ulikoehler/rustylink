@@ -27,6 +27,9 @@ pub struct Block {
     pub position: Option<String>,
     pub zorder: Option<String>,
     pub commented: bool,
+    /// Location of the block name label (defaults to Bottom if not specified)
+    #[serde(default)]
+    pub name_location: NameLocation,
     /// True if this block is a Stateflow MATLAB Function block (SFBlockType == "MATLAB Function")
     #[serde(default)]
     pub is_matlab_function: bool,
@@ -63,6 +66,20 @@ pub struct Block {
     /// When mask feature enabled: evaluated display text from mask's Display script (e.g., disp(mytab{control}))
     #[serde(default)]
     pub mask_display_text: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NameLocation {
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+impl Default for NameLocation {
+    fn default() -> Self {
+        NameLocation::Bottom
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
