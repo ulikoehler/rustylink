@@ -877,7 +877,7 @@ fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                             background_color = crate::color::parse_color(&value);
                         }
                         "ShowName" => {
-                            show_name = Some(value.eq_ignore_ascii_case("on"));
+                            show_name = Some(!value.eq_ignore_ascii_case("off"));
                         }
                         "FontSize" => {
                             font_size = value.parse::<u32>().ok();

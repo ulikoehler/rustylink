@@ -1,10 +1,8 @@
-mod model;
-mod parser;
-mod mask_eval;
+// Use the library crate's modules instead of redefining them here.
 
 use anyhow::{Context, Result};
 use camino::{Utf8PathBuf};
-use parser::{FsSource, SimulinkParser, ZipSource};
+use rustylink::parser::{FsSource, SimulinkParser, ZipSource};
 use clap::Parser;
 
 

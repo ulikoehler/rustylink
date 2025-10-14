@@ -184,7 +184,8 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let cfg = get_block_type_cfg(&b.block_type);
             // If block.background_color is set, override type color
             let bg = if let Some(ref color_str) = b.background_color {
-                match color_str.to_lowercase().as_str() {
+                let lower = color_str.to_lowercase();
+                match lower.as_str() {
                     "yellow" => Color32::YELLOW,
                     "red" => Color32::RED,
                     "green" => Color32::GREEN,
@@ -192,9 +193,23 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                     "black" => Color32::BLACK,
                     "white" => Color32::WHITE,
                     "gray" | "grey" => Color32::from_rgb(128,128,128),
-                    other => {
-                        eprintln!("[rustylink] Warning: unknown block background color '{}', using default.", color_str);
-                        Color32::from_rgb(210, 210, 210)
+                    _ => {
+                        // Support hex color strings like #ffa500
+                        if lower.starts_with('#') && lower.len() == 7 {
+                            if let (Ok(r), Ok(g), Ok(b)) = (
+                                u8::from_str_radix(&lower[1..3], 16),
+                                u8::from_str_radix(&lower[3..5], 16),
+                                u8::from_str_radix(&lower[5..7], 16),
+                            ) {
+                                Color32::from_rgb(r, g, b)
+                            } else {
+                                eprintln!("[rustylink] Warning: invalid hex color '{}', using default.", color_str);
+                                Color32::from_rgb(210, 210, 210)
+                            }
+                        } else {
+                            eprintln!("[rustylink] Warning: unknown block background color '{}', using default.", color_str);
+                            Color32::from_rgb(210, 210, 210)
+                        }
                     }
                 }
             } else {
@@ -532,12 +547,25 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                 } else { vec![label_text.clone(), wrap_text.clone()] };
                 for candidate in candidate_texts.into_iter().filter(|s| !s.is_empty()) {
                     if let Some(result) = crate::label_place::place_label(&poly, &candidate, &meas, cfg, &avoid_rects) {
-                        let oriented_text = if result.horizontal { candidate.clone() } else {
-                            let mut s = String::new(); for (i, ch) in candidate.chars().enumerate() { if i > 0 { s.push('\n'); } s.push(ch); } s
-                        };
-                        let galley = ctx.fonts(|f| f.layout_no_wrap(oriented_text.clone(), font_id.clone(), color));
-                        let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
-                        painter.galley(draw_pos, galley, color);
+                        if result.horizontal {
+                            let galley = ctx.fonts(|f| f.layout_no_wrap(candidate.clone(), font_id.clone(), color));
+                            let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
+                            painter.galley(draw_pos, galley, color);
+                        } else {
+                            let galley = ctx.fonts(|f| f.layout_no_wrap(candidate.clone(), font_id.clone(), color));
+                            let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
+                            // Draw rotated text using TextShape with angle around the draw_pos (top-left)
+                            let text_shape = egui::epaint::TextShape {
+                                pos: draw_pos,
+                                galley,
+                                fallback_color: Color32::TRANSPARENT,
+                                opacity_factor: 1.0,
+                                underline: Stroke::NONE,
+                                override_text_color: Some(color),
+                                angle: std::f32::consts::FRAC_PI_2,
+                            };
+                            painter.add(egui::Shape::Text(text_shape));
+                        }
                         let rect = Rect::from_min_max(Pos2::new(result.rect.min.x, result.rect.min.y), Pos2::new(result.rect.max.x, result.rect.max.y));
                         placed_label_rects.push(rect); signal_label_rects.push((rect, line_idx)); final_drawn = true; break;
                     }
@@ -584,9 +612,23 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             } else {
                 render_block_icon(&painter, b, r_screen);
             }
-            let lines: Vec<&str> = b.name.split('\n').collect();
-            let line_height = 16.0; let mut y = r_screen.bottom() + 2.0;
-            for line in lines { let pos = Pos2::new(r_screen.center().x, y); painter.text(pos, Align2::CENTER_TOP, line, egui::FontId::proportional(14.0), Color32::from_rgb(40, 40, 40)); y += line_height; }
+            // Respect ShowName flag when drawing label beneath the block
+            let show_name = b.show_name.unwrap_or(true);
+            if show_name {
+                let lines: Vec<&str> = b.name.split('\n').collect();
+                let line_height = 16.0; let mut y = r_screen.bottom() + 2.0;
+                for line in lines {
+                    let pos = Pos2::new(r_screen.center().x, y);
+                    painter.text(
+                        pos,
+                        Align2::CENTER_TOP,
+                        line,
+                        egui::FontId::proportional(14.0),
+                        Color32::from_rgb(40, 40, 40),
+                    );
+                    y += line_height;
+                }
+            }
             if *clicked {
                 if b.block_type == "MATLAB Function" || (b.block_type == "SubSystem" && b.is_matlab_function) {
                     let by_sid = b.sid.as_ref().and_then(|k| app.chart_map.get(k)).cloned();
