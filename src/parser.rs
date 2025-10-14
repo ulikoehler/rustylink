@@ -818,6 +818,10 @@ fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
     let mut mask: Option<Mask> = None;
     let mut instance_data: Option<InstanceData> = None;
     let mut annotations: Vec<Annotation> = Vec::new();
+    let mut background_color: Option<String> = None;
+    let mut show_name: Option<bool> = None;
+    let mut font_size: Option<u32> = None;
+    let mut font_weight: Option<String> = None;
 
     for child in node.children().filter(|c| c.is_element()) {
         match child.tag_name().name() {
@@ -845,6 +849,18 @@ fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                         "CodegenOutputCode" => { c_codegen_output = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
                         "CodegenStartCode" => { c_codegen_start = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
                         "CodegenTerminateCode" => { c_codegen_term = Some(value.clone()); properties.insert(name_attr.to_string(), value); }
+                        "BackgroundColor" => {
+                            background_color = Some(value);
+                        }
+                        "ShowName" => {
+                            show_name = Some(value.eq_ignore_ascii_case("on"));
+                        }
+                        "FontSize" => {
+                            font_size = value.parse::<u32>().ok();
+                        }
+                        "FontWeight" => {
+                            font_weight = Some(value);
+                        }
                         _ => {
                             properties.insert(name_attr.to_string(), value);
                         }
@@ -916,7 +932,26 @@ fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
             codegen_terminate_code: c_codegen_term,
         })
     } else { None };
-    Ok(Block { block_type, name, sid, position, zorder, commented, is_matlab_function, properties, ports, subsystem, c_function, instance_data, mask, annotations })
+    Ok(Block {
+        block_type,
+        name,
+        sid,
+        position,
+        zorder,
+        commented,
+        is_matlab_function,
+        properties,
+        ports,
+        subsystem,
+        c_function,
+        instance_data,
+        mask,
+        annotations,
+        background_color,
+        show_name,
+        font_size,
+        font_weight,
+    })
 }
 
 fn parse_system_shallow(node: Node, base_dir: &Utf8Path) -> Result<System> {

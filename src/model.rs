@@ -45,6 +45,18 @@ pub struct Block {
     /// Optional annotations attached to the block
     #[serde(default)]
     pub annotations: Vec<Annotation>,
+    /// Optional background color for block
+    #[serde(default)]
+    pub background_color: Option<String>,
+    /// Optional show name flag for block
+    #[serde(default)]
+    pub show_name: Option<bool>,
+    /// Optional font size for block
+    #[serde(default)]
+    pub font_size: Option<u32>,
+    /// Optional font weight for block
+    #[serde(default)]
+    pub font_weight: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
