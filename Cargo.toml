@@ -2,6 +2,8 @@
 name = "rustylink"
 version = "1.0.0"
 edition = "2024"
+homepage = "https://github.com/ulikoehler/rustylink"
+repository = "https://github.com/ulikoehler/rustylink"
 description = "Visualize & analyze Simulink .slx files"
 license = "Apache-2.0"
 
