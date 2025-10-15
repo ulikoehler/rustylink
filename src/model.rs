@@ -69,6 +69,9 @@ pub struct Block {
     /// Optional current setting for blocks like ManualSwitch
     #[serde(default)]
     pub current_setting: Option<String>,
+    /// Optional flag indicating the block is mirrored (inputs on right, outputs on left)
+    #[serde(default)]
+    pub block_mirror: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

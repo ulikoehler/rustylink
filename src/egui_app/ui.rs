@@ -6,7 +6,7 @@ use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, V
 
 use crate::model::EndpointRef;
 
-use super::geometry::{endpoint_pos, endpoint_pos_with_target, parse_block_rect, parse_rect_str};
+use super::geometry::{endpoint_pos_maybe_mirrored, endpoint_pos_with_target_maybe_mirrored, parse_block_rect, parse_rect_str};
 use super::render::{get_block_type_cfg, render_block_icon, render_manual_switch, ComputedPortYCoordinates};
 use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
 use super::text::{highlight_query_job, matlab_syntax_job};
@@ -363,12 +363,20 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
     let mut line_views: Vec<(&crate::model::Line, Vec<Pos2>, Pos2, bool, usize, Vec<(Pos2, Pos2)>)> = Vec::new();
     let mut port_label_requests: Vec<(String, u32, bool, f32)> = Vec::new();
     let mut port_y_screen: HashMap<(String, u32, bool), f32> = HashMap::new();
+        // Precompute mirroring for each block SID in this view
+        let mut sid_mirrored: HashMap<String, bool> = HashMap::new();
+        for (b, _r) in &blocks {
+            if let Some(sid) = &b.sid {
+                sid_mirrored.insert(sid.clone(), b.block_mirror.unwrap_or(false));
+            }
+        }
         for (li, line) in current_system.lines.iter().enumerate() {
             let Some(src) = line.src.as_ref() else { continue; };
             let Some(sr) = sid_map.get(&src.sid) else { continue; };
             let mut offsets_pts: Vec<Pos2> = Vec::new();
             let num_src = port_counts.get(&(src.sid.clone(), if src.port_type == "out" { 1 } else { 0 })).copied();
-            let mut cur = endpoint_pos(*sr, src, num_src);
+            let mirrored_src = sid_mirrored.get(&src.sid).copied().unwrap_or(false);
+            let mut cur = endpoint_pos_maybe_mirrored(*sr, src, num_src, mirrored_src);
             offsets_pts.push(cur);
             for off in &line.points { cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32); offsets_pts.push(cur); }
             let mut screen_pts: Vec<Pos2> = offsets_pts.iter().map(|p| to_screen(*p)).collect();
@@ -380,7 +388,8 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             if let Some(dst) = line.dst.as_ref() {
                 if let Some(dr) = sid_map.get(&dst.sid) {
                     let num_dst = port_counts.get(&(dst.sid.clone(), if dst.port_type == "out" { 1 } else { 0 })).copied();
-                    let dst_pt = endpoint_pos_with_target(*dr, dst, num_dst, Some(cur.y));
+                    let mirrored_dst = current_system.blocks.iter().find(|b| b.sid.as_ref() == Some(&dst.sid)).and_then(|b| b.block_mirror).unwrap_or(false);
+                    let dst_pt = endpoint_pos_with_target_maybe_mirrored(*dr, dst, num_dst, Some(cur.y), mirrored_dst);
                     let dst_screen = to_screen(dst_pt);
                     screen_pts.push(dst_screen);
                     if dst.port_type == "in" { port_label_requests.push((dst.sid.clone(), dst.port_index, true, dst_screen.y)); port_y_screen.insert((dst.sid.clone(), dst.port_index, true), dst_screen.y); }
@@ -389,7 +398,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             if screen_pts.is_empty() { continue; }
             let mut segments_all: Vec<(Pos2, Pos2)> = Vec::new();
             for seg in screen_pts.windows(2) { segments_all.push((seg[0], seg[1])); }
-            for br in &line.branches { collect_branch_segments_rec(&to_screen, &sid_map, &port_counts, *offsets_pts.last().unwrap_or(&cur), br, &mut segments_all, &mut port_y_screen); }
+            for br in &line.branches { collect_branch_segments_rec(&to_screen, &sid_map, &port_counts, *offsets_pts.last().unwrap_or(&cur), br, &mut segments_all, &mut port_y_screen, &sid_mirrored); }
             let pad = 8.0;
             let (min_x, max_x, min_y, max_y) = segments_all.iter().fold((f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY), |(min_x, max_x, min_y, max_y), (a,b)| {
                 (min_x.min(a.x.min(b.x)), max_x.max(a.x.max(b.x)), min_y.min(a.y.min(b.y)), max_y.max(a.y.max(b.y)))
@@ -422,6 +431,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             br: &crate::model::Branch,
             out: &mut Vec<(Pos2, Pos2)>,
             port_y_screen: &mut HashMap<(String, u32, bool), f32>,
+            sid_mirrored: &HashMap<String, bool>,
         ) {
             let mut pts: Vec<Pos2> = vec![start];
             let mut cur = start;
@@ -430,13 +440,14 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             if let Some(dstb) = &br.dst { if let Some(dr) = sid_map.get(&dstb.sid) {
                 let key = (dstb.sid.clone(), if dstb.port_type == "out" { 1 } else { 0 });
                 let num_dst = port_counts.get(&key).copied();
-                let end_pt = super::geometry::endpoint_pos_with_target(*dr, dstb, num_dst, Some(cur.y));
+                let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
+                let end_pt = super::geometry::endpoint_pos_with_target_maybe_mirrored(*dr, dstb, num_dst, Some(cur.y), mirrored_dst);
                 let a = to_screen(*pts.last().unwrap_or(&cur));
                 let b = to_screen(end_pt);
                 out.push((a, b));
                 if dstb.port_type == "in" { port_y_screen.insert((dstb.sid.clone(), dstb.port_index, true), b.y); }
             }}
-            for sub in &br.branches { collect_branch_segments_rec(to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, out, port_y_screen); }
+            for sub in &br.branches { collect_branch_segments_rec(to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, out, port_y_screen, sid_mirrored); }
         }
 
         // Draw lines and branches
@@ -462,6 +473,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             br: &crate::model::Branch,
             color: Color32,
             port_label_requests: &mut Vec<(String, u32, bool, f32)>,
+            sid_mirrored: &HashMap<String, bool>,
         ) {
             let mut pts: Vec<Pos2> = vec![start];
             let mut cur = start;
@@ -470,13 +482,14 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             if let Some(dstb) = &br.dst { if let Some(dr) = sid_map.get(&dstb.sid) {
                 let key = (dstb.sid.clone(), if dstb.port_type == "out" { 1 } else { 0 });
                 let num_dst = port_counts.get(&key).copied();
-                let end_pt = endpoint_pos_with_target(*dr, dstb, num_dst, Some(cur.y));
+                let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
+                let end_pt = endpoint_pos_with_target_maybe_mirrored(*dr, dstb, num_dst, Some(cur.y), mirrored_dst);
                 let last = *pts.last().unwrap_or(&cur);
                 let a = to_screen(last); let b = to_screen(end_pt);
                 painter.line_segment([a, b], Stroke::new(2.0, color));
                 if dstb.port_type == "in" { draw_arrowhead(painter, a, b, color); port_label_requests.push((dstb.sid.clone(), dstb.port_index, true, b.y)); }
             }}
-            for sub in &br.branches { draw_branch_rec(painter, to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, color, port_label_requests); }
+            for sub in &br.branches { draw_branch_rec(painter, to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, color, port_label_requests, sid_mirrored); }
         }
 
         let mut signal_label_rects: Vec<(Rect, usize)> = Vec::new();
@@ -496,7 +509,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                 let n = screen_pts.len(); let a = screen_pts[n-2]; let b = screen_pts[n-1];
                 draw_arrowhead(&painter, a, b, color);
             }}
-            for br in &line.branches { draw_branch_rec(&painter, &to_screen, &sid_map, &port_counts, *main_anchor, br, color, &mut port_label_requests); }
+            for br in &line.branches { draw_branch_rec(&painter, &to_screen, &sid_map, &port_counts, *main_anchor, br, color, &mut port_label_requests, &sid_mirrored); }
             if *clicked {
                 if let Some(cp) = ctx.input(|i| i.pointer.interact_pos()) {
                     let mut min_dist = f32::INFINITY;
@@ -535,7 +548,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let Some(label_text) = line.name.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()).map(|s| s.to_string()) else { return; };
             let mut segments: Vec<(Pos2, Pos2)> = Vec::new();
             for seg in screen_pts.windows(2) { segments.push((seg[0], seg[1])); }
-            for br in &line.branches { collect_branch_segments_rec(&to_screen, &sid_map, &port_counts, main_anchor, br, &mut segments, &mut port_y_screen); }
+            for br in &line.branches { collect_branch_segments_rec(&to_screen, &sid_map, &port_counts, main_anchor, br, &mut segments, &mut port_y_screen, &sid_mirrored); }
             let mut best_len2 = -1.0f32; let mut best_seg: Option<(Pos2, Pos2)> = None;
             for (a, b) in &segments { let dx = b.x - a.x; let dy = b.y - a.y; let l2 = dx*dx + dy*dy; if l2 > best_len2 { best_len2 = l2; best_seg = Some((*a, *b)); } }
             let Some((sa, sb)) = best_seg else { return; };
@@ -742,7 +755,10 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             if block.mask.is_some() { continue; }
             let cfg = get_block_type_cfg(&block.block_type);
             if (is_input && !cfg.show_input_port_labels) || (!is_input && !cfg.show_output_port_labels) { continue; }
-            let pname = block.ports.iter().filter(|p| p.port_type == if is_input { "in" } else { "out" } && p.index.unwrap_or(0) == index).filter_map(|p| {
+            // Swap label side if block is mirrored (inputs on right, outputs on left)
+            let mirrored = block.block_mirror.unwrap_or(false);
+            let logical_is_input = if mirrored { !is_input } else { is_input };
+            let pname = block.ports.iter().filter(|p| p.port_type == if logical_is_input { "in" } else { "out" } && p.index.unwrap_or(0) == index).filter_map(|p| {
                 p.properties.get("Name").cloned().or_else(|| p.properties.get("PropagatedSignals").cloned()).or_else(|| p.properties.get("name").cloned()).or_else(|| Some(format!("{}{}", if is_input { "In" } else { "Out" }, index)))
             }).next().unwrap_or_else(|| format!("{}{}", if is_input { "In" } else { "Out" }, index));
             let galley = ctx.fonts(|f| f.layout_no_wrap(pname.clone(), font_id.clone(), Color32::from_rgb(40,40,40)));
@@ -751,7 +767,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             if size.x <= avail_w {
                 let half_h = size.y * 0.5; let y_min = brect.top(); let y_max = (brect.bottom() - size.y).max(y_min);
                 let y_top = (y - half_h).max(y_min).min(y_max);
-                let pos = if is_input { Pos2::new(brect.left() + 4.0 * font_scale, y_top) } else { Pos2::new(brect.right() - 4.0 * font_scale - size.x, y_top) };
+                let pos = if is_input ^ mirrored { Pos2::new(brect.left() + 4.0 * font_scale, y_top) } else { Pos2::new(brect.right() - 4.0 * font_scale - size.x, y_top) };
                 painter.galley(pos, galley, Color32::from_rgb(40,40,40));
             }
         }

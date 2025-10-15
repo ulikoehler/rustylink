@@ -71,4 +71,44 @@ pub fn endpoint_pos_with_target(
     p
 }
 
+/// Determine the port side on screen for a given endpoint type, considering mirroring.
+pub fn port_side_for(port_type: &str, mirrored: bool) -> PortSide {
+    match (port_type, mirrored) {
+        ("out", false) | ("in", true) => PortSide::Out,
+        ("in", false) | ("out", true) => PortSide::In,
+        (_other, _m) => PortSide::In,
+    }
+}
+
+/// Compute endpoint position considering BlockMirror (inputs on right, outputs on left when true).
+pub fn endpoint_pos_maybe_mirrored(
+    r: Rect,
+    ep: &EndpointRef,
+    num_ports: Option<u32>,
+    mirrored: bool,
+) -> Pos2 {
+    let side = port_side_for(&ep.port_type, mirrored);
+    port_anchor_pos(r, side, ep.port_index, num_ports)
+}
+
+/// Variant with target Y matching, considering mirroring.
+pub fn endpoint_pos_with_target_maybe_mirrored(
+    r: Rect,
+    ep: &EndpointRef,
+    num_ports: Option<u32>,
+    target_y: Option<f32>,
+    mirrored: bool,
+) -> Pos2 {
+    let mut p = endpoint_pos_maybe_mirrored(r, ep, num_ports, mirrored);
+    if let Some(ty) = target_y {
+        let mut y = ty;
+        let top = r.top();
+        let bottom = r.bottom();
+        if y < top { y = top; }
+        if y > bottom { y = bottom; }
+        p.y = y;
+    }
+    p
+}
+
 // tests moved to tests/ module

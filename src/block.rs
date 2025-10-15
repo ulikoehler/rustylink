@@ -335,6 +335,7 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
     let mut block_value: Option<String> = None;
     let mut name_location: crate::model::NameLocation = crate::model::NameLocation::Bottom;
     let mut current_setting: Option<String> = None;
+    let mut block_mirror: Option<bool> = None;
 
     for child in node.children().filter(|c| c.is_element()) {
         match child.tag_name().name() {
@@ -387,6 +388,11 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                         }
                         "ShowName" => {
                             show_name = Some(!value.eq_ignore_ascii_case("off"));
+                        }
+                        "BlockMirror" => {
+                            let on = value.eq_ignore_ascii_case("on") || value == "1" || value.eq_ignore_ascii_case("true");
+                            block_mirror = Some(on);
+                            properties.insert(name_attr.to_string(), value);
                         }
                         "FontSize" => {
                             font_size = value.parse::<u32>().ok();
@@ -527,6 +533,7 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
         mask_display_text: None,
         value: block_value,
         current_setting,
+        block_mirror,
     };
     if blk.mask_display_text.is_none()
         && blk.mask.as_ref().and_then(|m| m.display.as_ref()).is_some()
