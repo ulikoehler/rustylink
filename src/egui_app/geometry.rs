@@ -3,6 +3,10 @@
 use crate::model::{Block, EndpointRef};
 use eframe::egui::{Pos2, Rect};
 
+/// Side of a block where a port resides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PortSide { In, Out }
+
 /// Parse the block rectangle from a Simulink block's `Position` property.
 /// Expects a string of the form "[l, t, r, b]".
 pub fn parse_block_rect(b: &Block) -> Option<Rect> {
@@ -30,8 +34,8 @@ pub fn parse_rect_str(pos: &str) -> Option<Rect> {
 }
 
 /// Compute a port anchor position on a block's rectangle.
-/// Ports are distributed vertically. `port_type` is "in" or "out".
-pub fn port_anchor_pos(r: Rect, port_type: &str, port_index: u32, num_ports: Option<u32>) -> Pos2 {
+/// Ports are distributed vertically.
+pub fn port_anchor_pos(r: Rect, side: PortSide, port_index: u32, num_ports: Option<u32>) -> Pos2 {
     let idx1 = if port_index == 0 { 1 } else { port_index };
     let n = num_ports.unwrap_or(idx1).max(idx1);
     let total_segments = n * 2 + 1;
@@ -39,15 +43,16 @@ pub fn port_anchor_pos(r: Rect, port_type: &str, port_index: u32, num_ports: Opt
     let y1 = r.bottom();
     let dy = (y1 - y0) / (total_segments as f32);
     let y = y0 + ((2 * idx1) as f32 - 0.5) * dy;
-    match port_type {
-        "out" => Pos2::new(r.right(), y),
-        _ => Pos2::new(r.left(), y),
+    match side {
+        PortSide::Out => Pos2::new(r.right(), y),
+        PortSide::In => Pos2::new(r.left(), y),
     }
 }
 
 /// Helper to compute a port anchor position given an endpoint reference.
 pub fn endpoint_pos(r: Rect, ep: &EndpointRef, num_ports: Option<u32>) -> Pos2 {
-    port_anchor_pos(r, ep.port_type.as_str(), ep.port_index, num_ports)
+    let side = if ep.port_type == "out" { PortSide::Out } else { PortSide::In };
+    port_anchor_pos(r, side, ep.port_index, num_ports)
 }
 
 /// Variant that tries to match a target Y (e.g., last polyline Y) to keep the final segment horizontal

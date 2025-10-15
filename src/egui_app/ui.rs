@@ -7,7 +7,7 @@ use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, V
 use crate::model::EndpointRef;
 
 use super::geometry::{endpoint_pos, endpoint_pos_with_target, parse_block_rect, parse_rect_str};
-use super::render::{get_block_type_cfg, render_block_icon};
+use super::render::{get_block_type_cfg, render_block_icon, render_manual_switch, ComputedPortYCoordinates};
 use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
 use super::text::{highlight_query_job, matlab_syntax_job};
 
@@ -360,8 +360,9 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
         }
 
         // Build lines in screen space and interactive hit rects
-        let mut line_views: Vec<(&crate::model::Line, Vec<Pos2>, Pos2, bool, usize, Vec<(Pos2, Pos2)>)> = Vec::new();
-        let mut port_label_requests: Vec<(String, u32, bool, f32)> = Vec::new();
+    let mut line_views: Vec<(&crate::model::Line, Vec<Pos2>, Pos2, bool, usize, Vec<(Pos2, Pos2)>)> = Vec::new();
+    let mut port_label_requests: Vec<(String, u32, bool, f32)> = Vec::new();
+    let mut port_y_screen: HashMap<(String, u32, bool), f32> = HashMap::new();
         for (li, line) in current_system.lines.iter().enumerate() {
             let Some(src) = line.src.as_ref() else { continue; };
             let Some(sr) = sid_map.get(&src.sid) else { continue; };
@@ -374,6 +375,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             if let Some(src_ep) = line.src.as_ref() {
                 let src_screen = *screen_pts.get(0).unwrap_or(&to_screen(cur));
                 port_label_requests.push((src_ep.sid.clone(), src_ep.port_index, false, src_screen.y));
+                port_y_screen.insert((src_ep.sid.clone(), src_ep.port_index, false), src_screen.y);
             }
             if let Some(dst) = line.dst.as_ref() {
                 if let Some(dr) = sid_map.get(&dst.sid) {
@@ -381,13 +383,13 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                     let dst_pt = endpoint_pos_with_target(*dr, dst, num_dst, Some(cur.y));
                     let dst_screen = to_screen(dst_pt);
                     screen_pts.push(dst_screen);
-                    if dst.port_type == "in" { port_label_requests.push((dst.sid.clone(), dst.port_index, true, dst_screen.y)); }
+                    if dst.port_type == "in" { port_label_requests.push((dst.sid.clone(), dst.port_index, true, dst_screen.y)); port_y_screen.insert((dst.sid.clone(), dst.port_index, true), dst_screen.y); }
                 }
             }
             if screen_pts.is_empty() { continue; }
             let mut segments_all: Vec<(Pos2, Pos2)> = Vec::new();
             for seg in screen_pts.windows(2) { segments_all.push((seg[0], seg[1])); }
-            for br in &line.branches { collect_branch_segments_rec(&to_screen, &sid_map, &port_counts, *offsets_pts.last().unwrap_or(&cur), br, &mut segments_all); }
+            for br in &line.branches { collect_branch_segments_rec(&to_screen, &sid_map, &port_counts, *offsets_pts.last().unwrap_or(&cur), br, &mut segments_all, &mut port_y_screen); }
             let pad = 8.0;
             let (min_x, max_x, min_y, max_y) = segments_all.iter().fold((f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY), |(min_x, max_x, min_y, max_y), (a,b)| {
                 (min_x.min(a.x.min(b.x)), max_x.max(a.x.max(b.x)), min_y.min(a.y.min(b.y)), max_y.max(a.y.max(b.y)))
@@ -419,6 +421,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             start: Pos2,
             br: &crate::model::Branch,
             out: &mut Vec<(Pos2, Pos2)>,
+            port_y_screen: &mut HashMap<(String, u32, bool), f32>,
         ) {
             let mut pts: Vec<Pos2> = vec![start];
             let mut cur = start;
@@ -428,9 +431,12 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                 let key = (dstb.sid.clone(), if dstb.port_type == "out" { 1 } else { 0 });
                 let num_dst = port_counts.get(&key).copied();
                 let end_pt = super::geometry::endpoint_pos_with_target(*dr, dstb, num_dst, Some(cur.y));
-                out.push((to_screen(*pts.last().unwrap_or(&cur)), to_screen(end_pt)));
+                let a = to_screen(*pts.last().unwrap_or(&cur));
+                let b = to_screen(end_pt);
+                out.push((a, b));
+                if dstb.port_type == "in" { port_y_screen.insert((dstb.sid.clone(), dstb.port_index, true), b.y); }
             }}
-            for sub in &br.branches { collect_branch_segments_rec(to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, out); }
+            for sub in &br.branches { collect_branch_segments_rec(to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, out, port_y_screen); }
         }
 
         // Draw lines and branches
@@ -474,6 +480,13 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
         }
 
         let mut signal_label_rects: Vec<(Rect, usize)> = Vec::new();
+        // NOTE: Up to here we have collected port_y_screen while building lines and branches.
+        // From this we create a per-block map for fast lookup during block rendering.
+        let mut block_port_y_map: HashMap<String, ComputedPortYCoordinates> = HashMap::new();
+        for ((sid, idx, is_input), y) in port_y_screen.iter() {
+            let entry = block_port_y_map.entry(sid.clone()).or_default();
+            if *is_input { entry.inputs.insert(*idx, *y); } else { entry.outputs.insert(*idx, *y); }
+        }
 
         for (line, screen_pts, main_anchor, clicked, li, segments_all) in &line_views {
             let color = line_colors.get(*li).copied().unwrap_or(line_stroke_default.color);
@@ -522,7 +535,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let Some(label_text) = line.name.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()).map(|s| s.to_string()) else { return; };
             let mut segments: Vec<(Pos2, Pos2)> = Vec::new();
             for seg in screen_pts.windows(2) { segments.push((seg[0], seg[1])); }
-            for br in &line.branches { collect_branch_segments_rec(&to_screen, &sid_map, &port_counts, main_anchor, br, &mut segments); }
+            for br in &line.branches { collect_branch_segments_rec(&to_screen, &sid_map, &port_counts, main_anchor, br, &mut segments, &mut port_y_screen); }
             let mut best_len2 = -1.0f32; let mut best_seg: Option<(Pos2, Pos2)> = None;
             for (a, b) in &segments { let dx = b.x - a.x; let dy = b.y - a.y; let l2 = dx*dx + dy*dy; if l2 > best_len2 { best_len2 = l2; best_seg = Some((*a, *b)); } }
             let Some((sa, sb)) = best_seg else { return; };
@@ -603,7 +616,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let border_rgb = cfg.border.unwrap_or(crate::block_types::Rgb(180, 180, 200));
             let stroke = Stroke::new(2.0, Color32::from_rgb(border_rgb.0, border_rgb.1, border_rgb.2));
             painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
-            // Icon/value rendering with precedence: mask > value > icon
+            // Icon/value rendering with precedence: mask > value > custom/icon
             if b.mask.is_some() {
                 if let Some(text) = b.mask_display_text.as_ref() {
                     let font_size = (b.font_size.unwrap_or(14) as f32) * font_scale;
@@ -622,6 +635,9 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                 let galley = painter.layout_no_wrap(text, font_id.clone(), color);
                 let pos = r_screen.center() - galley.size() * 0.5;
                 painter.galley(pos, galley, color);
+            } else if b.block_type == "ManualSwitch" {
+                let coords_ref = b.sid.as_ref().and_then(|sid| block_port_y_map.get(sid));
+                render_manual_switch(&painter, b, r_screen, font_scale, coords_ref);
             } else {
                 render_block_icon(&painter, b, r_screen, font_scale);
             }
