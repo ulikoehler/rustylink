@@ -77,10 +77,11 @@ pub fn render_manual_switch(
 
     // Place pole centers slightly inside the block border so the circles are fully visible
     let pad = 8.0_f32; // horizontal inset from the border for the circle centers
-    let r_in = (rect.height() * 0.06).clamp(2.0, 6.0); // circle radius
+    let r_in = (rect.height() * 0.06).clamp(2.0, 6.0) * 0.8; // 20% smaller
     let r_out = r_in;
-    let stroke_w = 1.5_f32; // thinner, dark-gray lines
-    let col = Color32::from_rgb(48, 48, 48);
+    let stroke_w = 1.5_f32; // thinner
+    let col_active = Color32::from_rgb(32, 32, 32);
+    let col_inactive = Color32::from_rgb(110, 110, 110); // dark gray for inactive
 
     let top_in_y = coords.and_then(|c| c.inputs.get(&1).copied()).unwrap_or(default_in1.y);
     let bot_in_y = coords.and_then(|c| c.inputs.get(&2).copied()).unwrap_or(default_in2.y);
@@ -94,23 +95,30 @@ pub fn render_manual_switch(
     let in1_anchor = Pos2::new(rect.left(), top_in_y);
     let in2_anchor = Pos2::new(rect.left(), bot_in_y);
     let out_anchor = Pos2::new(rect.right(), out_y);
-    painter.line_segment([in1_anchor, Pos2::new(top_in_center.x - r_in, top_in_center.y)], Stroke::new(stroke_w, col));
-    painter.line_segment([in2_anchor, Pos2::new(bot_in_center.x - r_in, bot_in_center.y)], Stroke::new(stroke_w, col));
-    painter.line_segment([Pos2::new(out_center.x + r_out, out_center.y), out_anchor], Stroke::new(stroke_w, col));
+    painter.line_segment([in1_anchor, Pos2::new(top_in_center.x - r_in, top_in_center.y)], Stroke::new(stroke_w, col_active));
+    painter.line_segment([in2_anchor, Pos2::new(bot_in_center.x - r_in, bot_in_center.y)], Stroke::new(stroke_w, col_active));
+    painter.line_segment([Pos2::new(out_center.x + r_out, out_center.y), out_anchor], Stroke::new(stroke_w, col_active));
 
     // Draw open-circuit poles
-    painter.circle_stroke(top_in_center, r_in, Stroke::new(stroke_w, col));
-    painter.circle_stroke(bot_in_center, r_in, Stroke::new(stroke_w, col));
-    painter.circle_stroke(out_center, r_out, Stroke::new(stroke_w, col));
+    painter.circle_stroke(top_in_center, r_in, Stroke::new(stroke_w, col_active));
+    painter.circle_stroke(bot_in_center, r_in, Stroke::new(stroke_w, col_active));
+    painter.circle_stroke(out_center, r_out, Stroke::new(stroke_w, col_active));
 
     // Small stubs from circle edge inwards (approx. 0.3x diameter = 0.6r)
-    let stub = (0.6 * r_in).max(1.0);
-    painter.line_segment([Pos2::new(top_in_center.x + r_in, top_in_center.y), Pos2::new(top_in_center.x + r_in + stub, top_in_center.y)], Stroke::new(stroke_w, col));
-    painter.line_segment([Pos2::new(bot_in_center.x + r_in, bot_in_center.y), Pos2::new(bot_in_center.x + r_in + stub, bot_in_center.y)], Stroke::new(stroke_w, col));
-    painter.line_segment([Pos2::new(out_center.x - r_out - stub, out_center.y), Pos2::new(out_center.x - r_out, out_center.y)], Stroke::new(stroke_w, col));
+    let stub = (0.6 * r_in).max(0.8);
+    let set_top = matches!(block.current_setting.as_deref(), Some("1"));
+    // Input stubs drawn inside towards center: [edge - stub, edge]
+    let in1_color = if set_top { col_active } else { col_inactive };
+    let in2_color = if set_top { col_inactive } else { col_active };
+    let in1_edge = top_in_center.x + r_in;
+    let in2_edge = bot_in_center.x + r_in;
+    painter.line_segment([Pos2::new(in1_edge - stub, top_in_center.y), Pos2::new(in1_edge, top_in_center.y)], Stroke::new(stroke_w, in1_color));
+    painter.line_segment([Pos2::new(in2_edge - stub, bot_in_center.y), Pos2::new(in2_edge, bot_in_center.y)], Stroke::new(stroke_w, in2_color));
+    // Output stub inside from circle edge to center
+    let out_edge_left = out_center.x - r_out;
+    painter.line_segment([Pos2::new(out_edge_left, out_center.y), Pos2::new(out_edge_left + stub, out_center.y)], Stroke::new(stroke_w, col_active));
 
     // Lever connecting selected input to output (from circle centers)
-    let set_top = matches!(block.current_setting.as_deref(), Some("1"));
     let from = if set_top { top_in_center } else { bot_in_center };
     // Start lever at the circle perimeter towards the output side to avoid overlapping the circle stroke
     let dir = Vec2::new(out_center.x - from.x, out_center.y - from.y);
@@ -118,7 +126,7 @@ pub fn render_manual_switch(
     let ux = dir.x / len; let uy = dir.y / len;
     let start = Pos2::new(from.x + ux * r_in, from.y + uy * r_in);
     let end = Pos2::new(out_center.x - ux * r_out, out_center.y - uy * r_out);
-    painter.line_segment([start, end], Stroke::new(stroke_w, col));
+    painter.line_segment([start, end], Stroke::new(stroke_w, col_active));
 }
 
 // no re-exports; keep this module focused on rendering helpers
