@@ -74,6 +74,26 @@ pub struct Block {
     pub block_mirror: Option<bool>,
 }
 
+impl Block {
+    /// Returns the full path to this block as <subsystem>/<block name>.
+    /// Requires the root System for context.
+    pub fn get_full_path<'a>(&self, root: &'a System) -> Option<String> {
+        let mut result: Option<String> = None;
+        let mut path = Vec::new();
+        root.walk_blocks(&mut path, &mut |p, b| {
+            if std::ptr::eq(b, self) {
+                let mut full = p.join("/");
+                if !full.is_empty() {
+                    full.push('/');
+                }
+                full.push_str(&self.name);
+                result = Some(full);
+            }
+        });
+        result
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NameLocation {
     Top,
@@ -228,7 +248,17 @@ pub struct DialogControl {
     pub control_type: DialogControlType,
     pub name: Option<String>,
     pub prompt: Option<String>,
+    /// Optional UI options such as PromptLocation parsed from <ControlOptions .../>
+    #[serde(default)]
+    pub control_options: Option<ControlOptions>,
     pub children: Vec<DialogControl>,
+}
+
+/// Options for a dialog control, parsed from <ControlOptions .../>
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ControlOptions {
+    /// e.g. "left", "right"; taken from PromptLocation attribute
+    pub prompt_location: Option<String>,
 }
 
 /// InstanceData is a simple key-value map extracted from <InstanceData><P Name="...">...</P></InstanceData>

@@ -1,5 +1,7 @@
 #![cfg(feature = "egui")]
 
+#![cfg(feature = "egui")]
+
 use std::collections::HashMap;
 
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
@@ -12,13 +14,20 @@ use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
 use super::text::{highlight_query_job, matlab_syntax_job};
 
 pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    // Helper: check if block is a non-chart subsystem
+    fn is_block_subsystem(b: &crate::model::Block) -> bool {
+        b.block_type == "SubSystem" && b.subsystem.as_ref().map_or(false, |sub| sub.chart.is_none())
+    }
     let mut navigate_to: Option<Vec<String>> = None;
     let mut clear_search = false;
     let path_snapshot = app.path.clone();
 
     egui::TopBottomPanel::top("top").show(ctx, |ui| {
         ui.horizontal(|ui| {
-            let up = ui.add_enabled(!path_snapshot.is_empty(), egui::Button::new("↑ Up"));
+            // Use phosphoricons arrow-fat-up for the Up button
+            let icon_font = egui::FontId::new(18.0, egui::FontFamily::Name("phosphor".into()));
+            let up_label = egui::RichText::new("\u{f0aa} Up").font(icon_font); // arrow-fat-up glyph
+            let up = ui.add_enabled(!path_snapshot.is_empty(), egui::Button::new(up_label));
             if up.clicked() {
                 let mut p = path_snapshot.clone();
                 p.pop();
@@ -64,12 +73,15 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
         }
     });
 
-    let Some(current_system) = app.current_system() else {
-        egui::CentralPanel::default().show(ctx, |ui| {
-            ui.colored_label(Color32::RED, "Invalid path – nothing to render");
-        });
-        return;
-    };
+    // Owned snapshot for use inside the UI closure to avoid immutable borrows of `app`
+    let entities_opt = app.current_entities();
+    let system_valid = entities_opt.is_some();
+    // Snapshot the current system name (prefer system properties, fall back to last path segment or <root>)
+    let system_name_snapshot: String = app
+        .current_system()
+        .and_then(|s| s.properties.get("Name").cloned())
+        .or_else(|| path_snapshot.last().cloned())
+        .unwrap_or_else(|| "<root>".to_string());
 
     let mut navigate_to_from_block: Option<Vec<String>> = None;
     let mut open_chart: Option<ChartView> = None;
@@ -79,30 +91,46 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
     let mut staged_pan = app.pan;
     let mut staged_reset = app.reset_view;
 
+    // Temporary variable to store block to open as subsystem
+    let mut block_to_open_subsystem: Option<crate::model::Block> = None;
+    // Snapshots for use inside closure (avoid borrowing `app` immutably inside UI rendering)
+    let block_click_handler_snapshot = app.block_click_handler.clone();
+    let block_menu_items_snapshot = app.block_menu_items.clone();
+    let signal_menu_items_snapshot = app.signal_menu_items.clone();
+    let chart_map_snapshot = app.chart_map.clone();
+    let charts_snapshot = app.charts.clone();
+
     egui::CentralPanel::default().show(ctx, |ui| {
-        // Compute blocks and bounds
-        let blocks: Vec<(&crate::model::Block, Rect)> = current_system
-            .blocks
+        if !system_valid {
+            ui.colored_label(Color32::RED, "Invalid path – nothing to render");
+            return;
+        }
+    // Use entities snapshot for this frame
+        let entities = entities_opt.as_ref().unwrap();
+        // Compute blocks with positions from snapshot. Also inject SystemName
+        // into a temporary, enriched block clone so later code can read it from properties.
+        let system_name = system_name_snapshot.clone();
+        let mut enriched_blocks: Vec<crate::model::Block> = Vec::with_capacity(entities.blocks.len());
+        for b in &entities.blocks {
+            let mut bc = b.clone();
+            // Do not overwrite if already present
+            bc.properties.entry("SystemName".to_string()).or_insert(system_name.clone());
+            enriched_blocks.push(bc);
+        }
+        let blocks: Vec<(&crate::model::Block, Rect)> = enriched_blocks
             .iter()
             .filter_map(|b| parse_block_rect(b).map(|r| (b, r)))
-            .collect();
-        let annotations: Vec<(&crate::model::Annotation, Rect)> = {
-            let mut v: Vec<(&crate::model::Annotation, Rect)> = Vec::new();
-            for a in &current_system.annotations {
-                if let Some(pos) = a.position.as_deref().and_then(|s| parse_rect_str(s)) {
-                    v.push((a, pos));
-                }
-            }
-            // include block-local annotations as well
-            for b in &current_system.blocks {
-                for a in &b.annotations {
-                    if let Some(pos) = a.position.as_deref().and_then(|s| parse_rect_str(s)) {
-                        v.push((a, pos));
-                    }
-                }
-            }
-            v
-        };
+            .collect::<Vec<_>>();
+        let annotations: Vec<(&crate::model::Annotation, Rect)> = entities_opt
+            .as_ref()
+            .map(|entities| {
+                entities
+                    .annotations
+                    .iter()
+                    .filter_map(|a| a.position.as_deref().and_then(|s| parse_rect_str(s)).map(|pos| (a, pos)))
+                    .collect()
+            })
+            .unwrap_or_default();
         if blocks.is_empty() && annotations.is_empty() {
             ui.colored_label(Color32::YELLOW, "No blocks or annotations with positions to render");
             return;
@@ -191,40 +219,58 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
             if let Some(sid) = &b.sid { sid_screen_map.insert(sid.clone(), r_screen); }
             let cfg = get_block_type_cfg(&b.block_type);
-            // If block.background_color is set, override type color
-            let bg = if let Some(ref color_str) = b.background_color {
-                let lower = color_str.to_lowercase();
-                match lower.as_str() {
-                    "yellow" => Color32::YELLOW,
-                    "red" => Color32::RED,
-                    "green" => Color32::GREEN,
-                    "blue" => Color32::BLUE,
-                    "black" => Color32::BLACK,
-                    "white" => Color32::WHITE,
-                    "gray" | "grey" => Color32::from_rgb(128,128,128),
-                    _ => {
-                        // Support hex color strings like #ffa500
-                        if lower.starts_with('#') && lower.len() == 7 {
-                            if let (Ok(r), Ok(g), Ok(b)) = (
-                                u8::from_str_radix(&lower[1..3], 16),
-                                u8::from_str_radix(&lower[3..5], 16),
-                                u8::from_str_radix(&lower[5..7], 16),
-                            ) {
-                                Color32::from_rgb(r, g, b)
-                            } else {
-                                eprintln!("[rustylink] Warning: invalid hex color '{}', using default.", color_str);
-                                Color32::from_rgb(210, 210, 210)
-                            }
-                        } else {
-                            eprintln!("[rustylink] Warning: unknown block background color '{}', using default.", color_str);
-                            Color32::from_rgb(210, 210, 210)
+            if b.commented {
+                // Light gray background, no outline
+                let bg = Color32::from_rgb(230, 230, 230);
+                ui.painter().rect_filled(r_screen, 0.0, bg);
+                // Icon in dark gray
+                let icon_size = 24.0 * font_scale.max(0.01);
+                let icon_center = r_screen.center();
+                let font = egui::FontId::new(icon_size, egui::FontFamily::Name("phosphor".into()));
+                let dark_icon = Color32::from_rgb(80, 80, 80);
+                if let Some(icon) = cfg.icon {
+                    match icon {
+                        crate::block_types::IconSpec::Phosphor(glyph) => {
+                            ui.painter().text(icon_center, egui::Align2::CENTER_CENTER, glyph, font, dark_icon);
                         }
                     }
                 }
             } else {
-                cfg.background.map(|c| Color32::from_rgb(c.0, c.1, c.2)).unwrap_or_else(|| Color32::from_rgb(210, 210, 210))
-            };
-            ui.painter().rect_filled(r_screen, 6.0, bg);
+                // Normal block rendering
+                let bg = if let Some(ref color_str) = b.background_color {
+                    let lower = color_str.to_lowercase();
+                    match lower.as_str() {
+                        "yellow" => Color32::YELLOW,
+                        "red" => Color32::RED,
+                        "green" => Color32::GREEN,
+                        "blue" => Color32::BLUE,
+                        "black" => Color32::BLACK,
+                        "white" => Color32::WHITE,
+                        "gray" | "grey" => Color32::from_rgb(128,128,128),
+                        _ => {
+                            // Support hex color strings like #ffa500
+                            if lower.starts_with('#') && lower.len() == 7 {
+                                if let (Ok(r), Ok(g), Ok(b)) = (
+                                    u8::from_str_radix(&lower[1..3], 16),
+                                    u8::from_str_radix(&lower[3..5], 16),
+                                    u8::from_str_radix(&lower[5..7], 16),
+                                ) {
+                                    Color32::from_rgb(r, g, b)
+                                } else {
+                                    eprintln!("[rustylink] Warning: invalid hex color '{}', using default.", color_str);
+                                    Color32::from_rgb(210, 210, 210)
+                                }
+                            } else {
+                                eprintln!("[rustylink] Warning: unknown block background color '{}', using default.", color_str);
+                                Color32::from_rgb(210, 210, 210)
+                            }
+                        }
+                    }
+                } else {
+                    cfg.background.map(|c| Color32::from_rgb(c.0, c.1, c.2)).unwrap_or_else(|| Color32::from_rgb(210, 210, 210))
+                };
+                ui.painter().rect_filled(r_screen, 6.0, bg);
+            }
             let resp = ui.allocate_rect(r_screen, Sense::click());
             resp.context_menu(|ui| {
                 if ui.button("Info").clicked() {
@@ -232,12 +278,28 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                     open_block = Some(BlockDialog { title, block: (*b).clone(), open: true });
                     ui.close();
                 }
-                for item in &app.block_menu_items {
+                for item in &block_menu_items_snapshot {
                     if (item.filter)(b) {
                         if ui.button(&item.label).clicked() { (item.on_click)(b); ui.close(); }
                     }
                 }
             });
+            // Open subsystem or info dialog on click (allow override)
+            if resp.clicked() {
+                let mut handled = false;
+                if let Some(handler) = block_click_handler_snapshot.as_ref() {
+                    // If user handler returns true, it handled the click
+                    handled = handler(app, b);
+                }
+                if !handled {
+                    if is_block_subsystem(b) {
+                        block_to_open_subsystem = Some((*b).clone());
+                    } else {
+                        let title = format!("{} ({})", b.name, b.block_type);
+                        open_block = Some(BlockDialog { title, block: (*b).clone(), open: true });
+                    }
+                }
+            }
             block_views.push((b, r_screen, resp.clicked()));
         }
 
@@ -270,9 +332,9 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
         for (b, _r) in &blocks { if let Some(sid) = &b.sid { sid_to_name.insert(sid.clone(), b.name.clone()); } }
 
         // Build adjacency across lines for coloring
-        let mut line_adjacency: Vec<Vec<usize>> = vec![Vec::new(); current_system.lines.len()];
+        let mut line_adjacency: Vec<Vec<usize>> = vec![Vec::new(); entities.lines.len()];
         let mut sid_to_lines: HashMap<String, Vec<usize>> = HashMap::new();
-        for (i, l) in current_system.lines.iter().enumerate() {
+        for (i, l) in entities.lines.iter().enumerate() {
             if let Some(src) = &l.src { sid_to_lines.entry(src.sid.clone()).or_default().push(i); }
             if let Some(dst) = &l.dst { sid_to_lines.entry(dst.sid.clone()).or_default().push(i); }
             fn collect_branch_sids(br: &crate::model::Branch, out: &mut Vec<String>) {
@@ -314,7 +376,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             fn to_lin(u: u8) -> f32 { let s = (u as f32)/255.0; if s <= 0.04045 { s/12.92 } else { ((s+0.055)/1.055).powf(2.4) } }
             0.2126 * to_lin(c.r()) + 0.7152 * to_lin(c.g()) + 0.0722 * to_lin(c.b())
         }
-        let n_lines = current_system.lines.len();
+        let n_lines = entities.lines.len();
         let sample_count = (n_lines.max(1) * 8).max(64);
         let mut candidates: Vec<f32> = (0..sample_count).map(|i| (i as f32)/(sample_count as f32)).collect();
         let bg_lum = rel_luminance(Color32::from_gray(245));
@@ -353,7 +415,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             if let Some(dst) = &br.dst { reg_ep(dst, port_counts); }
             for sub in &br.branches { reg_branch(sub, port_counts); }
         }
-        for line in &current_system.lines {
+        for line in &entities.lines {
             if let Some(src) = &line.src { reg_ep(src, &mut port_counts); }
             if let Some(dst) = &line.dst { reg_ep(dst, &mut port_counts); }
             for br in &line.branches { reg_branch(br, &mut port_counts); }
@@ -370,7 +432,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                 sid_mirrored.insert(sid.clone(), b.block_mirror.unwrap_or(false));
             }
         }
-        for (li, line) in current_system.lines.iter().enumerate() {
+        for (li, line) in entities.lines.iter().enumerate() {
             let Some(src) = line.src.as_ref() else { continue; };
             let Some(sr) = sid_map.get(&src.sid) else { continue; };
             let mut offsets_pts: Vec<Pos2> = Vec::new();
@@ -388,7 +450,8 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             if let Some(dst) = line.dst.as_ref() {
                 if let Some(dr) = sid_map.get(&dst.sid) {
                     let num_dst = port_counts.get(&(dst.sid.clone(), if dst.port_type == "out" { 1 } else { 0 })).copied();
-                    let mirrored_dst = current_system.blocks.iter().find(|b| b.sid.as_ref() == Some(&dst.sid)).and_then(|b| b.block_mirror).unwrap_or(false);
+                    let mirrored_dst = entities.blocks.iter().find(|b| b.sid.as_ref() == Some(&dst.sid)).and_then(|b| b.block_mirror).unwrap_or(false);
+                    let mirrored_dst = entities.blocks.iter().find(|b| b.sid.as_ref() == Some(&dst.sid)).and_then(|b| b.block_mirror).unwrap_or(false);
                     let dst_pt = endpoint_pos_with_target_maybe_mirrored(*dr, dst, num_dst, Some(cur.y), mirrored_dst);
                     let dst_screen = to_screen(dst_pt);
                     screen_pts.push(dst_screen);
@@ -408,13 +471,13 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let clicked = resp.clicked();
             resp.context_menu(|ui| {
                 if ui.button("Info").clicked() {
-                    let line = &current_system.lines[li];
+                    let line = &entities.lines[li];
                     let title = line.name.clone().unwrap_or("<signal>".into());
                     open_signal = Some(SignalDialog { title, line_idx: li, open: true });
                     ui.close();
                 }
-                let line_ref = &current_system.lines[li];
-                for item in &app.signal_menu_items {
+                let line_ref = &entities.lines[li];
+                for item in &signal_menu_items_snapshot {
                     if (item.filter)(line_ref) { if ui.button(&item.label).clicked() { (item.on_click)(line_ref); ui.close(); } }
                 }
             });
@@ -612,14 +675,14 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
         for (r, li) in signal_label_rects {
             let resp = ui.interact(r, ui.id().with(("signal_label", li)), Sense::click());
             if resp.clicked() {
-                let line = &current_system.lines[li];
+                let line = &entities.lines[li];
                 let title = line.name.clone().unwrap_or("<signal>".into());
                 open_signal = Some(SignalDialog { title, line_idx: li, open: true });
             }
             resp.context_menu(|ui| {
-                if ui.button("Info").clicked() { let line = &current_system.lines[li]; let title = line.name.clone().unwrap_or("<signal>".into()); open_signal = Some(SignalDialog { title, line_idx: li, open: true }); ui.close(); }
-                let line_ref = &current_system.lines[li];
-                for item in &app.signal_menu_items { if (item.filter)(line_ref) { if ui.button(&item.label).clicked() { (item.on_click)(line_ref); ui.close(); } } }
+                if ui.button("Info").clicked() { let line = &entities.lines[li]; let title = line.name.clone().unwrap_or("<signal>".into()); open_signal = Some(SignalDialog { title, line_idx: li, open: true }); ui.close(); }
+                let line_ref = &entities.lines[li];
+                for item in &signal_menu_items_snapshot { if (item.filter)(line_ref) { if ui.button(&item.label).clicked() { (item.on_click)(line_ref); ui.close(); } } }
             });
         }
 
@@ -723,11 +786,11 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             }
             if *clicked {
                 if b.block_type == "MATLAB Function" || (b.block_type == "SubSystem" && b.is_matlab_function) {
-                    let by_sid = b.sid.as_ref().and_then(|k| app.chart_map.get(k)).cloned();
+                    let by_sid = b.sid.as_ref().and_then(|k| chart_map_snapshot.get(k)).cloned();
                     let mut instance_name = if path_snapshot.is_empty() { b.name.clone() } else { format!("{}/{}", path_snapshot.join("/"), b.name) };
                     instance_name = instance_name.trim_matches('/').to_string();
-                    let cid_opt = by_sid.or_else(|| app.chart_map.get(&instance_name).cloned());
-                    if let Some(cid) = cid_opt { if let Some(chart) = app.charts.get(&cid) {
+                    let cid_opt = by_sid.or_else(|| chart_map_snapshot.get(&instance_name).cloned());
+                    if let Some(cid) = cid_opt { if let Some(chart) = charts_snapshot.get(&cid) {
                         let title = chart.name.clone().or(chart.eml_name.clone()).unwrap_or_else(|| b.name.clone());
                         let script = chart.script.clone().unwrap_or_default();
                         open_chart = Some(ChartView { title, script, open: true });
@@ -772,6 +835,11 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             }
         }
     });
+
+    // After the UI closure, call open_block_if_subsystem if needed
+    if let Some(block) = block_to_open_subsystem {
+        app.open_block_if_subsystem(&block);
+    }
 
     if let Some(p) = navigate_to_from_block.or(navigate_to) {
         app.navigate_to_path(p);

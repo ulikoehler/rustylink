@@ -35,6 +35,8 @@ fn simple_system() -> System {
         font_weight: None,
         mask_display_text: None,
         value: None,
+        current_setting: None,
+        block_mirror: None,
     };
     System {
         properties: Default::default(),

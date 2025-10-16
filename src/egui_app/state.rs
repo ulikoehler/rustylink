@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use eframe::egui::{self, Vec2};
 
-use crate::model::{Block, Chart, System};
+use crate::model::{Annotation, Block, Chart, Line, System};
 
 // use super::geometry::parse_block_rect;
 use super::navigation::{collect_subsystems_paths, resolve_subsystem_by_vec};
@@ -69,6 +69,14 @@ pub struct BlockContextMenuItem {
     pub on_click: Arc<dyn Fn(&Block) + Send + Sync>,
 }
 
+/// Snapshot of all entities within the currently displayed subsystem.
+#[derive(Clone)]
+pub struct SubsystemEntities {
+    pub blocks: Vec<Block>,
+    pub lines: Vec<Line>,
+    pub annotations: Vec<Annotation>,
+}
+
 /// Interactive Egui application that displays and navigates a Simulink subsystem tree.
 #[derive(Clone)]
 pub struct SubsystemApp {
@@ -93,6 +101,12 @@ pub struct SubsystemApp {
     pub signal_menu_items: Vec<SignalContextMenuItem>,
     /// Custom context menu items for blocks.
     pub block_menu_items: Vec<BlockContextMenuItem>,
+    /// Registered listeners to be notified whenever the displayed subsystem changes.
+    subsystem_change_listeners:
+        Vec<Arc<dyn Fn(&[String], &SubsystemEntities) + Send + Sync>>, // private to encourage using the API
+    /// Optional click handler to override default action when clicking a block.
+    /// Return true from the handler to indicate the click was handled and suppress the default behavior.
+    pub block_click_handler: Option<Arc<dyn Fn(&mut SubsystemApp, &Block) -> bool + Send + Sync>>,
 }
 
 impl SubsystemApp {
@@ -122,7 +136,62 @@ impl SubsystemApp {
             block_buttons: Vec::new(),
             signal_menu_items: Vec::new(),
             block_menu_items: Vec::new(),
+            subsystem_change_listeners: Vec::new(),
+            block_click_handler: None,
         }
+    }
+
+    /// Return a snapshot of entities (blocks, lines, annotations) in the current subsystem.
+    pub fn current_entities(&self) -> Option<SubsystemEntities> {
+        self.current_system().map(|sys| SubsystemEntities {
+            blocks: sys.blocks.clone(),
+            lines: sys.lines.clone(),
+            annotations: {
+                // Combine system-level and block-attached annotations into a single list
+                let mut anns = sys.annotations.clone();
+                for b in &sys.blocks {
+                    anns.extend(b.annotations.clone());
+                }
+                anns
+            },
+        })
+    }
+
+    /// Register a listener to be called whenever the displayed subsystem changes.
+    /// The callback receives the new path (relative to root) and an entity snapshot.
+    pub fn add_subsystem_change_listener<F>(&mut self, f: F)
+    where
+        F: Fn(&[String], &SubsystemEntities) + Send + Sync + 'static,
+    {
+        self.subsystem_change_listeners.push(Arc::new(f));
+    }
+
+    /// Manually emit a subsystem-changed event for the current selection.
+    /// Useful right after registering listeners to get an initial snapshot.
+    pub fn emit_subsystem_changed(&self) {
+        if let Some(entities) = self.current_entities() {
+            for cb in &self.subsystem_change_listeners {
+                cb(&self.path, &entities);
+            }
+        }
+    }
+
+    fn notify_subsystem_changed(&self) {
+        self.emit_subsystem_changed();
+    }
+
+    /// Override the default block click action. If set, the handler is called on each
+    /// block click; return true to consume the event and skip the default action.
+    pub fn set_block_click_handler<F>(&mut self, f: F)
+    where
+        F: Fn(&mut SubsystemApp, &Block) -> bool + Send + Sync + 'static,
+    {
+        self.block_click_handler = Some(Arc::new(f));
+    }
+
+    /// Restore the default block click behavior.
+    pub fn clear_block_click_handler(&mut self) {
+        self.block_click_handler = None;
     }
 
     /// Register a custom button in the signal dialog.
@@ -203,6 +272,7 @@ impl SubsystemApp {
         if !self.path.is_empty() {
             self.path.pop();
             self.reset_view = true;
+            self.notify_subsystem_changed();
         }
     }
 
@@ -211,6 +281,7 @@ impl SubsystemApp {
         if resolve_subsystem_by_vec(&self.root, &p).is_some() {
             self.path = p;
             self.reset_view = true;
+            self.notify_subsystem_changed();
         }
     }
 
@@ -221,6 +292,7 @@ impl SubsystemApp {
                 if sub.chart.is_none() {
                     self.path.push(b.name.clone());
                     self.reset_view = true;
+                    self.notify_subsystem_changed();
                     return true;
                 }
             }

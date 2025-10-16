@@ -195,11 +195,30 @@ pub fn parse_dialog_control_node(node: Node) -> DialogControl {
     }
 
     let mut prompt: Option<String> = None;
+    let mut control_options: Option<ControlOptions> = None;
     let mut children: Vec<DialogControl> = Vec::new();
 
     for child in node.children().filter(|c| c.is_element()) {
         match child.tag_name().name() {
             "Prompt" => prompt = child.text().map(|s| s.to_string()),
+            "ControlOptions" => {
+                let mut opts = ControlOptions::default();
+                if let Some(pl) = child.attribute("PromptLocation") {
+                    opts.prompt_location = Some(pl.to_string());
+                }
+                // Log unknown attributes for visibility
+                for attr in child.attributes() {
+                    if attr.name() != "PromptLocation" {
+                        println!(
+                            "Unknown attribute in DialogControl(Name='{}') ControlOptions: {}='{}'",
+                            name.clone().unwrap_or_default(),
+                            attr.name(),
+                            attr.value()
+                        );
+                    }
+                }
+                control_options = Some(opts);
+            }
             "DialogControl" => children.push(parse_dialog_control_node(child)),
             other => println!(
                 "Unknown tag in DialogControl(Name='{}'): {}",
@@ -213,6 +232,7 @@ pub fn parse_dialog_control_node(node: Node) -> DialogControl {
         control_type,
         name,
         prompt,
+        control_options,
         children,
     }
 }

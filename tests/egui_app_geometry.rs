@@ -1,6 +1,6 @@
 #![cfg(feature = "egui")]
 
-use rustylink::egui_app::{parse_block_rect, port_anchor_pos};
+use rustylink::egui_app::{parse_block_rect, port_anchor_pos, PortSide};
 use rustylink::model::Block;
 
 #[test]
@@ -27,9 +27,11 @@ fn test_ports_and_rect() {
         font_weight: None,
         mask_display_text: None,
         value: None,
+        current_setting: None,
+        block_mirror: None,
     };
     let r = parse_block_rect(&b).unwrap();
-    let p_in = port_anchor_pos(r, "in", 1, Some(2));
-    let p_out = port_anchor_pos(r, "out", 2, Some(2));
+    let p_in = port_anchor_pos(r, PortSide::In, 1, Some(2));
+    let p_out = port_anchor_pos(r, PortSide::Out, 2, Some(2));
     assert!(p_in.y < p_out.y && p_in.x < p_out.x);
 }

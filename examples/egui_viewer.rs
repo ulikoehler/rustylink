@@ -91,6 +91,27 @@ fn main() -> Result<()> {
 
     let mut app = egui_app::SubsystemApp::new(root_system, initial_path, charts, chart_map);
 
+    // Example: print current entities and listen for subsystem changes
+    if let Some(ents) = app.current_entities() {
+        println!(
+            "Initial subsystem at /{}: {} blocks, {} lines, {} annotations",
+            app.path.join("/"),
+            ents.blocks.len(),
+            ents.lines.len(),
+            ents.annotations.len()
+        );
+    }
+    app.add_subsystem_change_listener(|path, entities| {
+        let p = if path.is_empty() { String::from("") } else { format!("/{}", path.join("/")) };
+        println!(
+            "Subsystem changed to {} ({} blocks, {} lines, {} annotations)",
+            p,
+            entities.blocks.len(),
+            entities.lines.len(),
+            entities.annotations.len()
+        );
+    });
+
     // Demo: add custom context menu items for signals and blocks
     app.add_signal_context_menu_item(
         "Print signal name",
@@ -110,6 +131,13 @@ fn main() -> Result<()> {
             );
         },
     );
+
+    // Example: override default block click action (prints and prevents default)
+    app.set_block_click_handler(|_app, block| {
+        println!("[click] Block: {} ({})", block.name, block.block_type);
+        // Return true to consume the click and skip default behavior
+        true
+    });
 
     // Create and run the native window here to keep windowing in the example.
     // Load and apply window icon from the repository (embedded at compile time)
