@@ -24,9 +24,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
 
     egui::TopBottomPanel::top("top").show(ctx, |ui| {
         ui.horizontal(|ui| {
-            // Use phosphoricons arrow-fat-up for the Up button
-            let icon_font = egui::FontId::new(18.0, egui::FontFamily::Name("phosphor".into()));
-            let up_label = egui::RichText::new("\u{f0aa} Up").font(icon_font); // arrow-fat-up glyph
+            let up_label = egui::RichText::new("⬆ Up");
             let up = ui.add_enabled(!path_snapshot.is_empty(), egui::Button::new(up_label));
             if up.clicked() {
                 let mut p = path_snapshot.clone();
@@ -208,7 +206,8 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
         };
 
         // In-canvas font scaling: baseline is 400% zoom -> scale = zoom / 4.0
-        let font_scale: f32 = (staged_zoom / 4.0).max(0.01);
+        // User requested double font size, so we use / 2.0 instead of / 4.0
+        let font_scale: f32 = (staged_zoom / 2.0).max(0.01);
 
     // Draw blocks and setup interaction maps
         let mut sid_map: HashMap<String, Rect> = HashMap::new();
@@ -226,12 +225,12 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                 // Icon in dark gray
                 let icon_size = 24.0 * font_scale.max(0.01);
                 let icon_center = r_screen.center();
-                let font = egui::FontId::new(icon_size, egui::FontFamily::Name("phosphor".into()));
+                let font = egui::FontId::proportional(icon_size);
                 let dark_icon = Color32::from_rgb(80, 80, 80);
                 if let Some(icon) = cfg.icon {
                     match icon {
-                        crate::block_types::IconSpec::Phosphor(glyph) => {
-                            ui.painter().text(icon_center, egui::Align2::CENTER_CENTER, glyph, font, dark_icon);
+                        crate::block_types::IconSpec::Utf8(glyph) => {
+                            ui.painter().text(icon_center, Align2::CENTER_CENTER, glyph, font, dark_icon);
                         }
                     }
                 }
@@ -450,7 +449,6 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             if let Some(dst) = line.dst.as_ref() {
                 if let Some(dr) = sid_map.get(&dst.sid) {
                     let num_dst = port_counts.get(&(dst.sid.clone(), if dst.port_type == "out" { 1 } else { 0 })).copied();
-                    let mirrored_dst = entities.blocks.iter().find(|b| b.sid.as_ref() == Some(&dst.sid)).and_then(|b| b.block_mirror).unwrap_or(false);
                     let mirrored_dst = entities.blocks.iter().find(|b| b.sid.as_ref() == Some(&dst.sid)).and_then(|b| b.block_mirror).unwrap_or(false);
                     let dst_pt = endpoint_pos_with_target_maybe_mirrored(*dr, dst, num_dst, Some(cur.y), mirrored_dst);
                     let dst_screen = to_screen(dst_pt);

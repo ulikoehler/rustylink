@@ -1,6 +1,6 @@
 #![cfg(feature = "egui")]
 
-use crate::block_types::{self, BlockTypeConfig, IconSpec, Rgb};
+use crate::block_types::{self, BlockTypeConfig, Rgb};
 use crate::model::Block;
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke};
 
@@ -17,20 +17,21 @@ pub(crate) fn get_block_type_cfg(block_type: &str) -> BlockTypeConfig {
     }
 }
 
-/// Render an icon in the center of the block according to its type using the phosphor font.
+/// Render an icon in the center of the block according to its type.
 ///
 /// The `font_scale` parameter scales the icon size relative to the baseline size
 /// (baseline is 24.0 at 400% zoom; caller should pass zoom/4.0).
 pub fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect, font_scale: f32) {
     let icon_size = 24.0 * font_scale.max(0.01);
     let icon_center = rect.center();
-    let font = egui::FontId::new(icon_size, egui::FontFamily::Name("phosphor".into()));
+    // Use default egui font (proportional) for UTF-8 icons
+    let font = egui::FontId::proportional(icon_size);
     let dark_icon = Color32::from_rgb(40, 40, 40); // dark color for icons
     // Lookup icon from centralized registry
     let cfg = get_block_type_cfg(&block.block_type);
     if let Some(icon) = cfg.icon {
         match icon {
-            IconSpec::Phosphor(glyph) => {
+            block_types::IconSpec::Utf8(glyph) => {
                 painter.text(icon_center, Align2::CENTER_CENTER, glyph, font, dark_icon);
             }
         }

@@ -155,14 +155,6 @@ fn main() -> Result<()> {
         "rustylink egui subsystem viewer",
         options,
         Box::new(|cc| {
-            // Register phosphor font once at startup so icons render.
-            let mut font_definitions = egui::FontDefinitions::default();
-            egui_phosphor::add_to_fonts(&mut font_definitions, egui_phosphor::Variant::Regular);
-            font_definitions.families.insert(
-                egui::FontFamily::Name("phosphor".into()),
-                vec!["phosphor".into()],
-            );
-            cc.egui_ctx.set_fonts(font_definitions);
             cc.egui_ctx.set_visuals(egui::Visuals::light());
             Ok(Box::new(app.clone()))
         }),

@@ -19,8 +19,7 @@ pub struct Rgb(pub u8, pub u8, pub u8);
 /// Icon specification for a block type.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IconSpec {
-    /// Use an egui-phosphor icon (single glyph string constant).
-    Phosphor(&'static str),
+    Utf8(&'static str),
 }
 
 /// Configuration for a specific block type.
@@ -53,14 +52,13 @@ impl Default for BlockTypeConfig {
 }
 
 fn default_registry() -> HashMap<String, BlockTypeConfig> {
-    use egui_phosphor::variants::regular;
     let mut m = HashMap::new();
 
     // Mirror the hardcoded icons previously used in egui_app.rs
     m.insert(
         "Product".to_string(),
         BlockTypeConfig {
-            icon: Some(IconSpec::Phosphor(regular::X)),
+            icon: Some(IconSpec::Utf8("×")),
             show_input_port_labels: false,
             show_output_port_labels: false,
             ..Default::default()
@@ -69,7 +67,7 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
     m.insert(
         "Constant".to_string(),
         BlockTypeConfig {
-            icon: Some(IconSpec::Phosphor(regular::WRENCH)),
+            icon: Some(IconSpec::Utf8("🔧")),
             show_input_port_labels: false,
             show_output_port_labels: false,
             ..Default::default()
@@ -78,7 +76,7 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
     m.insert(
         "Scope".to_string(),
         BlockTypeConfig {
-            icon: Some(IconSpec::Phosphor(regular::WAVE_SINE)),
+            icon: Some(IconSpec::Utf8("〰")),
             show_input_port_labels: false,
             show_output_port_labels: false,
             ..Default::default()
@@ -87,7 +85,7 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
     m.insert(
         "ManualSwitch".to_string(),
         BlockTypeConfig {
-            icon: Some(IconSpec::Phosphor(regular::TOGGLE_LEFT)),
+            icon: Some(IconSpec::Utf8("🕂")),
             show_input_port_labels: false,
             show_output_port_labels: false,
             ..Default::default()
@@ -96,21 +94,21 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
     m.insert(
         "MATLAB Function".to_string(),
         BlockTypeConfig {
-            icon: Some(IconSpec::Phosphor(regular::CODE_BLOCK)),
+            icon: Some(IconSpec::Utf8("🖹")),
             ..Default::default()
         },
     );
     m.insert(
         "SubSystem".to_string(),
         BlockTypeConfig {
-            icon: Some(IconSpec::Phosphor(regular::CUBE)),
+            icon: Some(IconSpec::Utf8("")), // This is a box icon but VScode doesnt render it
             ..Default::default()
         },
     );
     m.insert(
         "Inport".to_string(),
         BlockTypeConfig {
-            icon: Some(IconSpec::Phosphor(regular::ARROW_FAT_LINES_RIGHT)),
+            icon: Some(IconSpec::Utf8("⬅")),
             show_input_port_labels: false,
             show_output_port_labels: false,
             ..Default::default()
@@ -119,7 +117,7 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
     m.insert(
         "Outport".to_string(),
         BlockTypeConfig {
-            icon: Some(IconSpec::Phosphor(regular::ARROW_FAT_LINES_RIGHT)),
+            icon: Some(IconSpec::Utf8("➡")),
             show_input_port_labels: false,
             show_output_port_labels: false,
             ..Default::default()
@@ -128,7 +126,7 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
     m.insert(
         "Concatenate".to_string(),
         BlockTypeConfig {
-            icon: Some(IconSpec::Phosphor(regular::ROWS)),
+            icon: Some(IconSpec::Utf8("☰")),
             show_input_port_labels: false,
             show_output_port_labels: false,
             ..Default::default()
@@ -137,14 +135,14 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
     m.insert(
         "CFunction".to_string(),
         BlockTypeConfig {
-            icon: Some(IconSpec::Phosphor(regular::FILE_CPP)),
+            icon: Some(IconSpec::Utf8("📁")),
             ..Default::default()
         },
     );
     m.insert(
         "Terminator".to_string(),
         BlockTypeConfig {
-            icon: Some(IconSpec::Phosphor(regular::BACKSPACE)),
+            icon: Some(IconSpec::Utf8("⏹")),
             show_input_port_labels: false,
             show_output_port_labels: false,
             ..Default::default()
