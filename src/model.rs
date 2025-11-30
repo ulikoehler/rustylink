@@ -6,6 +6,50 @@ pub struct SystemDoc {
     pub system: System,
 }
 
+impl SystemDoc {
+    /// Save the SystemDoc to a binary file with magic bytes and versioning.
+    pub fn save_to_binary<P: AsRef<std::path::Path>>(&self, path: P) -> anyhow::Result<()> {
+        let file = std::fs::File::create(path)?;
+        let mut writer = std::io::BufWriter::new(file);
+
+        // Magic bytes: RUSTYLINK
+        std::io::Write::write_all(&mut writer, b"RUSTYLINK")?;
+
+        // Version: 1 (u32 little endian)
+        std::io::Write::write_all(&mut writer, &1u32.to_le_bytes())?;
+
+        // Serialize self
+        bincode::serde::encode_into_std_write(self, &mut writer, bincode::config::standard())?;
+
+        Ok(())
+    }
+
+    /// Load a SystemDoc from a binary file, checking magic bytes and version.
+    pub fn load_from_binary<P: AsRef<std::path::Path>>(path: P) -> anyhow::Result<Self> {
+        let file = std::fs::File::open(path)?;
+        let mut reader = std::io::BufReader::new(file);
+
+        let mut magic = [0u8; 9];
+        std::io::Read::read_exact(&mut reader, &mut magic)?;
+
+        if &magic != b"RUSTYLINK" {
+            anyhow::bail!("Invalid magic bytes: expected 'RUSTYLINK'");
+        }
+
+        let mut version_bytes = [0u8; 4];
+        std::io::Read::read_exact(&mut reader, &mut version_bytes)?;
+        let version = u32::from_le_bytes(version_bytes);
+
+        if version != 1 {
+            anyhow::bail!("Unsupported version: {}", version);
+        }
+
+        let doc: SystemDoc =
+            bincode::serde::decode_from_std_read(&mut reader, bincode::config::standard())?;
+        Ok(doc)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct System {
     pub properties: BTreeMap<String, String>,
