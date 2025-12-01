@@ -102,7 +102,11 @@ fn main() -> Result<()> {
         );
     }
     app.add_subsystem_change_listener(|path, entities| {
-        let p = if path.is_empty() { String::from("") } else { format!("/{}", path.join("/")) };
+        let p = if path.is_empty() {
+            String::from("")
+        } else {
+            format!("/{}", path.join("/"))
+        };
         println!(
             "Subsystem changed to {} ({} blocks, {} lines, {} annotations)",
             p,

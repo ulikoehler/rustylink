@@ -56,7 +56,13 @@ fn print_system_tree(system: &System, prefix: &str, _is_last: bool) {
     let mut subs: Vec<(&str, &Block)> = system
         .blocks
         .iter()
-        .filter_map(|b| if b.subsystem.is_some() { Some((b.name.as_str(), b)) } else { None })
+        .filter_map(|b| {
+            if b.subsystem.is_some() {
+                Some((b.name.as_str(), b))
+            } else {
+                None
+            }
+        })
         .collect();
 
     // sort by name for deterministic output

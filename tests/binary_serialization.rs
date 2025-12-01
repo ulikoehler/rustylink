@@ -1,7 +1,7 @@
 use anyhow::Result;
 use camino::Utf8PathBuf;
-use rustylink::parser::{ContentSource, SimulinkParser};
 use rustylink::model::SystemDoc;
+use rustylink::parser::{ContentSource, SimulinkParser};
 use std::collections::HashMap;
 use tempfile::NamedTempFile;
 
@@ -43,7 +43,7 @@ fn test_binary_serialization() -> Result<()> {
     let source = MemSource { files };
     let mut parser = SimulinkParser::new("/", source);
     let system = parser.parse_system_file(&path).expect("parse system XML");
-    
+
     let doc = SystemDoc { system };
 
     // Create a temporary file
@@ -62,7 +62,7 @@ fn test_binary_serialization() -> Result<()> {
     assert_eq!(loaded_doc.system.blocks[0].sid.as_deref(), Some("52"));
     assert_eq!(loaded_doc.system.blocks[1].name, "freq");
     assert_eq!(loaded_doc.system.blocks[1].sid.as_deref(), Some("2::28"));
-    
+
     assert_eq!(loaded_doc.system.lines.len(), 1);
     let l = &loaded_doc.system.lines[0];
     assert_eq!(l.src.as_ref().map(|e| e.sid.as_str()), Some("2::28"));

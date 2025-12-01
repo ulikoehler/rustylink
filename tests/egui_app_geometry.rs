@@ -1,6 +1,6 @@
 #![cfg(feature = "egui")]
 
-use rustylink::egui_app::{parse_block_rect, port_anchor_pos, PortSide};
+use rustylink::egui_app::{PortSide, parse_block_rect, port_anchor_pos};
 use rustylink::model::Block;
 
 #[test]

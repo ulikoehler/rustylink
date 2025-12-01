@@ -29,11 +29,11 @@ egui = ["dep:eframe", "dep:egui", "dep:syntect", "dep:once_cell"]
 mask = []
 
 [dependencies.egui]
-version = "0.32"
+version = "0.33"
 optional = true
 
 [dependencies.eframe]
-version = "0.32"
+version = "0.33"
 optional = true
 default-features = true
 features = ["wgpu"]

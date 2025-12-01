@@ -1,5 +1,4 @@
 #![cfg(feature = "egui")]
-
 #![cfg(feature = "egui")]
 
 use std::collections::HashMap;
@@ -8,15 +7,23 @@ use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, V
 
 use crate::model::EndpointRef;
 
-use super::geometry::{endpoint_pos_maybe_mirrored, endpoint_pos_with_target_maybe_mirrored, parse_block_rect, parse_rect_str};
-use super::render::{get_block_type_cfg, render_block_icon, render_manual_switch, ComputedPortYCoordinates};
+use super::geometry::{
+    endpoint_pos_maybe_mirrored, endpoint_pos_with_target_maybe_mirrored, parse_block_rect,
+    parse_rect_str,
+};
+use super::render::{
+    ComputedPortYCoordinates, get_block_type_cfg, render_block_icon, render_manual_switch,
+};
 use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
 use super::text::{highlight_query_job, matlab_syntax_job};
 
 pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::Frame) {
     // Helper: check if block is a non-chart subsystem
     fn is_block_subsystem(b: &crate::model::Block) -> bool {
-        b.block_type == "SubSystem" && b.subsystem.as_ref().map_or(false, |sub| sub.chart.is_none())
+        b.block_type == "SubSystem"
+            && b.subsystem
+                .as_ref()
+                .map_or(false, |sub| sub.chart.is_none())
     }
     let mut navigate_to: Option<Vec<String>> = None;
     let mut clear_search = false;
@@ -311,15 +318,15 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let base_font = 12.0;
             let mut job = parsed.to_layout_job(ui.style(), font_scale, base_font);
             job.wrap.max_width = f32::INFINITY;
-            let galley = ui.fonts(|fonts| fonts.layout_job(job.clone()));
+            let galley = ui.painter().layout_job(job.clone());
             let paint_pos = r_screen.left_top();
             if galley.size().x <= r_screen.width() {
                 ui.painter().galley(paint_pos, galley, Color32::WHITE);
             } else {
                 job.wrap.max_width = r_screen.width();
                 let job_for_wrap = job.clone();
-                ui.allocate_ui_at_rect(r_screen, |child_ui| {
-                    let wrapped = child_ui.fonts(|fonts| fonts.layout_job(job_for_wrap));
+                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(r_screen), |child_ui| {
+                    let wrapped = child_ui.painter().layout_job(job_for_wrap);
                     child_ui.painter().galley(paint_pos, wrapped, Color32::WHITE);
                 });
             }
@@ -595,10 +602,10 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
         // Label placement
         let block_label_font = 14.0f32 * font_scale;
         let signal_font = (block_label_font * 0.5 * 1.5 * 1.5).round().max(7.0 * font_scale);
-        struct EguiMeasurer<'a> { ctx: &'a egui::Context, font: egui::FontId, color: Color32 }
+        struct EguiMeasurer<'a> { painter: &'a egui::Painter, font: egui::FontId, color: Color32 }
         impl<'a> crate::label_place::Measurer for EguiMeasurer<'a> {
             fn measure(&self, text: &str) -> (f32, f32) {
-                let galley = self.ctx.fonts(|f| f.layout_no_wrap(text.to_string(), self.font.clone(), self.color));
+                let galley = self.painter.layout_no_wrap(text.to_string(), self.font.clone(), self.color);
                 let s = galley.size(); (s.x, s.y)
             }
         }
@@ -625,7 +632,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let mut final_drawn = false; let mut font_size = signal_font; let mut tried_wrap = false; let mut wrap_text = label_text.clone();
             while !final_drawn {
                 let font_id = egui::FontId::proportional(font_size);
-                let meas = EguiMeasurer { ctx, font: font_id.clone(), color };
+                let meas = EguiMeasurer { painter: ui.painter(), font: font_id.clone(), color };
                 let candidate_texts: Vec<String> = if !tried_wrap && label_text.contains(' ') {
                     let bytes: Vec<(usize, char)> = label_text.char_indices().collect();
                     let mut best_split = None; let mut best_dist = usize::MAX;
@@ -637,11 +644,11 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                 for candidate in candidate_texts.into_iter().filter(|s| !s.is_empty()) {
                     if let Some(result) = crate::label_place::place_label(&poly, &candidate, &meas, cfg, &avoid_rects) {
                         if result.horizontal {
-                            let galley = ctx.fonts(|f| f.layout_no_wrap(candidate.clone(), font_id.clone(), color));
+                            let galley = ui.painter().layout_no_wrap(candidate.clone(), font_id.clone(), color);
                             let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
                             painter.galley(draw_pos, galley, color);
                         } else {
-                            let galley = ctx.fonts(|f| f.layout_no_wrap(candidate.clone(), font_id.clone(), color));
+                            let galley = ui.painter().layout_no_wrap(candidate.clone(), font_id.clone(), color);
                             let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
                             // Draw rotated text using TextShape with angle around the draw_pos (top-left)
                             let text_shape = egui::epaint::TextShape {
@@ -822,7 +829,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             let pname = block.ports.iter().filter(|p| p.port_type == if logical_is_input { "in" } else { "out" } && p.index.unwrap_or(0) == index).filter_map(|p| {
                 p.properties.get("Name").cloned().or_else(|| p.properties.get("PropagatedSignals").cloned()).or_else(|| p.properties.get("name").cloned()).or_else(|| Some(format!("{}{}", if is_input { "In" } else { "Out" }, index)))
             }).next().unwrap_or_else(|| format!("{}{}", if is_input { "In" } else { "Out" }, index));
-            let galley = ctx.fonts(|f| f.layout_no_wrap(pname.clone(), font_id.clone(), Color32::from_rgb(40,40,40)));
+            let galley = ui.painter().layout_no_wrap(pname.clone(), font_id.clone(), Color32::from_rgb(40,40,40));
             let size = galley.size();
             let avail_w = brect.width() - 8.0 * font_scale;
             if size.x <= avail_w {

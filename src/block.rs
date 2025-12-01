@@ -410,7 +410,9 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                             show_name = Some(!value.eq_ignore_ascii_case("off"));
                         }
                         "BlockMirror" => {
-                            let on = value.eq_ignore_ascii_case("on") || value == "1" || value.eq_ignore_ascii_case("true");
+                            let on = value.eq_ignore_ascii_case("on")
+                                || value == "1"
+                                || value.eq_ignore_ascii_case("true");
                             block_mirror = Some(on);
                             properties.insert(name_attr.to_string(), value);
                         }

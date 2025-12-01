@@ -2,9 +2,9 @@
 
 use eframe::egui::{self, Color32, FontId, Stroke, Style as EguiStyle};
 use egui::text::LayoutJob;
-use quick_xml::events::{BytesStart, Event};
-use quick_xml::escape::unescape;
 use quick_xml::Reader;
+use quick_xml::escape::unescape;
+use quick_xml::events::{BytesStart, Event};
 use std::borrow::Cow;
 
 const DEFAULT_FONT_SIZE_PX: f32 = 12.0;

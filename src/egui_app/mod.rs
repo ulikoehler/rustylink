@@ -12,7 +12,9 @@ mod state;
 pub mod text;
 mod ui;
 
-pub use geometry::{endpoint_pos, endpoint_pos_with_target, parse_block_rect, port_anchor_pos, PortSide};
+pub use geometry::{
+    PortSide, endpoint_pos, endpoint_pos_with_target, parse_block_rect, port_anchor_pos,
+};
 pub use navigation::{
     collect_subsystems_paths, resolve_subsystem_by_path, resolve_subsystem_by_vec,
 };

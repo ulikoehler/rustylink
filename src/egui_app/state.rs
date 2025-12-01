@@ -102,8 +102,7 @@ pub struct SubsystemApp {
     /// Custom context menu items for blocks.
     pub block_menu_items: Vec<BlockContextMenuItem>,
     /// Registered listeners to be notified whenever the displayed subsystem changes.
-    subsystem_change_listeners:
-        Vec<Arc<dyn Fn(&[String], &SubsystemEntities) + Send + Sync>>, // private to encourage using the API
+    subsystem_change_listeners: Vec<Arc<dyn Fn(&[String], &SubsystemEntities) + Send + Sync>>, // private to encourage using the API
     /// Optional click handler to override default action when clicking a block.
     /// Return true from the handler to indicate the click was handled and suppress the default behavior.
     pub block_click_handler: Option<Arc<dyn Fn(&mut SubsystemApp, &Block) -> bool + Send + Sync>>,

@@ -5,7 +5,10 @@ use eframe::egui::{Pos2, Rect};
 
 /// Side of a block where a port resides.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PortSide { In, Out }
+pub enum PortSide {
+    In,
+    Out,
+}
 
 /// Parse the block rectangle from a Simulink block's `Position` property.
 /// Expects a string of the form "[l, t, r, b]".
@@ -51,7 +54,11 @@ pub fn port_anchor_pos(r: Rect, side: PortSide, port_index: u32, num_ports: Opti
 
 /// Helper to compute a port anchor position given an endpoint reference.
 pub fn endpoint_pos(r: Rect, ep: &EndpointRef, num_ports: Option<u32>) -> Pos2 {
-    let side = if ep.port_type == "out" { PortSide::Out } else { PortSide::In };
+    let side = if ep.port_type == "out" {
+        PortSide::Out
+    } else {
+        PortSide::In
+    };
     port_anchor_pos(r, side, ep.port_index, num_ports)
 }
 
@@ -104,8 +111,12 @@ pub fn endpoint_pos_with_target_maybe_mirrored(
         let mut y = ty;
         let top = r.top();
         let bottom = r.bottom();
-        if y < top { y = top; }
-        if y > bottom { y = bottom; }
+        if y < top {
+            y = top;
+        }
+        if y > bottom {
+            y = bottom;
+        }
         p.y = y;
     }
     p
