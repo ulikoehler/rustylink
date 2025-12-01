@@ -10,7 +10,7 @@ This crate parses Simulink `slx` files into a JSON representation and optionally
 
 This viewer is intended to be a starting point for building your own tools around Simulink models. While it does not intend to be a complete Simulink viewer (many features are unsupported), it is still useful for automation tasks.
 
-**You don't need a MATLAB or Simulink license or installation to use this tool.**
+**You don't need a MATLAB or Simulink license or installation to use this tool.**. This tool is explicitly NOT an official MathWorks product and is not affiliated with MathWorks in any way.
 
 ## Quick start
 
@@ -49,6 +49,37 @@ use camino::Utf8PathBuf;
 let parser = SimulinkParser::new(".");
 let system = parser.parse_system_file(Utf8PathBuf::from("simulink/systems/system_root.xml"))?;
 println!("{}", serde_json::to_string_pretty(&system)?);
+```
+
+## Binary Serialization
+
+You can save parsed models to a binary format for faster loading in subsequent runs. This is significantly faster than parsing the XML/SLX files.
+
+```rust
+use rustylink::model::SystemDoc;
+
+// Save to binary
+let doc = SystemDoc { system };
+doc.save_to_binary("model.bin")?;
+
+// Load from binary
+let loaded_doc = SystemDoc::load_from_binary("model.bin")?;
+```
+
+To benchmark the performance difference:
+
+```sh
+cargo run --example binary_benchmark -- MyModel.slx
+```
+
+Example output for a small model
+
+```
+Benchmarking file: SmallModel.slx
+Initial parsing time: 9.644268ms
+Serialization time: 517.692µs
+Binary file size: 21815 bytes
+Deserialization time: 1.460571ms
 ```
 
 ## Notes
