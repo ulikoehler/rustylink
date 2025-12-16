@@ -77,7 +77,11 @@ fn expand_rect_for_label(
     }
 }
 
-pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) -> UpdateResponse {
+fn update_internal(
+    app: &mut SubsystemApp,
+    ui: &mut egui::Ui,
+    enable_context_menus: bool,
+) -> UpdateResponse {
     let mut interaction = UpdateResponse::None;
     let mut navigate_to: Option<Vec<String>> = None;
     let mut clear_search = false;
@@ -335,24 +339,26 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) -> UpdateResponse {
             } else if resp.clicked() {
                 block_action = Some(ClickAction::Primary);
             }
-            resp.context_menu(|ui| {
-                if ui.button("Info").clicked() {
-                    record_interaction(
-                        &mut interaction,
-                        UpdateResponse::Block {
-                            action: ClickAction::Secondary,
-                            block: (*b).clone(),
-                            handled: false,
-                        },
-                    );
-                    ui.close();
-                }
-                for item in &block_menu_items_snapshot {
-                    if (item.filter)(b) {
-                        if ui.button(&item.label).clicked() { (item.on_click)(b); ui.close(); }
+            if enable_context_menus {
+                resp.context_menu(|ui| {
+                    if ui.button("Info").clicked() {
+                        record_interaction(
+                            &mut interaction,
+                            UpdateResponse::Block {
+                                action: ClickAction::Secondary,
+                                block: (*b).clone(),
+                                handled: false,
+                            },
+                        );
+                        ui.close();
                     }
-                }
-            });
+                    for item in &block_menu_items_snapshot {
+                        if (item.filter)(b) {
+                            if ui.button(&item.label).clicked() { (item.on_click)(b); ui.close(); }
+                        }
+                    }
+                });
+            }
             if let Some(action) = block_action {
                 let mut handled = false;
                 if matches!(action, ClickAction::Primary | ClickAction::DoublePrimary) {
@@ -547,25 +553,27 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) -> UpdateResponse {
             } else if resp.clicked() {
                 signal_action = Some(ClickAction::Primary);
             }
-            resp.context_menu(|ui| {
-                if ui.button("Info").clicked() {
-                    let line = &entities.lines[li];
-                    record_interaction(
-                        &mut interaction,
-                        UpdateResponse::Signal {
-                            action: ClickAction::Secondary,
-                            line_idx: li,
-                            line: line.clone(),
-                            handled: false,
-                        },
-                    );
-                    ui.close();
-                }
-                let line_ref = &entities.lines[li];
-                for item in &signal_menu_items_snapshot {
-                    if (item.filter)(line_ref) { if ui.button(&item.label).clicked() { (item.on_click)(line_ref); ui.close(); } }
-                }
-            });
+            if enable_context_menus {
+                resp.context_menu(|ui| {
+                    if ui.button("Info").clicked() {
+                        let line = &entities.lines[li];
+                        record_interaction(
+                            &mut interaction,
+                            UpdateResponse::Signal {
+                                action: ClickAction::Secondary,
+                                line_idx: li,
+                                line: line.clone(),
+                                handled: false,
+                            },
+                        );
+                        ui.close();
+                    }
+                    let line_ref = &entities.lines[li];
+                    for item in &signal_menu_items_snapshot {
+                        if (item.filter)(line_ref) { if ui.button(&item.label).clicked() { (item.on_click)(line_ref); ui.close(); } }
+                    }
+                });
+            }
             let main_anchor = *offsets_pts.last().unwrap_or(&cur);
             line_views.push((line, screen_pts, main_anchor, signal_action, li, segments_all));
         }
@@ -788,23 +796,25 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) -> UpdateResponse {
                     },
                 );
             }
-            resp.context_menu(|ui| {
-                if ui.button("Info").clicked() {
-                    let line = &entities.lines[li];
-                    record_interaction(
-                        &mut interaction,
-                        UpdateResponse::Signal {
-                            action: ClickAction::Secondary,
-                            line_idx: li,
-                            line: line.clone(),
-                            handled: false,
-                        },
-                    );
-                    ui.close();
-                }
-                let line_ref = &entities.lines[li];
-                for item in &signal_menu_items_snapshot { if (item.filter)(line_ref) { if ui.button(&item.label).clicked() { (item.on_click)(line_ref); ui.close(); } } }
-            });
+            if enable_context_menus {
+                resp.context_menu(|ui| {
+                    if ui.button("Info").clicked() {
+                        let line = &entities.lines[li];
+                        record_interaction(
+                            &mut interaction,
+                            UpdateResponse::Signal {
+                                action: ClickAction::Secondary,
+                                line_idx: li,
+                                line: line.clone(),
+                                handled: false,
+                            },
+                        );
+                        ui.close();
+                    }
+                    let line_ref = &entities.lines[li];
+                    for item in &signal_menu_items_snapshot { if (item.filter)(line_ref) { if ui.button(&item.label).clicked() { (item.on_click)(line_ref); ui.close(); } } }
+                });
+            }
         }
 
         // Finish blocks (border, icon/value, labels) and click handling
@@ -989,7 +999,7 @@ fn build_chart_view_for_block(
     })
 }
 
-fn handle_update_response(app: &mut SubsystemApp, response: &UpdateResponse) {
+pub fn apply_update_response(app: &mut SubsystemApp, response: &UpdateResponse) {
     match response {
         UpdateResponse::None => {}
         UpdateResponse::Signal {
@@ -1381,15 +1391,19 @@ fn show_block_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
     }
 }
 
-fn show_info_windows(app: &mut SubsystemApp, ui: &mut egui::Ui) {
+pub fn show_info_windows(app: &mut SubsystemApp, ui: &mut egui::Ui) {
     show_chart_window(app, ui);
     show_signal_window(app, ui);
     show_block_window(app, ui);
 }
 
+pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) -> UpdateResponse {
+    update_internal(app, ui, false)
+}
+
 pub fn update_with_info(app: &mut SubsystemApp, ui: &mut egui::Ui) -> UpdateResponse {
-    let response = update(app, ui);
-    handle_update_response(app, &response);
+    let response = update_internal(app, ui, true);
+    apply_update_response(app, &response);
     show_info_windows(app, ui);
     response
 }

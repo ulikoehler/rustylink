@@ -24,4 +24,4 @@ pub use state::{
     SignalDialog, SignalDialogButton, SubsystemApp, SubsystemEntities,
 };
 pub use text::{highlight_query_job, matlab_syntax_job};
-pub use ui::{ClickAction, UpdateResponse, update, update_with_info};
+pub use ui::{apply_update_response, show_info_windows, ClickAction, UpdateResponse, update, update_with_info};
