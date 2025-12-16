@@ -14,10 +14,46 @@ use super::geometry::{
 use super::render::{
     ComputedPortYCoordinates, get_block_type_cfg, render_block_icon, render_manual_switch,
 };
-use super::state::{
-    BlockDialog, ChartView, ClickedBlock, ClickedSignal, SignalDialog, SubsystemApp,
-};
+use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
 use super::text::{highlight_query_job, matlab_syntax_job};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ClickAction {
+    Primary,
+    Secondary,
+    DoublePrimary,
+    DoubleSecondary,
+}
+
+#[derive(Clone, Debug)]
+pub enum UpdateResponse {
+    None,
+    Block {
+        action: ClickAction,
+        block: crate::model::Block,
+        handled: bool,
+    },
+    Signal {
+        action: ClickAction,
+        line_idx: usize,
+        line: crate::model::Line,
+        handled: bool,
+    },
+}
+
+fn is_block_subsystem(b: &crate::model::Block) -> bool {
+    b.block_type == "SubSystem"
+        && b.subsystem
+            .as_ref()
+            .map_or(false, |sub| sub.chart.is_none())
+}
+
+fn record_interaction(current: &mut UpdateResponse, new: UpdateResponse) {
+    if matches!(new, UpdateResponse::None) {
+        return;
+    }
+    *current = new;
+}
 
 fn expand_rect_for_label(
     rect: Rect,
@@ -41,14 +77,8 @@ fn expand_rect_for_label(
     }
 }
 
-pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
-    // Helper: check if block is a non-chart subsystem
-    fn is_block_subsystem(b: &crate::model::Block) -> bool {
-        b.block_type == "SubSystem"
-            && b.subsystem
-                .as_ref()
-                .map_or(false, |sub| sub.chart.is_none())
-    }
+pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) -> UpdateResponse {
+    let mut interaction = UpdateResponse::None;
     let mut navigate_to: Option<Vec<String>> = None;
     let mut clear_search = false;
     let path_snapshot = app.path.clone();
@@ -112,10 +142,6 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
         .or_else(|| path_snapshot.last().cloned())
         .unwrap_or_else(|| "<root>".to_string());
 
-    let mut navigate_to_from_block: Option<Vec<String>> = None;
-    let mut open_chart: Option<ChartView> = None;
-    let mut open_signal: Option<SignalDialog> = None;
-    let mut open_block: Option<BlockDialog> = None;
     let mut staged_zoom = app.zoom;
     let mut staged_pan = app.pan;
     let mut staged_reset = app.reset_view;
@@ -126,9 +152,6 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
     let block_click_handler_snapshot = app.block_click_handler.clone();
     let block_menu_items_snapshot = app.block_menu_items.clone();
     let signal_menu_items_snapshot = app.signal_menu_items.clone();
-    let signal_click_handler_snapshot = app.signal_click_handler.clone();
-    let chart_map_snapshot = app.chart_map.clone();
-    let charts_snapshot = app.charts.clone();
 
     egui::CentralPanel::default().show_inside(ui, |ui| {
         if !system_valid {
@@ -304,10 +327,24 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
                 ui.painter().rect_filled(r_screen, 6.0, bg);
             }
             let resp = ui.allocate_rect(r_screen, Sense::click());
+            let mut block_action: Option<ClickAction> = None;
+            if resp.double_clicked() {
+                block_action = Some(ClickAction::DoublePrimary);
+            } else if resp.secondary_clicked() {
+                block_action = Some(ClickAction::Secondary);
+            } else if resp.clicked() {
+                block_action = Some(ClickAction::Primary);
+            }
             resp.context_menu(|ui| {
                 if ui.button("Info").clicked() {
-                    let title = format!("{} ({})", b.name, b.block_type);
-                    open_block = Some(BlockDialog { title, block: (*b).clone(), open: true });
+                    record_interaction(
+                        &mut interaction,
+                        UpdateResponse::Block {
+                            action: ClickAction::Secondary,
+                            block: (*b).clone(),
+                            handled: false,
+                        },
+                    );
                     ui.close();
                 }
                 for item in &block_menu_items_snapshot {
@@ -316,22 +353,24 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
                     }
                 }
             });
-            // Open subsystem or info dialog on click (allow override)
-            if resp.clicked() {
-                app.last_clicked_block = Some(ClickedBlock { name: b.name.clone(), sid: b.sid.clone() });
+            if let Some(action) = block_action {
                 let mut handled = false;
-                if let Some(handler) = block_click_handler_snapshot.as_ref() {
-                    // If user handler returns true, it handled the click
-                    handled = handler(app, b);
-                }
-                if !handled {
-                    if is_block_subsystem(b) {
+                if matches!(action, ClickAction::Primary | ClickAction::DoublePrimary) {
+                    if let Some(handler) = block_click_handler_snapshot.as_ref() {
+                        handled = handler(app, b);
+                    }
+                    if !handled && is_block_subsystem(b) {
                         block_to_open_subsystem = Some((*b).clone());
-                    } else {
-                        let title = format!("{} ({})", b.name, b.block_type);
-                        open_block = Some(BlockDialog { title, block: (*b).clone(), open: true });
                     }
                 }
+                record_interaction(
+                    &mut interaction,
+                    UpdateResponse::Block {
+                        action,
+                        block: (*b).clone(),
+                        handled,
+                    },
+                );
             }
             block_views.push((b, r_screen, resp.clicked()));
         }
@@ -455,7 +494,7 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
         }
 
         // Build lines in screen space and interactive hit rects
-    let mut line_views: Vec<(&crate::model::Line, Vec<Pos2>, Pos2, bool, usize, Vec<(Pos2, Pos2)>)> = Vec::new();
+    let mut line_views: Vec<(&crate::model::Line, Vec<Pos2>, Pos2, Option<ClickAction>, usize, Vec<(Pos2, Pos2)>)> = Vec::new();
     let mut port_label_requests: Vec<(String, u32, bool, f32)> = Vec::new();
     let mut port_y_screen: HashMap<(String, u32, bool), f32> = HashMap::new();
         // Precompute mirroring for each block SID in this view
@@ -500,12 +539,26 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
             });
             let hit_rect = Rect::from_min_max(Pos2::new(min_x - pad, min_y - pad), Pos2::new(max_x + pad, max_y + pad));
             let resp = ui.allocate_rect(hit_rect, Sense::click());
-            let clicked = resp.clicked();
+            let mut signal_action: Option<ClickAction> = None;
+            if resp.double_clicked() {
+                signal_action = Some(ClickAction::DoublePrimary);
+            } else if resp.secondary_clicked() {
+                signal_action = Some(ClickAction::Secondary);
+            } else if resp.clicked() {
+                signal_action = Some(ClickAction::Primary);
+            }
             resp.context_menu(|ui| {
                 if ui.button("Info").clicked() {
                     let line = &entities.lines[li];
-                    let title = line.name.clone().unwrap_or("<signal>".into());
-                    open_signal = Some(SignalDialog { title, line_idx: li, open: true });
+                    record_interaction(
+                        &mut interaction,
+                        UpdateResponse::Signal {
+                            action: ClickAction::Secondary,
+                            line_idx: li,
+                            line: line.clone(),
+                            handled: false,
+                        },
+                    );
                     ui.close();
                 }
                 let line_ref = &entities.lines[li];
@@ -514,7 +567,7 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
                 }
             });
             let main_anchor = *offsets_pts.last().unwrap_or(&cur);
-            line_views.push((line, screen_pts, main_anchor, clicked, li, segments_all));
+            line_views.push((line, screen_pts, main_anchor, signal_action, li, segments_all));
         }
 
         // Collect segments for a branch tree (model coords in, screen-space segments out)
@@ -596,7 +649,7 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
             if *is_input { entry.inputs.insert(*idx, *y); } else { entry.outputs.insert(*idx, *y); }
         }
 
-        for (line, screen_pts, main_anchor, clicked, li, segments_all) in &line_views {
+        for (line, screen_pts, main_anchor, action_opt, li, segments_all) in &line_views {
             let color = line_colors.get(*li).copied().unwrap_or(line_stroke_default.color);
             let stroke = Stroke::new(2.0, color);
             for seg in screen_pts.windows(2) { painter.line_segment([seg[0], seg[1]], stroke); }
@@ -605,7 +658,7 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
                 draw_arrowhead(&painter, a, b, color);
             }}
             for br in &line.branches { draw_branch_rec(&painter, &to_screen, &sid_map, &port_counts, *main_anchor, br, color, &mut port_label_requests, &sid_mirrored); }
-            if *clicked {
+            if let Some(action) = action_opt.clone() {
                 if let Some(cp) = ui.input(|i| i.pointer.interact_pos()) {
                     let mut min_dist = f32::INFINITY;
                     for (a, b) in segments_all { // all segments including branches already in screen space
@@ -620,18 +673,16 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
                     }
                     if min_dist <= 8.0 {
                         let title = line.name.clone().unwrap_or("<signal>".into());
-                        app.last_clicked_signal = Some(ClickedSignal {
-                            name: title.clone(),
-                            src_sid: line.src.as_ref().map(|s| s.sid.clone()),
-                            dst_sid: line.dst.as_ref().map(|d| d.sid.clone()),
-                        });
-                        let handled = signal_click_handler_snapshot
-                            .as_ref()
-                            .map(|h| h(app, line))
-                            .unwrap_or(false);
-                        if !handled {
-                            open_signal = Some(SignalDialog { title, line_idx: *li, open: true });
-                        }
+                        let handled = false;
+                        record_interaction(
+                            &mut interaction,
+                            UpdateResponse::Signal {
+                                action,
+                                line_idx: *li,
+                                line: (*line).clone(),
+                                handled,
+                            },
+                        );
                     }
                 }
             }
@@ -709,7 +760,7 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
             }
         };
 
-        for (line, screen_pts, main_anchor, _clicked, li, _segments_all) in &line_views {
+        for (line, screen_pts, main_anchor, _action, li, _segments_all) in &line_views {
             let color = line_colors.get(*li).copied().unwrap_or(line_stroke_default.color);
             draw_line_labels(line, screen_pts, *main_anchor, color, *li);
         }
@@ -717,31 +768,47 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
         // Clickable labels
         for (r, li) in signal_label_rects {
             let resp = ui.interact(r, ui.id().with(("signal_label", li)), Sense::click());
-            if resp.clicked() {
+            let mut label_action: Option<ClickAction> = None;
+            if resp.double_clicked() {
+                label_action = Some(ClickAction::DoublePrimary);
+            } else if resp.secondary_clicked() {
+                label_action = Some(ClickAction::Secondary);
+            } else if resp.clicked() {
+                label_action = Some(ClickAction::Primary);
+            }
+            if let Some(action) = label_action {
                 let line = &entities.lines[li];
-                let title = line.name.clone().unwrap_or("<signal>".into());
-                app.last_clicked_signal = Some(ClickedSignal {
-                    name: title.clone(),
-                    src_sid: line.src.as_ref().map(|s| s.sid.clone()),
-                    dst_sid: line.dst.as_ref().map(|d| d.sid.clone()),
-                });
-                let handled = signal_click_handler_snapshot
-                    .as_ref()
-                    .map(|h| h(app, line))
-                    .unwrap_or(false);
-                if !handled {
-                    open_signal = Some(SignalDialog { title, line_idx: li, open: true });
-                }
+                record_interaction(
+                    &mut interaction,
+                    UpdateResponse::Signal {
+                        action,
+                        line_idx: li,
+                        line: line.clone(),
+                        handled: false,
+                    },
+                );
             }
             resp.context_menu(|ui| {
-                if ui.button("Info").clicked() { let line = &entities.lines[li]; let title = line.name.clone().unwrap_or("<signal>".into()); open_signal = Some(SignalDialog { title, line_idx: li, open: true }); ui.close(); }
+                if ui.button("Info").clicked() {
+                    let line = &entities.lines[li];
+                    record_interaction(
+                        &mut interaction,
+                        UpdateResponse::Signal {
+                            action: ClickAction::Secondary,
+                            line_idx: li,
+                            line: line.clone(),
+                            handled: false,
+                        },
+                    );
+                    ui.close();
+                }
                 let line_ref = &entities.lines[li];
                 for item in &signal_menu_items_snapshot { if (item.filter)(line_ref) { if ui.button(&item.label).clicked() { (item.on_click)(line_ref); ui.close(); } } }
             });
         }
 
         // Finish blocks (border, icon/value, labels) and click handling
-        for (b, r_screen, clicked) in &block_views {
+        for (b, r_screen, _clicked) in &block_views {
             let cfg = get_block_type_cfg(&b.block_type);
             let border_rgb = cfg.border.unwrap_or(crate::block_types::Rgb(180, 180, 200));
             let stroke = Stroke::new(2.0, Color32::from_rgb(border_rgb.0, border_rgb.1, border_rgb.2));
@@ -838,26 +905,6 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
                     }
                 }
             }
-            if *clicked {
-                if b.block_type == "MATLAB Function" || (b.block_type == "SubSystem" && b.is_matlab_function) {
-                    let by_sid = b.sid.as_ref().and_then(|k| chart_map_snapshot.get(k)).cloned();
-                    let mut instance_name = if path_snapshot.is_empty() { b.name.clone() } else { format!("{}/{}", path_snapshot.join("/"), b.name) };
-                    instance_name = instance_name.trim_matches('/').to_string();
-                    let cid_opt = by_sid.or_else(|| chart_map_snapshot.get(&instance_name).cloned());
-                    if let Some(cid) = cid_opt { if let Some(chart) = charts_snapshot.get(&cid) {
-                        let title = chart.name.clone().or(chart.eml_name.clone()).unwrap_or_else(|| b.name.clone());
-                        let script = chart.script.clone().unwrap_or_default();
-                        open_chart = Some(ChartView { title, script, open: true });
-                        let title_b = format!("{} ({})", b.name, b.block_type);
-                        open_block = Some(BlockDialog { title: title_b, block: (*b).clone(), open: true });
-                    }}
-                } else if b.block_type == "SubSystem" {
-                    if let Some(_sub) = &b.subsystem { let mut np = path_snapshot.clone(); np.push(b.name.clone()); navigate_to_from_block = Some(np); }
-                } else {
-                    let title = format!("{} ({})", b.name, b.block_type);
-                    open_block = Some(BlockDialog { title, block: (*b).clone(), open: true });
-                }
-            }
         }
 
         // Draw port labels
@@ -895,26 +942,100 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
         app.open_block_if_subsystem(&block);
     }
 
-    if let Some(p) = navigate_to_from_block.or(navigate_to) {
+    if let Some(p) = navigate_to {
         app.navigate_to_path(p);
     }
     app.zoom = staged_zoom;
     app.pan = staged_pan;
     app.reset_view = staged_reset;
-    if let Some(cv) = open_chart {
-        app.chart_view = Some(cv);
-    }
-    if let Some(sd) = open_signal {
-        app.signal_view = Some(sd);
-    }
-    if let Some(bd) = open_block {
-        app.block_view = Some(bd);
-    }
     if clear_search {
         app.search_query.clear();
         app.search_matches.clear();
     }
 
+    interaction
+}
+
+fn build_chart_view_for_block(
+    app: &SubsystemApp,
+    block: &crate::model::Block,
+) -> Option<ChartView> {
+    let is_chart_block = block.block_type == "MATLAB Function"
+        || (block.block_type == "SubSystem" && block.is_matlab_function);
+    if !is_chart_block {
+        return None;
+    }
+    let by_sid = block
+        .sid
+        .as_ref()
+        .and_then(|sid| app.chart_map.get(sid))
+        .cloned();
+    let mut instance_name = if app.path.is_empty() {
+        block.name.clone()
+    } else {
+        format!("{}/{}", app.path.join("/"), block.name)
+    };
+    instance_name = instance_name.trim_matches('/').to_string();
+    let cid_opt = by_sid.or_else(|| app.chart_map.get(&instance_name).cloned());
+    let chart = cid_opt.and_then(|cid| app.charts.get(&cid));
+    chart.map(|chart| ChartView {
+        title: chart
+            .name
+            .clone()
+            .or(chart.eml_name.clone())
+            .unwrap_or_else(|| block.name.clone()),
+        script: chart.script.clone().unwrap_or_default(),
+        open: true,
+    })
+}
+
+fn handle_update_response(app: &mut SubsystemApp, response: &UpdateResponse) {
+    match response {
+        UpdateResponse::None => {}
+        UpdateResponse::Signal {
+            line_idx,
+            line,
+            handled,
+            ..
+        } => {
+            if *handled {
+                return;
+            }
+            let title = line.name.clone().unwrap_or("<signal>".into());
+            app.signal_view = Some(SignalDialog {
+                title,
+                line_idx: *line_idx,
+                open: true,
+            });
+        }
+        UpdateResponse::Block { block, handled, .. } => {
+            if *handled {
+                return;
+            }
+            if is_block_subsystem(block) {
+                return;
+            }
+            if let Some(cv) = build_chart_view_for_block(app, block) {
+                app.chart_view = Some(cv);
+                let title_b = format!("{} ({})", block.name, block.block_type);
+                app.block_view = Some(BlockDialog {
+                    title: title_b,
+                    block: block.clone(),
+                    open: true,
+                });
+            } else {
+                let title = format!("{} ({})", block.name, block.block_type);
+                app.block_view = Some(BlockDialog {
+                    title,
+                    block: block.clone(),
+                    open: true,
+                });
+            }
+        }
+    }
+}
+
+fn show_chart_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
     if let Some(cv) = &mut app.chart_view {
         let mut open_flag = cv.open;
         egui::Window::new(format!("Chart: {}", cv.title))
@@ -936,9 +1057,10 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
             app.chart_view = None;
         }
     }
+}
 
+fn show_signal_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
     if let Some(sd) = &app.signal_view {
-        // signal dialog
         let mut open_flag = sd.open;
         let title = format!("Signal: {}", sd.title);
         let sys = app.current_system().map(|s| s.clone());
@@ -1100,7 +1222,9 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
             }
         }
     }
+}
 
+fn show_block_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
     if let Some(bd) = &app.block_view {
         let mut open_flag = bd.open;
         let block = bd.block.clone();
@@ -1255,4 +1379,17 @@ pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
             }
         }
     }
+}
+
+fn show_info_windows(app: &mut SubsystemApp, ui: &mut egui::Ui) {
+    show_chart_window(app, ui);
+    show_signal_window(app, ui);
+    show_block_window(app, ui);
+}
+
+pub fn update_with_info(app: &mut SubsystemApp, ui: &mut egui::Ui) -> UpdateResponse {
+    let response = update(app, ui);
+    handle_update_response(app, &response);
+    show_info_windows(app, ui);
+    response
 }
