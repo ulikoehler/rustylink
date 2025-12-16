@@ -20,7 +20,8 @@ pub use navigation::{
 };
 pub use render::render_block_icon;
 pub use state::{
-    BlockContextMenuItem, BlockDialog, BlockDialogButton, ChartView, SignalContextMenuItem,
-    SignalDialog, SignalDialogButton, SubsystemApp, SubsystemEntities,
+    BlockContextMenuItem, BlockDialog, BlockDialogButton, ChartView, ClickedBlock, ClickedSignal,
+    SignalContextMenuItem, SignalDialog, SignalDialogButton, SubsystemApp, SubsystemEntities,
 };
 pub use text::{highlight_query_job, matlab_syntax_job};
+pub use ui::update;

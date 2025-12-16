@@ -14,10 +14,34 @@ use super::geometry::{
 use super::render::{
     ComputedPortYCoordinates, get_block_type_cfg, render_block_icon, render_manual_switch,
 };
-use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
+use super::state::{
+    BlockDialog, ChartView, ClickedBlock, ClickedSignal, SignalDialog, SubsystemApp,
+};
 use super::text::{highlight_query_job, matlab_syntax_job};
 
-pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+fn expand_rect_for_label(
+    rect: Rect,
+    block: &crate::model::Block,
+    ui: &egui::Ui,
+    font_scale: f32,
+) -> Rect {
+    let font = egui::FontId::proportional(14.0 * font_scale);
+    let label = block.name.replace('\n', " ");
+    let galley = ui.painter().layout_no_wrap(label, font, Color32::BLACK);
+    let padding = 16.0 * font_scale;
+    let desired = galley.size().x + padding;
+    if desired > rect.width() {
+        let extra = desired - rect.width();
+        Rect::from_min_max(
+            Pos2::new(rect.min.x - extra * 0.5, rect.min.y),
+            Pos2::new(rect.max.x + extra * 0.5, rect.max.y),
+        )
+    } else {
+        rect
+    }
+}
+
+pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) {
     // Helper: check if block is a non-chart subsystem
     fn is_block_subsystem(b: &crate::model::Block) -> bool {
         b.block_type == "SubSystem"
@@ -29,7 +53,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
     let mut clear_search = false;
     let path_snapshot = app.path.clone();
 
-    egui::TopBottomPanel::top("top").show(ctx, |ui| {
+    egui::TopBottomPanel::top("top").show_inside(ui, |ui| {
         ui.horizontal(|ui| {
             let up_label = egui::RichText::new("⬆ Up");
             let up = ui.add_enabled(!path_snapshot.is_empty(), egui::Button::new(up_label));
@@ -102,10 +126,11 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
     let block_click_handler_snapshot = app.block_click_handler.clone();
     let block_menu_items_snapshot = app.block_menu_items.clone();
     let signal_menu_items_snapshot = app.signal_menu_items.clone();
+    let signal_click_handler_snapshot = app.signal_click_handler.clone();
     let chart_map_snapshot = app.chart_map.clone();
     let charts_snapshot = app.charts.clone();
 
-    egui::CentralPanel::default().show(ctx, |ui| {
+    egui::CentralPanel::default().show_inside(ui, |ui| {
         if !system_valid {
             ui.colored_label(Color32::RED, "Invalid path – nothing to render");
             return;
@@ -158,7 +183,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
 
         let canvas_resp = ui.interact(avail, ui.id().with("canvas"), Sense::drag());
         if canvas_resp.dragged() { let d = canvas_resp.drag_delta(); staged_pan += d; }
-        let scroll_y = ctx.input(|i| i.raw_scroll_delta.y);
+        let scroll_y = ui.input(|i| i.raw_scroll_delta.y);
         if scroll_y.abs() > 0.0 && canvas_resp.hovered() {
             let factor = (1.0_f32 + scroll_y as f32 * 0.001_f32).max(0.1_f32);
             let old_zoom = staged_zoom;
@@ -222,7 +247,8 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
         let mut block_views: Vec<(&crate::model::Block, Rect, bool)> = Vec::new();
         for (b, r) in &blocks {
             if let Some(sid) = &b.sid { sid_map.insert(sid.clone(), *r); }
-            let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
+            let mut r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
+            r_screen = expand_rect_for_label(r_screen, b, ui, font_scale);
             if let Some(sid) = &b.sid { sid_screen_map.insert(sid.clone(), r_screen); }
             let cfg = get_block_type_cfg(&b.block_type);
             if b.commented {
@@ -292,6 +318,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             });
             // Open subsystem or info dialog on click (allow override)
             if resp.clicked() {
+                app.last_clicked_block = Some(ClickedBlock { name: b.name.clone(), sid: b.sid.clone() });
                 let mut handled = false;
                 if let Some(handler) = block_click_handler_snapshot.as_ref() {
                     // If user handler returns true, it handled the click
@@ -579,7 +606,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             }}
             for br in &line.branches { draw_branch_rec(&painter, &to_screen, &sid_map, &port_counts, *main_anchor, br, color, &mut port_label_requests, &sid_mirrored); }
             if *clicked {
-                if let Some(cp) = ctx.input(|i| i.pointer.interact_pos()) {
+                if let Some(cp) = ui.input(|i| i.pointer.interact_pos()) {
                     let mut min_dist = f32::INFINITY;
                     for (a, b) in segments_all { // all segments including branches already in screen space
                         let ab_x = b.x - a.x; let ab_y = b.y - a.y;
@@ -593,7 +620,18 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
                     }
                     if min_dist <= 8.0 {
                         let title = line.name.clone().unwrap_or("<signal>".into());
-                        open_signal = Some(SignalDialog { title, line_idx: *li, open: true });
+                        app.last_clicked_signal = Some(ClickedSignal {
+                            name: title.clone(),
+                            src_sid: line.src.as_ref().map(|s| s.sid.clone()),
+                            dst_sid: line.dst.as_ref().map(|d| d.sid.clone()),
+                        });
+                        let handled = signal_click_handler_snapshot
+                            .as_ref()
+                            .map(|h| h(app, line))
+                            .unwrap_or(false);
+                        if !handled {
+                            open_signal = Some(SignalDialog { title, line_idx: *li, open: true });
+                        }
                     }
                 }
             }
@@ -682,7 +720,18 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             if resp.clicked() {
                 let line = &entities.lines[li];
                 let title = line.name.clone().unwrap_or("<signal>".into());
-                open_signal = Some(SignalDialog { title, line_idx: li, open: true });
+                app.last_clicked_signal = Some(ClickedSignal {
+                    name: title.clone(),
+                    src_sid: line.src.as_ref().map(|s| s.sid.clone()),
+                    dst_sid: line.dst.as_ref().map(|d| d.sid.clone()),
+                });
+                let handled = signal_click_handler_snapshot
+                    .as_ref()
+                    .map(|h| h(app, line))
+                    .unwrap_or(false);
+                if !handled {
+                    open_signal = Some(SignalDialog { title, line_idx: li, open: true });
+                }
             }
             resp.context_menu(|ui| {
                 if ui.button("Info").clicked() { let line = &entities.lines[li]; let title = line.name.clone().unwrap_or("<signal>".into()); open_signal = Some(SignalDialog { title, line_idx: li, open: true }); ui.close(); }
@@ -874,7 +923,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             .vscroll(true)
             .min_width(400.0)
             .min_height(200.0)
-            .show(ctx, |ui| {
+            .show(ui.ctx(), |ui| {
                 egui::ScrollArea::vertical()
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
@@ -900,7 +949,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             .vscroll(true)
             .min_width(360.0)
             .min_height(200.0)
-            .show(ctx, |ui| {
+            .show(ui.ctx(), |ui| {
                 if let Some(sys) = &sys {
                     if let Some(line) = sys.lines.get(line_idx) {
                         ui.label(RichText::new("General").strong());
@@ -1061,7 +1110,7 @@ pub fn update(app: &mut SubsystemApp, ctx: &egui::Context, _frame: &mut eframe::
             .vscroll(true)
             .min_width(360.0)
             .min_height(220.0)
-            .show(ctx, |ui| {
+            .show(ui.ctx(), |ui| {
                 ui.label(RichText::new("General").strong());
                 ui.horizontal_wrapped(|ui| {
                     ui.label(format!("Name: {}", block.name));

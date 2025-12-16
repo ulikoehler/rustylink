@@ -21,6 +21,21 @@ pub struct ChartView {
     pub open: bool,
 }
 
+/// Captures the last clicked block for external consumers.
+#[derive(Clone)]
+pub struct ClickedBlock {
+    pub name: String,
+    pub sid: Option<String>,
+}
+
+/// Captures the last clicked signal for external consumers.
+#[derive(Clone)]
+pub struct ClickedSignal {
+    pub name: String,
+    pub src_sid: Option<String>,
+    pub dst_sid: Option<String>,
+}
+
 /// Data for a selected signal information dialog.
 #[derive(Clone)]
 pub struct SignalDialog {
@@ -101,11 +116,19 @@ pub struct SubsystemApp {
     pub signal_menu_items: Vec<SignalContextMenuItem>,
     /// Custom context menu items for blocks.
     pub block_menu_items: Vec<BlockContextMenuItem>,
+    /// Last clicked block (for embedding hosts/UI glue).
+    pub last_clicked_block: Option<ClickedBlock>,
+    /// Last clicked signal (for embedding hosts/UI glue).
+    pub last_clicked_signal: Option<ClickedSignal>,
     /// Registered listeners to be notified whenever the displayed subsystem changes.
     subsystem_change_listeners: Vec<Arc<dyn Fn(&[String], &SubsystemEntities) + Send + Sync>>, // private to encourage using the API
     /// Optional click handler to override default action when clicking a block.
     /// Return true from the handler to indicate the click was handled and suppress the default behavior.
     pub block_click_handler: Option<Arc<dyn Fn(&mut SubsystemApp, &Block) -> bool + Send + Sync>>,
+    /// Optional click handler to observe/override signal clicks.
+    /// Return true to consume the event and skip the default behavior.
+    pub signal_click_handler:
+        Option<Arc<dyn Fn(&mut SubsystemApp, &crate::model::Line) -> bool + Send + Sync>>,
 }
 
 impl SubsystemApp {
@@ -135,8 +158,11 @@ impl SubsystemApp {
             block_buttons: Vec::new(),
             signal_menu_items: Vec::new(),
             block_menu_items: Vec::new(),
+            last_clicked_block: None,
+            last_clicked_signal: None,
             subsystem_change_listeners: Vec::new(),
             block_click_handler: None,
+            signal_click_handler: None,
         }
     }
 
@@ -186,6 +212,20 @@ impl SubsystemApp {
         F: Fn(&mut SubsystemApp, &Block) -> bool + Send + Sync + 'static,
     {
         self.block_click_handler = Some(Arc::new(f));
+    }
+
+    /// Override the default signal click action. If set, the handler is called on each
+    /// signal click; return true to consume the event and skip the default behavior.
+    pub fn set_signal_click_handler<F>(&mut self, f: F)
+    where
+        F: Fn(&mut SubsystemApp, &crate::model::Line) -> bool + Send + Sync + 'static,
+    {
+        self.signal_click_handler = Some(Arc::new(f));
+    }
+
+    /// Restore the default signal click behavior.
+    pub fn clear_signal_click_handler(&mut self) {
+        self.signal_click_handler = None;
     }
 
     /// Restore the default block click behavior.
@@ -325,6 +365,8 @@ impl SubsystemApp {
 
 impl eframe::App for SubsystemApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        super::ui::update(self, ctx, _frame);
+        egui::CentralPanel::default().show(ctx, |ui| {
+            super::ui::update(self, ui);
+        });
     }
 }
