@@ -2,8 +2,11 @@
 #![cfg(feature = "egui")]
 
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
+use eframe::egui::epaint::Shape;
 
 use crate::model::EndpointRef;
 
@@ -52,9 +55,33 @@ fn record_interaction(current: &mut UpdateResponse, new: UpdateResponse) {
     if matches!(new, UpdateResponse::None) {
         return;
     }
-    *current = new;
+    fn is_double(resp: &UpdateResponse) -> bool {
+        match resp {
+            UpdateResponse::Block { action, .. }
+            | UpdateResponse::Signal { action, .. } => matches!(
+                action,
+                ClickAction::DoublePrimary | ClickAction::DoubleSecondary
+            ),
+            UpdateResponse::None => false,
+        }
+    }
+
+    let current_is_double = is_double(current);
+    let new_is_double = is_double(&new);
+
+    if matches!(current, UpdateResponse::None) {
+        *current = new;
+    } else if current_is_double && !new_is_double {
+        // Preserve the earlier double-click interaction.
+    } else if new_is_double && !current_is_double {
+        *current = new;
+    } else {
+        // Default: prefer the most recent interaction.
+        *current = new;
+    }
 }
 
+#[allow(dead_code)]
 fn expand_rect_for_label(
     rect: Rect,
     block: &crate::model::Block,
@@ -74,6 +101,224 @@ fn expand_rect_for_label(
         )
     } else {
         rect
+    }
+}
+
+fn luminance(c: Color32) -> f32 {
+    fn to_lin(u: u8) -> f32 {
+        let s = (u as f32) / 255.0;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    0.2126 * to_lin(c.r()) + 0.7152 * to_lin(c.g()) + 0.0722 * to_lin(c.b())
+}
+
+fn contrast_color(bg: Color32) -> Color32 {
+    let lum = luminance(bg);
+    if lum > 0.6 {
+        Color32::from_rgb(25, 35, 45)
+    } else {
+        Color32::from_rgb(235, 245, 245)
+    }
+}
+
+fn hsv_to_color32(h: f32, s: f32, v: f32) -> Color32 {
+    let h6 = (h * 6.0) % 6.0;
+    let c = v * s;
+    let x = c * (1.0 - ((h6 % 2.0) - 1.0).abs());
+    let (r1, g1, b1) = if h6 < 1.0 {
+        (c, x, 0.0)
+    } else if h6 < 2.0 {
+        (x, c, 0.0)
+    } else if h6 < 3.0 {
+        (0.0, c, x)
+    } else if h6 < 4.0 {
+        (0.0, x, c)
+    } else if h6 < 5.0 {
+        (x, 0.0, c)
+    } else {
+        (c, 0.0, x)
+    };
+    let m = v - c;
+    let (r, g, b) = (r1 + m, g1 + m, b1 + m);
+    Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
+}
+
+fn hash_color(input: &str, s: f32, v: f32) -> Color32 {
+    let mut hasher = DefaultHasher::new();
+    input.hash(&mut hasher);
+    let hash = hasher.finish();
+    let h = (hash as f32 / u64::MAX as f32) % 1.0;
+    hsv_to_color32(h, s, v)
+}
+
+fn block_base_color(
+    block: &crate::model::Block,
+    cfg: &crate::block_types::BlockTypeConfig,
+) -> Color32 {
+    if let Some(ref color_str) = block.background_color {
+        let lower = color_str.to_lowercase();
+        match lower.as_str() {
+            "yellow" => return Color32::from_rgb(255, 230, 120),
+            "red" => return Color32::from_rgb(230, 90, 90),
+            "green" => return Color32::from_rgb(120, 210, 140),
+            "blue" => return Color32::from_rgb(100, 160, 230),
+            "black" => return Color32::from_rgb(40, 40, 40),
+            "white" => return Color32::from_rgb(235, 235, 235),
+            "gray" | "grey" => return Color32::from_rgb(180, 180, 180),
+            _ => {
+                if lower.starts_with('#') && lower.len() == 7 {
+                    if let (Ok(r), Ok(g), Ok(b)) = (
+                        u8::from_str_radix(&lower[1..3], 16),
+                        u8::from_str_radix(&lower[3..5], 16),
+                        u8::from_str_radix(&lower[5..7], 16),
+                    ) {
+                        return Color32::from_rgb(r, g, b);
+                    }
+                }
+            }
+        }
+    }
+    if let Some(bg) = cfg.background {
+        return Color32::from_rgb(bg.0, bg.1, bg.2);
+    }
+    hash_color(&block.block_type, 0.35, 0.90)
+}
+
+fn darken(color: Color32, factor: f32) -> Color32 {
+    let f = factor.clamp(0.0, 1.0);
+    Color32::from_rgb(
+        ((color.r() as f32) * (1.0 - f)) as u8,
+        ((color.g() as f32) * (1.0 - f)) as u8,
+        ((color.b() as f32) * (1.0 - f)) as u8,
+    )
+}
+
+#[derive(Clone, Copy)]
+struct LineStyle {
+    stroke: Stroke,
+    dash: Option<(f32, f32)>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SignalDimKind {
+    Scalar,
+    Vector,
+    Matrix,
+    Unknown,
+}
+
+fn parse_dims_from_text(raw: &str) -> Option<SignalDimKind> {
+    // Accept patterns like "[2x1]", "2x1", "3", "3x3" and variants using 'X' or '×'.
+    let trimmed = raw.trim();
+    let inner = if let Some(start) = trimmed.find('[') {
+        let rest = &trimmed[start + 1..];
+        if let Some(end) = rest.find(']') {
+            &rest[..end]
+        } else {
+            trimmed
+        }
+    } else {
+        trimmed
+    };
+
+    let parts: Vec<&str> = inner
+        .split(|c| c == 'x' || c == 'X' || c == '\u{00D7}')
+        .filter(|s| !s.trim().is_empty())
+        .collect();
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    let numbers: Vec<Option<usize>> = parts
+        .iter()
+        .map(|p| p.trim().parse::<usize>().ok())
+        .collect();
+    if numbers.iter().any(|n| n.is_none()) {
+        return None;
+    }
+    let nums: Vec<usize> = numbers.into_iter().flatten().collect();
+
+    match nums.len() {
+        0 => None,
+        1 => {
+            if nums[0] <= 1 {
+                Some(SignalDimKind::Scalar)
+            } else {
+                Some(SignalDimKind::Vector)
+            }
+        }
+        2 => {
+            let (r, c) = (nums[0], nums[1]);
+            if r == 1 && c == 1 {
+                Some(SignalDimKind::Scalar)
+            } else if r == 1 || c == 1 {
+                Some(SignalDimKind::Vector)
+            } else {
+                Some(SignalDimKind::Matrix)
+            }
+        }
+        _ => Some(SignalDimKind::Matrix),
+    }
+}
+
+fn signal_dimension_kind(line: &crate::model::Line) -> SignalDimKind {
+    if let Some(lbl) = &line.labels {
+        if let Some(kind) = parse_dims_from_text(lbl) {
+            return kind;
+        }
+    }
+
+    if let Some(name) = &line.name {
+        if let Some(kind) = parse_dims_from_text(name) {
+            return kind;
+        }
+    }
+
+    SignalDimKind::Unknown
+}
+
+fn signal_style(line: &crate::model::Line, idx: usize) -> LineStyle {
+    // Use a single hue and vary line style by dimensionality (scalar/vector/matrix).
+    let base_color = Color32::from_rgb(60, 90, 140);
+    match signal_dimension_kind(line) {
+        SignalDimKind::Scalar => LineStyle {
+            stroke: Stroke::new(2.2, base_color),
+            dash: None,
+        },
+        SignalDimKind::Vector => LineStyle {
+            stroke: Stroke::new(2.0, base_color),
+            dash: Some((10.0, 6.0)),
+        },
+        SignalDimKind::Matrix => LineStyle {
+            stroke: Stroke::new(2.0, base_color),
+            dash: Some((4.0, 4.0)),
+        },
+        SignalDimKind::Unknown => {
+            // Fall back to hashed patterns to keep nearby signals distinguishable.
+            let mut hasher = DefaultHasher::new();
+            line.name.hash(&mut hasher);
+            idx.hash(&mut hasher);
+            let style_idx = (hasher.finish() % 3) as u8;
+            match style_idx {
+                0 => LineStyle {
+                    stroke: Stroke::new(2.0, base_color),
+                    dash: None,
+                },
+                1 => LineStyle {
+                    stroke: Stroke::new(2.0, base_color),
+                    dash: Some((8.0, 5.0)),
+                },
+                _ => LineStyle {
+                    stroke: Stroke::new(1.8, base_color),
+                    dash: Some((3.0, 6.0)),
+                },
+            }
+        }
     }
 }
 
@@ -162,16 +407,19 @@ fn update_internal(
             ui.colored_label(Color32::RED, "Invalid path – nothing to render");
             return;
         }
-    // Use entities snapshot for this frame
+        // Use entities snapshot for this frame
         let entities = entities_opt.as_ref().unwrap();
         // Compute blocks with positions from snapshot. Also inject SystemName
         // into a temporary, enriched block clone so later code can read it from properties.
         let system_name = system_name_snapshot.clone();
-        let mut enriched_blocks: Vec<crate::model::Block> = Vec::with_capacity(entities.blocks.len());
+        let mut enriched_blocks: Vec<crate::model::Block> =
+            Vec::with_capacity(entities.blocks.len());
         for b in &entities.blocks {
             let mut bc = b.clone();
             // Do not overwrite if already present
-            bc.properties.entry("SystemName".to_string()).or_insert(system_name.clone());
+            bc.properties
+                .entry("SystemName".to_string())
+                .or_insert(system_name.clone());
             enriched_blocks.push(bc);
         }
         let blocks: Vec<(&crate::model::Block, Rect)> = enriched_blocks
@@ -184,17 +432,33 @@ fn update_internal(
                 entities
                     .annotations
                     .iter()
-                    .filter_map(|a| a.position.as_deref().and_then(|s| parse_rect_str(s)).map(|pos| (a, pos)))
+                    .filter_map(|a| {
+                        a.position
+                            .as_deref()
+                            .and_then(|s| parse_rect_str(s))
+                            .map(|pos| (a, pos))
+                    })
                     .collect()
             })
             .unwrap_or_default();
         if blocks.is_empty() && annotations.is_empty() {
-            ui.colored_label(Color32::YELLOW, "No blocks or annotations with positions to render");
+            ui.colored_label(
+                Color32::YELLOW,
+                "No blocks or annotations with positions to render",
+            );
             return;
         }
-        let mut bb = blocks.get(0).map(|x| x.1).or_else(|| annotations.get(0).map(|x| x.1)).unwrap();
-        for (_, r) in &blocks { bb = bb.union(*r); }
-        for (_, r) in &annotations { bb = bb.union(*r); }
+        let mut bb = blocks
+            .get(0)
+            .map(|x| x.1)
+            .or_else(|| annotations.get(0).map(|x| x.1))
+            .unwrap();
+        for (_, r) in &blocks {
+            bb = bb.union(*r);
+        }
+        for (_, r) in &annotations {
+            bb = bb.union(*r);
+        }
 
         // Interaction space
         let margin = 20.0;
@@ -206,10 +470,17 @@ fn update_internal(
         let sy = (avail_size.y - 2.0 * margin) / height;
         let base_scale = sx.min(sy).max(0.1);
 
-        if staged_reset { staged_zoom = 1.0; staged_pan = Vec2::ZERO; staged_reset = false; }
+        if staged_reset {
+            staged_zoom = 1.0;
+            staged_pan = Vec2::ZERO;
+            staged_reset = false;
+        }
 
         let canvas_resp = ui.interact(avail, ui.id().with("canvas"), Sense::drag());
-        if canvas_resp.dragged() { let d = canvas_resp.drag_delta(); staged_pan += d; }
+        if canvas_resp.dragged() {
+            let d = canvas_resp.drag_delta();
+            staged_pan += d;
+        }
         let scroll_y = ui.input(|i| i.raw_scroll_delta.y);
         if scroll_y.abs() > 0.0 && canvas_resp.hovered() {
             let factor = (1.0_f32 + scroll_y as f32 * 0.001_f32).max(0.1_f32);
@@ -247,9 +518,15 @@ fn update_internal(
                             staged_pan.y = center.y - ((world_y - bb.top()) * s_new + origin.y);
                         };
                         // Menu (buttons and zoom percentage) must not scale with zoom
-                        if ui.small_button("−").clicked() { zoom_by(0.9); }
-                        if ui.small_button("+").clicked() { zoom_by(1.1); }
-                        if ui.small_button("Reset").clicked() { staged_reset = true; }
+                        if ui.small_button("−").clicked() {
+                            zoom_by(0.9);
+                        }
+                        if ui.small_button("+").clicked() {
+                            zoom_by(1.1);
+                        }
+                        if ui.small_button("Reset").clicked() {
+                            staged_reset = true;
+                        }
                         // Display current zoom level as percent
                         let percent = (staged_zoom * 100.0).round() as i32;
                         ui.label(format!("{}%", percent));
@@ -268,20 +545,26 @@ fn update_internal(
         // User requested double font size, so we use / 2.0 instead of / 4.0
         let font_scale: f32 = (staged_zoom / 2.0).max(0.01);
 
-    // Draw blocks and setup interaction maps
+        // Draw blocks and setup interaction maps
         let mut sid_map: HashMap<String, Rect> = HashMap::new();
         let mut sid_screen_map: HashMap<String, Rect> = HashMap::new();
-        let mut block_views: Vec<(&crate::model::Block, Rect, bool)> = Vec::new();
+        let mut block_views: Vec<(&crate::model::Block, Rect, bool, Color32)> = Vec::new();
         for (b, r) in &blocks {
-            if let Some(sid) = &b.sid { sid_map.insert(sid.clone(), *r); }
+            if let Some(sid) = &b.sid {
+                sid_map.insert(sid.clone(), *r);
+            }
             let mut r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
-            r_screen = expand_rect_for_label(r_screen, b, ui, font_scale);
-            if let Some(sid) = &b.sid { sid_screen_map.insert(sid.clone(), r_screen); }
+            if let Some(sid) = &b.sid {
+                sid_screen_map.insert(sid.clone(), r_screen);
+            }
             let cfg = get_block_type_cfg(&b.block_type);
+            let bg = block_base_color(b, &cfg);
+            let mut effective_bg = bg;
             if b.commented {
                 // Light gray background, no outline
-                let bg = Color32::from_rgb(230, 230, 230);
-                ui.painter().rect_filled(r_screen, 0.0, bg);
+                let commented_bg = Color32::from_rgb(230, 230, 230);
+                effective_bg = commented_bg;
+                ui.painter().rect_filled(r_screen, 0.0, commented_bg);
                 // Icon in dark gray
                 let icon_size = 24.0 * font_scale.max(0.01);
                 let icon_center = r_screen.center();
@@ -290,53 +573,30 @@ fn update_internal(
                 if let Some(icon) = cfg.icon {
                     match icon {
                         crate::block_types::IconSpec::Utf8(glyph) => {
-                            ui.painter().text(icon_center, Align2::CENTER_CENTER, glyph, font, dark_icon);
+                            ui.painter().text(
+                                icon_center,
+                                Align2::CENTER_CENTER,
+                                glyph,
+                                font,
+                                dark_icon,
+                            );
                         }
                     }
                 }
             } else {
                 // Normal block rendering
-                let bg = if let Some(ref color_str) = b.background_color {
-                    let lower = color_str.to_lowercase();
-                    match lower.as_str() {
-                        "yellow" => Color32::YELLOW,
-                        "red" => Color32::RED,
-                        "green" => Color32::GREEN,
-                        "blue" => Color32::BLUE,
-                        "black" => Color32::BLACK,
-                        "white" => Color32::WHITE,
-                        "gray" | "grey" => Color32::from_rgb(128,128,128),
-                        _ => {
-                            // Support hex color strings like #ffa500
-                            if lower.starts_with('#') && lower.len() == 7 {
-                                if let (Ok(r), Ok(g), Ok(b)) = (
-                                    u8::from_str_radix(&lower[1..3], 16),
-                                    u8::from_str_radix(&lower[3..5], 16),
-                                    u8::from_str_radix(&lower[5..7], 16),
-                                ) {
-                                    Color32::from_rgb(r, g, b)
-                                } else {
-                                    eprintln!("[rustylink] Warning: invalid hex color '{}', using default.", color_str);
-                                    Color32::from_rgb(210, 210, 210)
-                                }
-                            } else {
-                                eprintln!("[rustylink] Warning: unknown block background color '{}', using default.", color_str);
-                                Color32::from_rgb(210, 210, 210)
-                            }
-                        }
-                    }
-                } else {
-                    cfg.background.map(|c| Color32::from_rgb(c.0, c.1, c.2)).unwrap_or_else(|| Color32::from_rgb(210, 210, 210))
-                };
                 ui.painter().rect_filled(r_screen, 6.0, bg);
             }
             let resp = ui.allocate_rect(r_screen, Sense::click());
             let mut block_action: Option<ClickAction> = None;
             if resp.double_clicked() {
+                println!("Block {} double-clicked", b.name);
                 block_action = Some(ClickAction::DoublePrimary);
             } else if resp.secondary_clicked() {
+                println!("Block {} secondary clicked", b.name);
                 block_action = Some(ClickAction::Secondary);
             } else if resp.clicked() {
+                println!("Block {} clicked", b.name);
                 block_action = Some(ClickAction::Primary);
             }
             if enable_context_menus {
@@ -354,7 +614,10 @@ fn update_internal(
                     }
                     for item in &block_menu_items_snapshot {
                         if (item.filter)(b) {
-                            if ui.button(&item.label).clicked() { (item.on_click)(b); ui.close(); }
+                            if ui.button(&item.label).clicked() {
+                                (item.on_click)(b);
+                                ui.close();
+                            }
                         }
                     }
                 });
@@ -378,7 +641,7 @@ fn update_internal(
                     },
                 );
             }
-            block_views.push((b, r_screen, resp.clicked()));
+            block_views.push((b, r_screen, resp.clicked(), effective_bg));
         }
 
         // Draw annotations (convert HTML-rich content to plain text) without background
@@ -386,7 +649,8 @@ fn update_internal(
             let r_screen = Rect::from_min_max(to_screen(r_model.min), to_screen(r_model.max));
             let _resp = ui.allocate_rect(r_screen, Sense::hover());
             let raw = a.text.clone().unwrap_or_default();
-            let parsed = crate::egui_app::text::annotation_to_rich_text(&raw, a.interpreter.as_deref());
+            let parsed =
+                crate::egui_app::text::annotation_to_rich_text(&raw, a.interpreter.as_deref());
             let base_font = 12.0;
             let mut job = parsed.to_layout_job(ui.style(), font_scale, base_font);
             job.wrap.max_width = f32::INFINITY;
@@ -399,7 +663,9 @@ fn update_internal(
                 let job_for_wrap = job.clone();
                 ui.allocate_new_ui(egui::UiBuilder::new().max_rect(r_screen), |child_ui| {
                     let wrapped = child_ui.painter().layout_job(job_for_wrap);
-                    child_ui.painter().galley(paint_pos, wrapped, Color32::WHITE);
+                    child_ui
+                        .painter()
+                        .galley(paint_pos, wrapped, Color32::WHITE);
                 });
             }
             // no special tooltip; text is directly visible inside the rectangle
@@ -407,102 +673,198 @@ fn update_internal(
 
         // Precompute lookup maps
         let mut sid_to_name: HashMap<String, String> = HashMap::new();
-        for (b, _r) in &blocks { if let Some(sid) = &b.sid { sid_to_name.insert(sid.clone(), b.name.clone()); } }
+        for (b, _r) in &blocks {
+            if let Some(sid) = &b.sid {
+                sid_to_name.insert(sid.clone(), b.name.clone());
+            }
+        }
 
         // Build adjacency across lines for coloring
         let mut line_adjacency: Vec<Vec<usize>> = vec![Vec::new(); entities.lines.len()];
         let mut sid_to_lines: HashMap<String, Vec<usize>> = HashMap::new();
         for (i, l) in entities.lines.iter().enumerate() {
-            if let Some(src) = &l.src { sid_to_lines.entry(src.sid.clone()).or_default().push(i); }
-            if let Some(dst) = &l.dst { sid_to_lines.entry(dst.sid.clone()).or_default().push(i); }
+            if let Some(src) = &l.src {
+                sid_to_lines.entry(src.sid.clone()).or_default().push(i);
+            }
+            if let Some(dst) = &l.dst {
+                sid_to_lines.entry(dst.sid.clone()).or_default().push(i);
+            }
             fn collect_branch_sids(br: &crate::model::Branch, out: &mut Vec<String>) {
-                if let Some(dst) = &br.dst { out.push(dst.sid.clone()); }
-                for sub in &br.branches { collect_branch_sids(sub, out); }
+                if let Some(dst) = &br.dst {
+                    out.push(dst.sid.clone());
+                }
+                for sub in &br.branches {
+                    collect_branch_sids(sub, out);
+                }
             }
             let mut br_sids: Vec<String> = Vec::new();
-            for br in &l.branches { collect_branch_sids(br, &mut br_sids); }
-            for sid in br_sids { sid_to_lines.entry(sid).or_default().push(i); }
+            for br in &l.branches {
+                collect_branch_sids(br, &mut br_sids);
+            }
+            for sid in br_sids {
+                sid_to_lines.entry(sid).or_default().push(i);
+            }
         }
         for (_sid, idxs) in &sid_to_lines {
             for a in 0..idxs.len() {
-                for b in (a+1)..idxs.len() {
+                for b in (a + 1)..idxs.len() {
                     let i = idxs[a];
                     let j = idxs[b];
-                    if !line_adjacency[i].contains(&j) { line_adjacency[i].push(j); }
-                    if !line_adjacency[j].contains(&i) { line_adjacency[j].push(i); }
+                    if !line_adjacency[i].contains(&j) {
+                        line_adjacency[i].push(j);
+                    }
+                    if !line_adjacency[j].contains(&i) {
+                        line_adjacency[j].push(i);
+                    }
                 }
             }
         }
 
         // Color assignment
-        fn circular_dist(a: f32, b: f32) -> f32 { let d = (a - b).abs(); d.min(1.0 - d) }
+        fn circular_dist(a: f32, b: f32) -> f32 {
+            let d = (a - b).abs();
+            d.min(1.0 - d)
+        }
         fn hsv_to_color32(h: f32, s: f32, v: f32) -> Color32 {
             let h6 = (h * 6.0) % 6.0;
             let c = v * s;
             let x = c * (1.0 - ((h6 % 2.0) - 1.0).abs());
-            let (r1, g1, b1) = if h6 < 1.0 { (c, x, 0.0) }
-            else if h6 < 2.0 { (x, c, 0.0) }
-            else if h6 < 3.0 { (0.0, c, x) }
-            else if h6 < 4.0 { (0.0, x, c) }
-            else if h6 < 5.0 { (x, 0.0, c) } else { (c, 0.0, x) };
+            let (r1, g1, b1) = if h6 < 1.0 {
+                (c, x, 0.0)
+            } else if h6 < 2.0 {
+                (x, c, 0.0)
+            } else if h6 < 3.0 {
+                (0.0, c, x)
+            } else if h6 < 4.0 {
+                (0.0, x, c)
+            } else if h6 < 5.0 {
+                (x, 0.0, c)
+            } else {
+                (c, 0.0, x)
+            };
             let m = v - c;
             let (r, g, b) = (r1 + m, g1 + m, b1 + m);
             Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
         }
-        fn hue_to_color32(h: f32) -> Color32 { hsv_to_color32(h, 0.85, 0.95) }
+        fn hue_to_color32(h: f32) -> Color32 {
+            hsv_to_color32(h, 0.85, 0.95)
+        }
         fn rel_luminance(c: Color32) -> f32 {
-            fn to_lin(u: u8) -> f32 { let s = (u as f32)/255.0; if s <= 0.04045 { s/12.92 } else { ((s+0.055)/1.055).powf(2.4) } }
+            fn to_lin(u: u8) -> f32 {
+                let s = (u as f32) / 255.0;
+                if s <= 0.04045 {
+                    s / 12.92
+                } else {
+                    ((s + 0.055) / 1.055).powf(2.4)
+                }
+            }
             0.2126 * to_lin(c.r()) + 0.7152 * to_lin(c.g()) + 0.0722 * to_lin(c.b())
         }
         let n_lines = entities.lines.len();
         let sample_count = (n_lines.max(1) * 8).max(64);
-        let mut candidates: Vec<f32> = (0..sample_count).map(|i| (i as f32)/(sample_count as f32)).collect();
+        let mut candidates: Vec<f32> = (0..sample_count)
+            .map(|i| (i as f32) / (sample_count as f32))
+            .collect();
         let bg_lum = rel_luminance(Color32::from_gray(245));
         let max_lum = (bg_lum - 0.25).clamp(0.0, 1.0);
         candidates.retain(|&h| rel_luminance(hue_to_color32(h)) <= max_lum);
-        if candidates.is_empty() { candidates = (0..sample_count).map(|i| (i as f32)/(sample_count as f32)).collect(); }
+        if candidates.is_empty() {
+            candidates = (0..sample_count)
+                .map(|i| (i as f32) / (sample_count as f32))
+                .collect();
+        }
         let mut order: Vec<usize> = (0..n_lines).collect();
         order.sort_by_key(|&i| (-(line_adjacency[i].len() as isize), i as isize));
         let mut assigned_hues: Vec<Option<f32>> = vec![None; n_lines];
         let mut remaining: Vec<f32> = candidates.clone();
         for i in order {
-            let neigh_hues: Vec<f32> = line_adjacency[i].iter().filter_map(|&j| assigned_hues[j]).collect();
-            let mut best_h = 0.0; let mut best_score = -1.0f32;
+            let neigh_hues: Vec<f32> = line_adjacency[i]
+                .iter()
+                .filter_map(|&j| assigned_hues[j])
+                .collect();
+            let mut best_h = 0.0;
+            let mut best_score = -1.0f32;
             for &h in &remaining {
-                let used: Vec<f32> = if neigh_hues.is_empty() { assigned_hues.iter().flatten().copied().collect() } else { neigh_hues.clone() };
-                let score: f32 = if used.is_empty() { 1.0 } else { used.iter().map(|&u| circular_dist(h, u)).fold(1.0, |a, d| f32::min(a, d)) };
-                if score > best_score || (score == best_score && h < best_h) { best_score = score; best_h = h; }
+                let used: Vec<f32> = if neigh_hues.is_empty() {
+                    assigned_hues.iter().flatten().copied().collect()
+                } else {
+                    neigh_hues.clone()
+                };
+                let score: f32 = if used.is_empty() {
+                    1.0
+                } else {
+                    used.iter()
+                        .map(|&u| circular_dist(h, u))
+                        .fold(1.0, |a, d| f32::min(a, d))
+                };
+                if score > best_score || (score == best_score && h < best_h) {
+                    best_score = score;
+                    best_h = h;
+                }
             }
             assigned_hues[i] = Some(best_h);
-            if let Some(pos) = remaining.iter().position(|&x| (x - best_h).abs() < f32::EPSILON) { remaining.remove(pos); }
+            if let Some(pos) = remaining
+                .iter()
+                .position(|&x| (x - best_h).abs() < f32::EPSILON)
+            {
+                remaining.remove(pos);
+            }
         }
-        let line_colors: Vec<Color32> = assigned_hues.into_iter().enumerate().map(|(i, h)| {
-            let default_h = (i as f32) / (n_lines.max(1) as f32);
-            let c = hue_to_color32(h.unwrap_or(default_h));
-            if rel_luminance(c) > max_lum { hsv_to_color32(h.unwrap_or(default_h), 0.85, 0.75) } else { c }
-        }).collect();
+        let _line_colors: Vec<Color32> = assigned_hues
+            .into_iter()
+            .enumerate()
+            .map(|(i, h)| {
+                let default_h = (i as f32) / (n_lines.max(1) as f32);
+                let c = hue_to_color32(h.unwrap_or(default_h));
+                if rel_luminance(c) > max_lum {
+                    hsv_to_color32(h.unwrap_or(default_h), 0.85, 0.75)
+                } else {
+                    c
+                }
+            })
+            .collect();
 
         let line_stroke_default = Stroke::new(2.0, Color32::LIGHT_GREEN);
         let mut port_counts: HashMap<(String, u8), u32> = HashMap::new();
         fn reg_ep(ep: &EndpointRef, port_counts: &mut HashMap<(String, u8), u32>) {
             let key = (ep.sid.clone(), if ep.port_type == "out" { 1 } else { 0 });
             let idx1 = if ep.port_index == 0 { 1 } else { ep.port_index };
-            port_counts.entry(key).and_modify(|v| *v = (*v).max(idx1)).or_insert(idx1);
+            port_counts
+                .entry(key)
+                .and_modify(|v| *v = (*v).max(idx1))
+                .or_insert(idx1);
         }
         fn reg_branch(br: &crate::model::Branch, port_counts: &mut HashMap<(String, u8), u32>) {
-            if let Some(dst) = &br.dst { reg_ep(dst, port_counts); }
-            for sub in &br.branches { reg_branch(sub, port_counts); }
+            if let Some(dst) = &br.dst {
+                reg_ep(dst, port_counts);
+            }
+            for sub in &br.branches {
+                reg_branch(sub, port_counts);
+            }
         }
         for line in &entities.lines {
-            if let Some(src) = &line.src { reg_ep(src, &mut port_counts); }
-            if let Some(dst) = &line.dst { reg_ep(dst, &mut port_counts); }
-            for br in &line.branches { reg_branch(br, &mut port_counts); }
+            if let Some(src) = &line.src {
+                reg_ep(src, &mut port_counts);
+            }
+            if let Some(dst) = &line.dst {
+                reg_ep(dst, &mut port_counts);
+            }
+            for br in &line.branches {
+                reg_branch(br, &mut port_counts);
+            }
         }
 
         // Build lines in screen space and interactive hit rects
-    let mut line_views: Vec<(&crate::model::Line, Vec<Pos2>, Pos2, Option<ClickAction>, usize, Vec<(Pos2, Pos2)>)> = Vec::new();
-    let mut port_label_requests: Vec<(String, u32, bool, f32)> = Vec::new();
-    let mut port_y_screen: HashMap<(String, u32, bool), f32> = HashMap::new();
+        let mut line_views: Vec<(
+            &crate::model::Line,
+            Vec<Pos2>,
+            Pos2,
+            Option<ClickAction>,
+            usize,
+            Vec<(Pos2, Pos2)>,
+        )> = Vec::new();
+        let mut port_label_requests: Vec<(String, u32, bool, f32)> = Vec::new();
+        let mut port_y_screen: HashMap<(String, u32, bool), f32> = HashMap::new();
         // Precompute mirroring for each block SID in this view
         let mut sid_mirrored: HashMap<String, bool> = HashMap::new();
         for (b, _r) in &blocks {
@@ -511,46 +873,115 @@ fn update_internal(
             }
         }
         for (li, line) in entities.lines.iter().enumerate() {
-            let Some(src) = line.src.as_ref() else { continue; };
-            let Some(sr) = sid_map.get(&src.sid) else { continue; };
+            let Some(src) = line.src.as_ref() else {
+                continue;
+            };
+            let Some(sr) = sid_map.get(&src.sid) else {
+                continue;
+            };
             let mut offsets_pts: Vec<Pos2> = Vec::new();
-            let num_src = port_counts.get(&(src.sid.clone(), if src.port_type == "out" { 1 } else { 0 })).copied();
+            let num_src = port_counts
+                .get(&(src.sid.clone(), if src.port_type == "out" { 1 } else { 0 }))
+                .copied();
             let mirrored_src = sid_mirrored.get(&src.sid).copied().unwrap_or(false);
             let mut cur = endpoint_pos_maybe_mirrored(*sr, src, num_src, mirrored_src);
             offsets_pts.push(cur);
-            for off in &line.points { cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32); offsets_pts.push(cur); }
+            for off in &line.points {
+                cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
+                offsets_pts.push(cur);
+            }
             let mut screen_pts: Vec<Pos2> = offsets_pts.iter().map(|p| to_screen(*p)).collect();
             if let Some(src_ep) = line.src.as_ref() {
                 let src_screen = *screen_pts.get(0).unwrap_or(&to_screen(cur));
-                port_label_requests.push((src_ep.sid.clone(), src_ep.port_index, false, src_screen.y));
+                port_label_requests.push((
+                    src_ep.sid.clone(),
+                    src_ep.port_index,
+                    false,
+                    src_screen.y,
+                ));
                 port_y_screen.insert((src_ep.sid.clone(), src_ep.port_index, false), src_screen.y);
             }
             if let Some(dst) = line.dst.as_ref() {
                 if let Some(dr) = sid_map.get(&dst.sid) {
-                    let num_dst = port_counts.get(&(dst.sid.clone(), if dst.port_type == "out" { 1 } else { 0 })).copied();
-                    let mirrored_dst = entities.blocks.iter().find(|b| b.sid.as_ref() == Some(&dst.sid)).and_then(|b| b.block_mirror).unwrap_or(false);
-                    let dst_pt = endpoint_pos_with_target_maybe_mirrored(*dr, dst, num_dst, Some(cur.y), mirrored_dst);
+                    let num_dst = port_counts
+                        .get(&(dst.sid.clone(), if dst.port_type == "out" { 1 } else { 0 }))
+                        .copied();
+                    let mirrored_dst = entities
+                        .blocks
+                        .iter()
+                        .find(|b| b.sid.as_ref() == Some(&dst.sid))
+                        .and_then(|b| b.block_mirror)
+                        .unwrap_or(false);
+                    let dst_pt = endpoint_pos_with_target_maybe_mirrored(
+                        *dr,
+                        dst,
+                        num_dst,
+                        Some(cur.y),
+                        mirrored_dst,
+                    );
                     let dst_screen = to_screen(dst_pt);
                     screen_pts.push(dst_screen);
-                    if dst.port_type == "in" { port_label_requests.push((dst.sid.clone(), dst.port_index, true, dst_screen.y)); port_y_screen.insert((dst.sid.clone(), dst.port_index, true), dst_screen.y); }
+                    if dst.port_type == "in" {
+                        port_label_requests.push((
+                            dst.sid.clone(),
+                            dst.port_index,
+                            true,
+                            dst_screen.y,
+                        ));
+                        port_y_screen.insert((dst.sid.clone(), dst.port_index, true), dst_screen.y);
+                    }
                 }
             }
-            if screen_pts.is_empty() { continue; }
+            if screen_pts.is_empty() {
+                continue;
+            }
             let mut segments_all: Vec<(Pos2, Pos2)> = Vec::new();
-            for seg in screen_pts.windows(2) { segments_all.push((seg[0], seg[1])); }
-            for br in &line.branches { collect_branch_segments_rec(&to_screen, &sid_map, &port_counts, *offsets_pts.last().unwrap_or(&cur), br, &mut segments_all, &mut port_y_screen, &sid_mirrored); }
+            for seg in screen_pts.windows(2) {
+                segments_all.push((seg[0], seg[1]));
+            }
+            for br in &line.branches {
+                collect_branch_segments_rec(
+                    &to_screen,
+                    &sid_map,
+                    &port_counts,
+                    *offsets_pts.last().unwrap_or(&cur),
+                    br,
+                    &mut segments_all,
+                    &mut port_y_screen,
+                    &sid_mirrored,
+                );
+            }
             let pad = 8.0;
-            let (min_x, max_x, min_y, max_y) = segments_all.iter().fold((f32::INFINITY, f32::NEG_INFINITY, f32::INFINITY, f32::NEG_INFINITY), |(min_x, max_x, min_y, max_y), (a,b)| {
-                (min_x.min(a.x.min(b.x)), max_x.max(a.x.max(b.x)), min_y.min(a.y.min(b.y)), max_y.max(a.y.max(b.y)))
-            });
-            let hit_rect = Rect::from_min_max(Pos2::new(min_x - pad, min_y - pad), Pos2::new(max_x + pad, max_y + pad));
+            let (min_x, max_x, min_y, max_y) = segments_all.iter().fold(
+                (
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                    f32::INFINITY,
+                    f32::NEG_INFINITY,
+                ),
+                |(min_x, max_x, min_y, max_y), (a, b)| {
+                    (
+                        min_x.min(a.x.min(b.x)),
+                        max_x.max(a.x.max(b.x)),
+                        min_y.min(a.y.min(b.y)),
+                        max_y.max(a.y.max(b.y)),
+                    )
+                },
+            );
+            let hit_rect = Rect::from_min_max(
+                Pos2::new(min_x - pad, min_y - pad),
+                Pos2::new(max_x + pad, max_y + pad),
+            );
             let resp = ui.allocate_rect(hit_rect, Sense::click());
             let mut signal_action: Option<ClickAction> = None;
             if resp.double_clicked() {
+                println!("Line {} double-clicked", li);
                 signal_action = Some(ClickAction::DoublePrimary);
             } else if resp.secondary_clicked() {
+                println!("Line {} secondary clicked", li);
                 signal_action = Some(ClickAction::Secondary);
             } else if resp.clicked() {
+                println!("Line {} clicked", li);
                 signal_action = Some(ClickAction::Primary);
             }
             if enable_context_menus {
@@ -570,12 +1001,24 @@ fn update_internal(
                     }
                     let line_ref = &entities.lines[li];
                     for item in &signal_menu_items_snapshot {
-                        if (item.filter)(line_ref) { if ui.button(&item.label).clicked() { (item.on_click)(line_ref); ui.close(); } }
+                        if (item.filter)(line_ref) {
+                            if ui.button(&item.label).clicked() {
+                                (item.on_click)(line_ref);
+                                ui.close();
+                            }
+                        }
                     }
                 });
             }
             let main_anchor = *offsets_pts.last().unwrap_or(&cur);
-            line_views.push((line, screen_pts, main_anchor, signal_action, li, segments_all));
+            line_views.push((
+                line,
+                screen_pts,
+                main_anchor,
+                signal_action,
+                li,
+                segments_all,
+            ));
         }
 
         // Collect segments for a branch tree (model coords in, screen-space segments out)
@@ -591,33 +1034,80 @@ fn update_internal(
         ) {
             let mut pts: Vec<Pos2> = vec![start];
             let mut cur = start;
-            for off in &br.points { cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32); pts.push(cur); }
-            for seg in pts.windows(2) { out.push((to_screen(seg[0]), to_screen(seg[1]))); }
-            if let Some(dstb) = &br.dst { if let Some(dr) = sid_map.get(&dstb.sid) {
-                let key = (dstb.sid.clone(), if dstb.port_type == "out" { 1 } else { 0 });
-                let num_dst = port_counts.get(&key).copied();
-                let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
-                let end_pt = super::geometry::endpoint_pos_with_target_maybe_mirrored(*dr, dstb, num_dst, Some(cur.y), mirrored_dst);
-                let a = to_screen(*pts.last().unwrap_or(&cur));
-                let b = to_screen(end_pt);
-                out.push((a, b));
-                if dstb.port_type == "in" { port_y_screen.insert((dstb.sid.clone(), dstb.port_index, true), b.y); }
-            }}
-            for sub in &br.branches { collect_branch_segments_rec(to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, out, port_y_screen, sid_mirrored); }
+            for off in &br.points {
+                cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
+                pts.push(cur);
+            }
+            for seg in pts.windows(2) {
+                out.push((to_screen(seg[0]), to_screen(seg[1])));
+            }
+            if let Some(dstb) = &br.dst {
+                if let Some(dr) = sid_map.get(&dstb.sid) {
+                    let key = (
+                        dstb.sid.clone(),
+                        if dstb.port_type == "out" { 1 } else { 0 },
+                    );
+                    let num_dst = port_counts.get(&key).copied();
+                    let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
+                    let end_pt = super::geometry::endpoint_pos_with_target_maybe_mirrored(
+                        *dr,
+                        dstb,
+                        num_dst,
+                        Some(cur.y),
+                        mirrored_dst,
+                    );
+                    let a = to_screen(*pts.last().unwrap_or(&cur));
+                    let b = to_screen(end_pt);
+                    out.push((a, b));
+                    if dstb.port_type == "in" {
+                        port_y_screen.insert((dstb.sid.clone(), dstb.port_index, true), b.y);
+                    }
+                }
+            }
+            for sub in &br.branches {
+                collect_branch_segments_rec(
+                    to_screen,
+                    sid_map,
+                    port_counts,
+                    *pts.last().unwrap_or(&cur),
+                    sub,
+                    out,
+                    port_y_screen,
+                    sid_mirrored,
+                );
+            }
         }
 
         // Draw lines and branches
         let painter = ui.painter();
-        fn draw_arrowhead(painter: &egui::Painter, tail: Pos2, tip: Pos2, color: Color32) {
+        fn draw_arrow_with_trim(
+            painter: &egui::Painter,
+            tail: Pos2,
+            tip: Pos2,
+            color: Color32,
+            stroke: Stroke,
+        ) {
             let size = 8.0_f32;
             let dir = Vec2::new(tip.x - tail.x, tip.y - tail.y);
             let len = (dir.x * dir.x + dir.y * dir.y).sqrt().max(1e-3);
-            let ux = dir.x / len; let uy = dir.y / len;
-            let px = -uy; let py = ux;
-            let base = Pos2::new(tip.x - ux * size, tip.y - uy * size);
+            let ux = dir.x / len;
+            let uy = dir.y / len;
+            let inset = size * 0.6;
+            let start_inset = size * 0.6;
+            let tail_adj = Pos2::new(tail.x + ux * start_inset, tail.y + uy * start_inset);
+            let tip_adj = Pos2::new(tip.x - ux * inset, tip.y - uy * inset);
+            painter.line_segment([tail_adj, tip_adj], stroke);
+
+            let px = -uy;
+            let py = ux;
+            let base = Pos2::new(tip_adj.x - ux * size, tip_adj.y - uy * size);
             let left = Pos2::new(base.x + px * (size * 0.6), base.y + py * (size * 0.6));
             let right = Pos2::new(base.x - px * (size * 0.6), base.y - py * (size * 0.6));
-            painter.add(egui::Shape::convex_polygon(vec![tip, left, right], color, Stroke::NONE));
+            painter.add(egui::Shape::convex_polygon(
+                vec![tip_adj, left, right],
+                color,
+                Stroke::NONE,
+            ));
         }
 
         fn draw_branch_rec(
@@ -627,25 +1117,66 @@ fn update_internal(
             port_counts: &HashMap<(String, u8), u32>,
             start: Pos2,
             br: &crate::model::Branch,
-            color: Color32,
+            style: &LineStyle,
             port_label_requests: &mut Vec<(String, u32, bool, f32)>,
             sid_mirrored: &HashMap<String, bool>,
         ) {
             let mut pts: Vec<Pos2> = vec![start];
             let mut cur = start;
-            for off in &br.points { cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32); pts.push(cur); }
-            for seg in pts.windows(2) { painter.line_segment([to_screen(seg[0]), to_screen(seg[1])], Stroke::new(2.0, color)); }
-            if let Some(dstb) = &br.dst { if let Some(dr) = sid_map.get(&dstb.sid) {
-                let key = (dstb.sid.clone(), if dstb.port_type == "out" { 1 } else { 0 });
-                let num_dst = port_counts.get(&key).copied();
-                let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
-                let end_pt = endpoint_pos_with_target_maybe_mirrored(*dr, dstb, num_dst, Some(cur.y), mirrored_dst);
-                let last = *pts.last().unwrap_or(&cur);
-                let a = to_screen(last); let b = to_screen(end_pt);
-                painter.line_segment([a, b], Stroke::new(2.0, color));
-                if dstb.port_type == "in" { draw_arrowhead(painter, a, b, color); port_label_requests.push((dstb.sid.clone(), dstb.port_index, true, b.y)); }
-            }}
-            for sub in &br.branches { draw_branch_rec(painter, to_screen, sid_map, port_counts, *pts.last().unwrap_or(&cur), sub, color, port_label_requests, sid_mirrored); }
+            for off in &br.points {
+                cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
+                pts.push(cur);
+            }
+            for seg in pts.windows(2) {
+                let a = to_screen(seg[0]);
+                let b = to_screen(seg[1]);
+                if let Some((dash, gap)) = style.dash {
+                    painter.add(Shape::dashed_line(&[a, b], style.stroke, dash, gap));
+                } else {
+                    painter.line_segment([a, b], style.stroke);
+                }
+            }
+            if let Some(dstb) = &br.dst {
+                if let Some(dr) = sid_map.get(&dstb.sid) {
+                    let key = (
+                        dstb.sid.clone(),
+                        if dstb.port_type == "out" { 1 } else { 0 },
+                    );
+                    let num_dst = port_counts.get(&key).copied();
+                    let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
+                    let end_pt = endpoint_pos_with_target_maybe_mirrored(
+                        *dr,
+                        dstb,
+                        num_dst,
+                        Some(cur.y),
+                        mirrored_dst,
+                    );
+                    let last = *pts.last().unwrap_or(&cur);
+                    let a = to_screen(last);
+                    let b = to_screen(end_pt);
+                    if dstb.port_type == "in" {
+                        draw_arrow_with_trim(painter, a, b, style.stroke.color, style.stroke);
+                        port_label_requests.push((dstb.sid.clone(), dstb.port_index, true, b.y));
+                    } else if let Some((dash, gap)) = style.dash {
+                        painter.add(Shape::dashed_line(&[a, b], style.stroke, dash, gap));
+                    } else {
+                        painter.line_segment([a, b], style.stroke);
+                    }
+                }
+            }
+            for sub in &br.branches {
+                draw_branch_rec(
+                    painter,
+                    to_screen,
+                    sid_map,
+                    port_counts,
+                    *pts.last().unwrap_or(&cur),
+                    sub,
+                    style,
+                    port_label_requests,
+                    sid_mirrored,
+                );
+            }
         }
 
         let mut signal_label_rects: Vec<(Rect, usize)> = Vec::new();
@@ -654,30 +1185,86 @@ fn update_internal(
         let mut block_port_y_map: HashMap<String, ComputedPortYCoordinates> = HashMap::new();
         for ((sid, idx, is_input), y) in port_y_screen.iter() {
             let entry = block_port_y_map.entry(sid.clone()).or_default();
-            if *is_input { entry.inputs.insert(*idx, *y); } else { entry.outputs.insert(*idx, *y); }
+            if *is_input {
+                entry.inputs.insert(*idx, *y);
+            } else {
+                entry.outputs.insert(*idx, *y);
+            }
         }
 
         for (line, screen_pts, main_anchor, action_opt, li, segments_all) in &line_views {
-            let color = line_colors.get(*li).copied().unwrap_or(line_stroke_default.color);
-            let stroke = Stroke::new(2.0, color);
-            for seg in screen_pts.windows(2) { painter.line_segment([seg[0], seg[1]], stroke); }
-            if let Some(dst) = &line.dst { if dst.port_type == "in" && screen_pts.len() >= 2 {
-                let n = screen_pts.len(); let a = screen_pts[n-2]; let b = screen_pts[n-1];
-                draw_arrowhead(&painter, a, b, color);
-            }}
-            for br in &line.branches { draw_branch_rec(&painter, &to_screen, &sid_map, &port_counts, *main_anchor, br, color, &mut port_label_requests, &sid_mirrored); }
+            let style = signal_style(line, *li);
+            let has_in_dst = line.dst.as_ref().map_or(false, |dst| dst.port_type == "in");
+            let mut draw_pts = screen_pts.clone();
+            if draw_pts.len() >= 2 {
+                let dx = draw_pts[1].x - draw_pts[0].x;
+                let dy = draw_pts[1].y - draw_pts[0].y;
+                let len = (dx * dx + dy * dy).sqrt();
+                if len > 1e-3 {
+                    let inset = 8.0_f32;
+                    let ux = dx / len;
+                    let uy = dy / len;
+                    draw_pts[0].x += ux * inset;
+                    draw_pts[0].y += uy * inset;
+                }
+            }
+            let last_idx = draw_pts.len().saturating_sub(1);
+            for (seg_idx, seg) in draw_pts.windows(2).enumerate() {
+                let is_last = has_in_dst && seg_idx == last_idx.saturating_sub(1);
+                if is_last {
+                    draw_arrow_with_trim(&painter, seg[0], seg[1], style.stroke.color, style.stroke);
+                } else if let Some((dash, gap)) = style.dash {
+                    painter.add(Shape::dashed_line(&[seg[0], seg[1]], style.stroke, dash, gap));
+                } else {
+                    painter.line_segment([seg[0], seg[1]], style.stroke);
+                }
+            }
+            for br in &line.branches {
+                draw_branch_rec(
+                    &painter,
+                    &to_screen,
+                    &sid_map,
+                    &port_counts,
+                    *main_anchor,
+                    br,
+                    &style,
+                    &mut port_label_requests,
+                    &sid_mirrored,
+                );
+            }
             if let Some(action) = action_opt.clone() {
+                let mut hit_segments = segments_all.clone();
+                if let Some(first) = hit_segments.first_mut() {
+                    let dx = first.1.x - first.0.x;
+                    let dy = first.1.y - first.0.y;
+                    let len = (dx * dx + dy * dy).sqrt();
+                    if len > 1e-3 {
+                        let inset = 8.0_f32;
+                        let ux = dx / len;
+                        let uy = dy / len;
+                        first.0.x += ux * inset;
+                        first.0.y += uy * inset;
+                    }
+                }
                 if let Some(cp) = ui.input(|i| i.pointer.interact_pos()) {
                     let mut min_dist = f32::INFINITY;
-                    for (a, b) in segments_all { // all segments including branches already in screen space
-                        let ab_x = b.x - a.x; let ab_y = b.y - a.y;
-                        let ap_x = cp.x - a.x; let ap_y = cp.y - a.y;
+                    for (a, b) in hit_segments {
+                        // all segments including branches already in screen space
+                        let ab_x = b.x - a.x;
+                        let ab_y = b.y - a.y;
+                        let ap_x = cp.x - a.x;
+                        let ap_y = cp.y - a.y;
                         let ab_len2 = (ab_x * ab_x + ab_y * ab_y).max(1e-6);
                         let t = (ap_x * ab_x + ap_y * ab_y) / ab_len2;
                         let t_clamped = t.max(0.0).min(1.0);
-                        let proj_x = a.x + ab_x * t_clamped; let proj_y = a.y + ab_y * t_clamped;
-                        let dx = cp.x - proj_x; let dy = cp.y - proj_y; let dist = (dx * dx + dy * dy).sqrt();
-                        if dist < min_dist { min_dist = dist; }
+                        let proj_x = a.x + ab_x * t_clamped;
+                        let proj_y = a.y + ab_y * t_clamped;
+                        let dx = cp.x - proj_x;
+                        let dy = cp.y - proj_y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist < min_dist {
+                            min_dist = dist;
+                        }
                     }
                     if min_dist <= 8.0 {
                         let title = line.name.clone().unwrap_or("<signal>".into());
@@ -698,54 +1285,174 @@ fn update_internal(
 
         // Label placement
         let block_label_font = 14.0f32 * font_scale;
-        let signal_font = (block_label_font * 0.5 * 1.5 * 1.5).round().max(7.0 * font_scale);
-        struct EguiMeasurer<'a> { painter: &'a egui::Painter, font: egui::FontId, color: Color32 }
+        let signal_font = (block_label_font * 0.5 * 1.5 * 1.5)
+            .round()
+            .max(7.0 * font_scale);
+        struct EguiMeasurer<'a> {
+            painter: &'a egui::Painter,
+            font: egui::FontId,
+            color: Color32,
+        }
         impl<'a> crate::label_place::Measurer for EguiMeasurer<'a> {
             fn measure(&self, text: &str) -> (f32, f32) {
-                let galley = self.painter.layout_no_wrap(text.to_string(), self.font.clone(), self.color);
-                let s = galley.size(); (s.x, s.y)
+                let galley =
+                    self.painter
+                        .layout_no_wrap(text.to_string(), self.font.clone(), self.color);
+                let s = galley.size();
+                (s.x, s.y)
             }
         }
-        let cfg = crate::label_place::Config { expand_factor: 1.5, step_fraction: 0.25, perp_offset: 2.0 };
+        let cfg = crate::label_place::Config {
+            expand_factor: 1.5,
+            step_fraction: 0.25,
+            perp_offset: 2.0,
+        };
         let mut placed_label_rects: Vec<Rect> = Vec::new();
-        let mut draw_line_labels = |line: &crate::model::Line, screen_pts: &Vec<Pos2>, main_anchor: Pos2, color: Color32, line_idx: usize| {
-            if screen_pts.len() < 2 { return; }
-            let Some(label_text) = line.name.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()).map(|s| s.to_string()) else { return; };
+        let mut draw_line_labels = |line: &crate::model::Line,
+                                    screen_pts: &Vec<Pos2>,
+                                    main_anchor: Pos2,
+                                    color: Color32,
+                                    line_idx: usize| {
+            if screen_pts.len() < 2 {
+                return;
+            }
+            let Some(label_text) = line
+                .name
+                .as_ref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+            else {
+                return;
+            };
             let mut segments: Vec<(Pos2, Pos2)> = Vec::new();
-            for seg in screen_pts.windows(2) { segments.push((seg[0], seg[1])); }
-            for br in &line.branches { collect_branch_segments_rec(&to_screen, &sid_map, &port_counts, main_anchor, br, &mut segments, &mut port_y_screen, &sid_mirrored); }
-            let mut best_len2 = -1.0f32; let mut best_seg: Option<(Pos2, Pos2)> = None;
-            for (a, b) in &segments { let dx = b.x - a.x; let dy = b.y - a.y; let l2 = dx*dx + dy*dy; if l2 > best_len2 { best_len2 = l2; best_seg = Some((*a, *b)); } }
-            let Some((sa, sb)) = best_seg else { return; };
-            let poly: Vec<crate::label_place::Vec2f> = vec![crate::label_place::Vec2f{ x: sa.x, y: sa.y }, crate::label_place::Vec2f{ x: sb.x, y: sb.y }];
-            let mut avoid_rects: Vec<crate::label_place::RectF> = placed_label_rects.iter().map(|r| crate::label_place::RectF::from_min_max(crate::label_place::Vec2f{ x: r.left(), y: r.top() }, crate::label_place::Vec2f{ x: r.right(), y: r.bottom() })).collect();
-            for (_b, br, _clicked) in &block_views { avoid_rects.push(crate::label_place::RectF::from_min_max(crate::label_place::Vec2f{ x: br.left(), y: br.top() }, crate::label_place::Vec2f{ x: br.right(), y: br.bottom() })); }
+            for seg in screen_pts.windows(2) {
+                segments.push((seg[0], seg[1]));
+            }
+            for br in &line.branches {
+                collect_branch_segments_rec(
+                    &to_screen,
+                    &sid_map,
+                    &port_counts,
+                    main_anchor,
+                    br,
+                    &mut segments,
+                    &mut port_y_screen,
+                    &sid_mirrored,
+                );
+            }
+            let mut best_len2 = -1.0f32;
+            let mut best_seg: Option<(Pos2, Pos2)> = None;
+            for (a, b) in &segments {
+                let dx = b.x - a.x;
+                let dy = b.y - a.y;
+                let l2 = dx * dx + dy * dy;
+                if l2 > best_len2 {
+                    best_len2 = l2;
+                    best_seg = Some((*a, *b));
+                }
+            }
+            let Some((sa, sb)) = best_seg else {
+                return;
+            };
+            let poly: Vec<crate::label_place::Vec2f> = vec![
+                crate::label_place::Vec2f { x: sa.x, y: sa.y },
+                crate::label_place::Vec2f { x: sb.x, y: sb.y },
+            ];
+            let mut avoid_rects: Vec<crate::label_place::RectF> = placed_label_rects
+                .iter()
+                .map(|r| {
+                    crate::label_place::RectF::from_min_max(
+                        crate::label_place::Vec2f {
+                            x: r.left(),
+                            y: r.top(),
+                        },
+                        crate::label_place::Vec2f {
+                            x: r.right(),
+                            y: r.bottom(),
+                        },
+                    )
+                })
+                .collect();
+            for (_b, br, _clicked, _bg) in &block_views {
+                avoid_rects.push(crate::label_place::RectF::from_min_max(
+                    crate::label_place::Vec2f {
+                        x: br.left(),
+                        y: br.top(),
+                    },
+                    crate::label_place::Vec2f {
+                        x: br.right(),
+                        y: br.bottom(),
+                    },
+                ));
+            }
             let line_thickness = 0.8f32;
             for (a, b) in &segments {
-                let min_x = a.x.min(b.x) - line_thickness; let max_x = a.x.max(b.x) + line_thickness;
-                let min_y = a.y.min(b.y) - line_thickness; let max_y = a.y.max(b.y) + line_thickness;
-                avoid_rects.push(crate::label_place::RectF::from_min_max(crate::label_place::Vec2f{ x: min_x, y: min_y }, crate::label_place::Vec2f{ x: max_x, y: max_y }));
+                let min_x = a.x.min(b.x) - line_thickness;
+                let max_x = a.x.max(b.x) + line_thickness;
+                let min_y = a.y.min(b.y) - line_thickness;
+                let max_y = a.y.max(b.y) + line_thickness;
+                avoid_rects.push(crate::label_place::RectF::from_min_max(
+                    crate::label_place::Vec2f { x: min_x, y: min_y },
+                    crate::label_place::Vec2f { x: max_x, y: max_y },
+                ));
             }
-            let mut final_drawn = false; let mut font_size = signal_font; let mut tried_wrap = false; let mut wrap_text = label_text.clone();
+            let mut final_drawn = false;
+            let mut font_size = signal_font;
+            let mut tried_wrap = false;
+            let mut wrap_text = label_text.clone();
             while !final_drawn {
                 let font_id = egui::FontId::proportional(font_size);
-                let meas = EguiMeasurer { painter: ui.painter(), font: font_id.clone(), color };
+                let meas = EguiMeasurer {
+                    painter: ui.painter(),
+                    font: font_id.clone(),
+                    color,
+                };
                 let candidate_texts: Vec<String> = if !tried_wrap && label_text.contains(' ') {
                     let bytes: Vec<(usize, char)> = label_text.char_indices().collect();
-                    let mut best_split = None; let mut best_dist = usize::MAX;
+                    let mut best_split = None;
+                    let mut best_dist = usize::MAX;
                     for (i, ch) in bytes.iter() {
-                        if *ch == ' ' { let dist = (*i as isize - (label_text.len() as isize)/2).abs() as usize; if dist < best_dist { best_dist = dist; best_split = Some(*i); } }
+                        if *ch == ' ' {
+                            let dist =
+                                (*i as isize - (label_text.len() as isize) / 2).abs() as usize;
+                            if dist < best_dist {
+                                best_dist = dist;
+                                best_split = Some(*i);
+                            }
+                        }
                     }
-                    if let Some(split) = best_split { wrap_text = format!("{}\n{}", &label_text[..split].trim_end(), &label_text[split+1..].trim_start()); vec![label_text.clone(), wrap_text.clone()] } else { vec![label_text.clone()] }
-                } else { vec![label_text.clone(), wrap_text.clone()] };
+                    if let Some(split) = best_split {
+                        wrap_text = format!(
+                            "{}\n{}",
+                            &label_text[..split].trim_end(),
+                            &label_text[split + 1..].trim_start()
+                        );
+                        vec![label_text.clone(), wrap_text.clone()]
+                    } else {
+                        vec![label_text.clone()]
+                    }
+                } else {
+                    vec![label_text.clone(), wrap_text.clone()]
+                };
                 for candidate in candidate_texts.into_iter().filter(|s| !s.is_empty()) {
-                    if let Some(result) = crate::label_place::place_label(&poly, &candidate, &meas, cfg, &avoid_rects) {
+                    if let Some(result) =
+                        crate::label_place::place_label(&poly, &candidate, &meas, cfg, &avoid_rects)
+                    {
                         if result.horizontal {
-                            let galley = ui.painter().layout_no_wrap(candidate.clone(), font_id.clone(), color);
+                            let galley = ui.painter().layout_no_wrap(
+                                candidate.clone(),
+                                font_id.clone(),
+                                color,
+                            );
                             let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
                             painter.galley(draw_pos, galley, color);
                         } else {
-                            let galley = ui.painter().layout_no_wrap(candidate.clone(), font_id.clone(), color);
+                            let galley = ui.painter().layout_no_wrap(
+                                candidate.clone(),
+                                font_id.clone(),
+                                color,
+                            );
                             let draw_pos = Pos2::new(result.rect.min.x, result.rect.min.y);
                             // Draw rotated text using TextShape with angle around the draw_pos (top-left)
                             let text_shape = egui::epaint::TextShape {
@@ -759,18 +1466,33 @@ fn update_internal(
                             };
                             painter.add(egui::Shape::Text(text_shape));
                         }
-                        let rect = Rect::from_min_max(Pos2::new(result.rect.min.x, result.rect.min.y), Pos2::new(result.rect.max.x, result.rect.max.y));
-                        placed_label_rects.push(rect); signal_label_rects.push((rect, line_idx)); final_drawn = true; break;
+                        let rect = Rect::from_min_max(
+                            Pos2::new(result.rect.min.x, result.rect.min.y),
+                            Pos2::new(result.rect.max.x, result.rect.max.y),
+                        );
+                        placed_label_rects.push(rect);
+                        signal_label_rects.push((rect, line_idx));
+                        final_drawn = true;
+                        break;
                     }
                 }
-                if final_drawn { break; }
-                if !tried_wrap && label_text.contains(' ') { tried_wrap = true; } else { font_size *= 0.9; if font_size < 9.0 * font_scale { break; } }
+                if final_drawn {
+                    break;
+                }
+                if !tried_wrap && label_text.contains(' ') {
+                    tried_wrap = true;
+                } else {
+                    font_size *= 0.9;
+                    if font_size < 9.0 * font_scale {
+                        break;
+                    }
+                }
             }
         };
 
         for (line, screen_pts, main_anchor, _action, li, _segments_all) in &line_views {
-            let color = line_colors.get(*li).copied().unwrap_or(line_stroke_default.color);
-            draw_line_labels(line, screen_pts, *main_anchor, color, *li);
+            let style = signal_style(line, *li);
+            draw_line_labels(line, screen_pts, *main_anchor, style.stroke.color, *li);
         }
 
         // Clickable labels
@@ -778,10 +1500,13 @@ fn update_internal(
             let resp = ui.interact(r, ui.id().with(("signal_label", li)), Sense::click());
             let mut label_action: Option<ClickAction> = None;
             if resp.double_clicked() {
+                println!("Line {} double-clicked", li);
                 label_action = Some(ClickAction::DoublePrimary);
             } else if resp.secondary_clicked() {
+                println!("Line {} secondary clicked", li);
                 label_action = Some(ClickAction::Secondary);
             } else if resp.clicked() {
+                println!("Line {} clicked", li);
                 label_action = Some(ClickAction::Primary);
             }
             if let Some(action) = label_action {
@@ -812,34 +1537,83 @@ fn update_internal(
                         ui.close();
                     }
                     let line_ref = &entities.lines[li];
-                    for item in &signal_menu_items_snapshot { if (item.filter)(line_ref) { if ui.button(&item.label).clicked() { (item.on_click)(line_ref); ui.close(); } } }
+                    for item in &signal_menu_items_snapshot {
+                        if (item.filter)(line_ref) {
+                            if ui.button(&item.label).clicked() {
+                                (item.on_click)(line_ref);
+                                ui.close();
+                            }
+                        }
+                    }
                 });
             }
         }
 
         // Finish blocks (border, icon/value, labels) and click handling
-        for (b, r_screen, _clicked) in &block_views {
+        for (b, r_screen, _clicked, bg) in &block_views {
             let cfg = get_block_type_cfg(&b.block_type);
             let border_rgb = cfg.border.unwrap_or(crate::block_types::Rgb(180, 180, 200));
-            let stroke = Stroke::new(2.0, Color32::from_rgb(border_rgb.0, border_rgb.1, border_rgb.2));
+            let stroke = Stroke::new(
+                2.0,
+                Color32::from_rgb(border_rgb.0, border_rgb.1, border_rgb.2),
+            );
             painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
+            let fg = contrast_color(*bg);
+            let display_signal_label = if b.block_type == "Display" {
+                let sid = b.sid.as_deref();
+                sid.and_then(|sid| {
+                    fn branch_hits(br: &crate::model::Branch, sid: &str) -> bool {
+                        if br.dst.as_ref().map_or(false, |d| d.sid == sid) {
+                            return true;
+                        }
+                        br.branches.iter().any(|sub| branch_hits(sub, sid))
+                    }
+
+                    entities.lines.iter().find_map(|line| {
+                        let direct = line.dst.as_ref().map_or(false, |dst| dst.sid == sid);
+                        let branched = line.branches.iter().any(|br| branch_hits(br, sid));
+                        if direct || branched {
+                            line.name.clone().filter(|s| !s.is_empty())
+                        } else {
+                            None
+                        }
+                    })
+                })
+            } else {
+                None
+            };
             // Icon/value rendering with precedence: mask > value > custom/icon
-            if b.mask.is_some() {
+            if b.block_type == "Constant" {
+                let icon_font = egui::FontId::proportional(18.0 * font_scale);
+                painter.text(r_screen.center(), Align2::CENTER_CENTER, "C", icon_font, fg);
+            } else if b.mask.is_some() {
                 if let Some(text) = b.mask_display_text.as_ref() {
                     let font_size = (b.font_size.unwrap_or(14) as f32) * font_scale;
                     let font_id = egui::FontId::proportional(font_size);
-                    let color = Color32::BLACK;
+                    let color = fg;
                     let galley = painter.layout_no_wrap(text.clone(), font_id.clone(), color);
                     let pos = r_screen.center() - galley.size() * 0.5;
                     painter.galley(pos, galley, color);
                 }
-            } else if b.value.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false) {
+            } else if b
+                .value
+                .as_ref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false)
+            {
                 // Render block value centered; smaller than label: use beneath-label font size
                 let beneath_font_px = 10.0 * font_scale; // same as label beneath block
                 let font_id = egui::FontId::proportional(beneath_font_px);
-                let color = Color32::from_rgb(40, 40, 40);
+                let color = fg;
                 let text = b.value.as_ref().unwrap().clone();
                 let galley = painter.layout_no_wrap(text, font_id.clone(), color);
+                let pos = r_screen.center() - galley.size() * 0.5;
+                painter.galley(pos, galley, color);
+            } else if let Some(label) = display_signal_label {
+                let beneath_font_px = 12.0 * font_scale;
+                let font_id = egui::FontId::proportional(beneath_font_px);
+                let color = fg;
+                let galley = painter.layout_no_wrap(label, font_id.clone(), color);
                 let pos = r_screen.center() - galley.size() * 0.5;
                 painter.galley(pos, galley, color);
             } else if b.block_type == "ManualSwitch" {
@@ -851,11 +1625,16 @@ fn update_internal(
             // Respect ShowName flag when drawing label near the block according to NameLocation.
             // If value is shown or mask display is used, do not draw the name label
             let show_name = b.show_name.unwrap_or(true);
-            let suppress_label = b.mask.is_some() || b.value.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false);
+            let suppress_label = b.mask.is_some()
+                || b.value
+                    .as_ref()
+                    .map(|s| !s.trim().is_empty())
+                    .unwrap_or(false);
             if show_name && !suppress_label {
                 let lines: Vec<&str> = b.name.split('\n').collect();
                 let font = egui::FontId::proportional(10.0 * font_scale);
-                let color = Color32::from_rgb(40, 40, 40);
+                // Force white labels beneath/around blocks for consistent readability
+                let color = Color32::WHITE;
                 let line_height = 16.0 * font_scale;
                 match b.name_location {
                     crate::model::NameLocation::Bottom => {
@@ -881,7 +1660,8 @@ fn update_internal(
                         // to r_screen.left() - gap.
                         let mut galleys: Vec<(std::sync::Arc<egui::Galley>, f32)> = Vec::new();
                         for line in lines.iter().copied() {
-                            let galley = painter.layout_no_wrap(line.to_string(), font.clone(), color);
+                            let galley =
+                                painter.layout_no_wrap(line.to_string(), font.clone(), color);
                             galleys.push((galley, line_height));
                         }
                         let total_h = (lines.len() as f32) * line_height;
@@ -899,7 +1679,8 @@ fn update_internal(
                         let mut galleys: Vec<(std::sync::Arc<egui::Galley>, f32)> = Vec::new();
                         let mut max_w = 0.0f32;
                         for line in lines.iter().copied() {
-                            let galley = painter.layout_no_wrap(line.to_string(), font.clone(), color);
+                            let galley =
+                                painter.layout_no_wrap(line.to_string(), font.clone(), color);
                             max_w = max_w.max(galley.size().x);
                             galleys.push((galley, line_height));
                         }
@@ -918,31 +1699,76 @@ fn update_internal(
         }
 
         // Draw port labels
-        let mut seen_port_labels: std::collections::HashSet<(String, u32, bool, i32)> = Default::default();
+        let mut seen_port_labels: std::collections::HashSet<(String, u32, bool, i32)> =
+            Default::default();
         let font_id = egui::FontId::proportional(12.0 * font_scale);
         for (sid, index, is_input, y) in port_label_requests {
             let key = (sid.clone(), index, is_input, y.round() as i32);
-            if !seen_port_labels.insert(key) { continue; }
-            let Some(brect) = sid_screen_map.get(&sid).copied() else { continue; };
-            let Some(block) = blocks.iter().find_map(|(b, _)| if b.sid.as_ref() == Some(&sid) { Some(*b) } else { None }) else { continue; };
+            if !seen_port_labels.insert(key) {
+                continue;
+            }
+            let Some(brect) = sid_screen_map.get(&sid).copied() else {
+                continue;
+            };
+            let Some(block) = blocks.iter().find_map(|(b, _)| {
+                if b.sid.as_ref() == Some(&sid) {
+                    Some(*b)
+                } else {
+                    None
+                }
+            }) else {
+                continue;
+            };
             // Do not show port labels if block has a mask
-            if block.mask.is_some() { continue; }
+            if block.mask.is_some() {
+                continue;
+            }
             let cfg = get_block_type_cfg(&block.block_type);
-            if (is_input && !cfg.show_input_port_labels) || (!is_input && !cfg.show_output_port_labels) { continue; }
+            if (is_input && !cfg.show_input_port_labels)
+                || (!is_input && !cfg.show_output_port_labels)
+            {
+                continue;
+            }
             // Swap label side if block is mirrored (inputs on right, outputs on left)
             let mirrored = block.block_mirror.unwrap_or(false);
             let logical_is_input = if mirrored { !is_input } else { is_input };
-            let pname = block.ports.iter().filter(|p| p.port_type == if logical_is_input { "in" } else { "out" } && p.index.unwrap_or(0) == index).filter_map(|p| {
-                p.properties.get("Name").cloned().or_else(|| p.properties.get("PropagatedSignals").cloned()).or_else(|| p.properties.get("name").cloned()).or_else(|| Some(format!("{}{}", if is_input { "In" } else { "Out" }, index)))
-            }).next().unwrap_or_else(|| format!("{}{}", if is_input { "In" } else { "Out" }, index));
-            let galley = ui.painter().layout_no_wrap(pname.clone(), font_id.clone(), Color32::from_rgb(40,40,40));
+            let pname = block
+                .ports
+                .iter()
+                .filter(|p| {
+                    p.port_type == if logical_is_input { "in" } else { "out" }
+                        && p.index.unwrap_or(0) == index
+                })
+                .filter_map(|p| {
+                    p.properties
+                        .get("Name")
+                        .cloned()
+                        .or_else(|| p.properties.get("PropagatedSignals").cloned())
+                        .or_else(|| p.properties.get("name").cloned())
+                        .or_else(|| {
+                            Some(format!("{}{}", if is_input { "In" } else { "Out" }, index))
+                        })
+                })
+                .next()
+                .unwrap_or_else(|| format!("{}{}", if is_input { "In" } else { "Out" }, index));
+            let galley = ui.painter().layout_no_wrap(
+                pname.clone(),
+                font_id.clone(),
+                Color32::from_rgb(40, 40, 40),
+            );
             let size = galley.size();
             let avail_w = brect.width() - 8.0 * font_scale;
             if size.x <= avail_w {
-                let half_h = size.y * 0.5; let y_min = brect.top(); let y_max = (brect.bottom() - size.y).max(y_min);
+                let half_h = size.y * 0.5;
+                let y_min = brect.top();
+                let y_max = (brect.bottom() - size.y).max(y_min);
                 let y_top = (y - half_h).max(y_min).min(y_max);
-                let pos = if is_input ^ mirrored { Pos2::new(brect.left() + 4.0 * font_scale, y_top) } else { Pos2::new(brect.right() - 4.0 * font_scale - size.x, y_top) };
-                painter.galley(pos, galley, Color32::from_rgb(40,40,40));
+                let pos = if is_input ^ mirrored {
+                    Pos2::new(brect.left() + 4.0 * font_scale, y_top)
+                } else {
+                    Pos2::new(brect.right() - 4.0 * font_scale - size.x, y_top)
+                };
+                painter.galley(pos, galley, Color32::from_rgb(40, 40, 40));
             }
         }
     });

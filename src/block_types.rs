@@ -67,7 +67,7 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
     m.insert(
         "Constant".to_string(),
         BlockTypeConfig {
-            icon: Some(IconSpec::Utf8("🔧")),
+            icon: Some(IconSpec::Utf8("C")),
             show_input_port_labels: false,
             show_output_port_labels: false,
             ..Default::default()
