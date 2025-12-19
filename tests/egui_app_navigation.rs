@@ -35,6 +35,9 @@ fn simple_system() -> System {
         font_weight: None,
         mask_display_text: None,
         value: None,
+        value_kind: rustylink::model::ValueKind::Unknown,
+        value_rows: None,
+        value_cols: None,
         current_setting: None,
         block_mirror: None,
     };

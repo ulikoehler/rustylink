@@ -241,6 +241,60 @@ fn matches_ignore_case(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
 }
 
+fn parse_value_shape(val: &str) -> (crate::model::ValueKind, Option<u32>, Option<u32>) {
+    let trimmed = val.trim();
+    if trimmed.is_empty() {
+        return (crate::model::ValueKind::Unknown, None, None);
+    }
+    // Non-bracketed -> scalar
+    if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
+        return (crate::model::ValueKind::Scalar, Some(1), Some(1));
+    }
+    let inner = &trimmed[1..trimmed.len().saturating_sub(1)];
+    if inner.trim().is_empty() {
+        return (crate::model::ValueKind::Unknown, None, None);
+    }
+    let rows: Vec<&str> = inner.split(';').collect();
+    let row_count = rows.len();
+    let mut col_count: Option<usize> = None;
+    for row in &rows {
+        let cols: Vec<&str> = row
+            .split(',')
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if cols.is_empty() {
+            return (crate::model::ValueKind::Unknown, None, None);
+        }
+        match col_count {
+            None => col_count = Some(cols.len()),
+            Some(c) if c != cols.len() => {
+                return (crate::model::ValueKind::Unknown, None, None)
+            }
+            _ => {}
+        }
+    }
+    let cols_final = col_count.unwrap_or(0);
+    if row_count == 1 {
+        if cols_final == 1 {
+            (crate::model::ValueKind::Scalar, Some(1), Some(1))
+        } else {
+            (crate::model::ValueKind::Vector, Some(1), Some(cols_final as u32))
+        }
+    } else {
+        (crate::model::ValueKind::Matrix, Some(row_count as u32), Some(cols_final as u32))
+    }
+}
+
+fn format_value_kind(kind: &crate::model::ValueKind) -> String {
+    match kind {
+        crate::model::ValueKind::Unknown => "Unknown".to_string(),
+        crate::model::ValueKind::Scalar => "Scalar".to_string(),
+        crate::model::ValueKind::Vector => "Vector".to_string(),
+        crate::model::ValueKind::Matrix => "Matrix".to_string(),
+    }
+}
+
 pub fn parse_branch_node(node: Node) -> Result<Branch> {
     let mut name = None;
     let mut zorder = None;
@@ -356,6 +410,9 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
     let mut name_location: crate::model::NameLocation = crate::model::NameLocation::Bottom;
     let mut current_setting: Option<String> = None;
     let mut block_mirror: Option<bool> = None;
+    let mut value_kind = crate::model::ValueKind::Unknown;
+    let mut value_rows: Option<u32> = None;
+    let mut value_cols: Option<u32> = None;
 
     for child in node.children().filter(|c| c.is_element()) {
         match child.tag_name().name() {
@@ -517,6 +574,27 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
         }
     }
 
+    // Simulink omits <P Name="Value"> for Constant blocks that use the implicit default; mirror that default.
+    if block_type == "Constant" && block_value.is_none() {
+        block_value = Some("1".to_string());
+        properties.entry("Value".to_string()).or_insert_with(|| "1".to_string());
+    }
+
+    if let Some(v) = block_value.as_ref() {
+        let (kind, rows, cols) = parse_value_shape(v);
+        value_kind = kind;
+        value_rows = rows;
+        value_cols = cols;
+        properties
+            .entry("ValueType".to_string())
+            .or_insert_with(|| format_value_kind(&value_kind));
+        if let (Some(r), Some(c)) = (rows, cols) {
+            properties
+                .entry("ValueDims".to_string())
+                .or_insert_with(|| format!("{}x{}", r, c));
+        }
+    }
+
     if block_type == "SubSystem" && is_matlab_function {
         block_type = "MATLAB Function".to_string();
     }
@@ -554,9 +632,26 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
         font_weight,
         mask_display_text: None,
         value: block_value,
+        value_kind,
+        value_rows,
+        value_cols,
         current_setting,
         block_mirror,
     };
+    // Propagate value metadata to outgoing ports so signals inherit shape/type context
+    if matches!(blk.value_kind, crate::model::ValueKind::Scalar | crate::model::ValueKind::Vector | crate::model::ValueKind::Matrix)
+    {
+        for p in blk.ports.iter_mut().filter(|p| p.port_type.eq_ignore_ascii_case("out")) {
+            p.properties
+                .entry("ValueType".to_string())
+                .or_insert_with(|| format_value_kind(&blk.value_kind));
+            if let (Some(r), Some(c)) = (blk.value_rows, blk.value_cols) {
+                p.properties
+                    .entry("ValueDims".to_string())
+                    .or_insert_with(|| format!("{}x{}", r, c));
+            }
+        }
+    }
     if blk.mask_display_text.is_none()
         && blk.mask.as_ref().and_then(|m| m.display.as_ref()).is_some()
     {

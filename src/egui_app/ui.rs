@@ -1493,11 +1493,7 @@ fn update_internal(
             // Respect ShowName flag when drawing label near the block according to NameLocation.
             // If value is shown or mask display is used, do not draw the name label
             let show_name = b.show_name.unwrap_or(true);
-            let suppress_label = b.mask.is_some()
-                || b.value
-                    .as_ref()
-                    .map(|s| !s.trim().is_empty())
-                    .unwrap_or(false);
+            let suppress_label = b.mask.is_some();
             if show_name && !suppress_label {
                 let lines: Vec<&str> = b.name.split('\n').collect();
                 let font = egui::FontId::proportional(10.0 * font_scale);

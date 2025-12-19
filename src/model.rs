@@ -80,6 +80,14 @@ pub struct Block {
     /// Optional block value as text (e.g., for Constant blocks)
     #[serde(default)]
     pub value: Option<String>,
+    /// Parsed value kind (scalar/vector/matrix)
+    #[serde(default)]
+    pub value_kind: ValueKind,
+    /// Parsed value dimensions (rows, cols) when known
+    #[serde(default)]
+    pub value_rows: Option<u32>,
+    #[serde(default)]
+    pub value_cols: Option<u32>,
     pub properties: BTreeMap<String, String>,
     pub ports: Vec<Port>,
     pub subsystem: Option<Box<System>>, // resolved nested system if present
@@ -309,6 +317,20 @@ pub struct ControlOptions {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct InstanceData {
     pub properties: BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ValueKind {
+    Unknown,
+    Scalar,
+    Vector,
+    Matrix,
+}
+
+impl Default for ValueKind {
+    fn default() -> Self {
+        ValueKind::Unknown
+    }
 }
 
 /// Simulink annotation (text or HTML) with position
