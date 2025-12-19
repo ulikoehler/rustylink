@@ -188,140 +188,6 @@ fn block_base_color(
     hash_color(&block.block_type, 0.35, 0.90)
 }
 
-fn darken(color: Color32, factor: f32) -> Color32 {
-    let f = factor.clamp(0.0, 1.0);
-    Color32::from_rgb(
-        ((color.r() as f32) * (1.0 - f)) as u8,
-        ((color.g() as f32) * (1.0 - f)) as u8,
-        ((color.b() as f32) * (1.0 - f)) as u8,
-    )
-}
-
-#[derive(Clone, Copy)]
-struct LineStyle {
-    stroke: Stroke,
-    dash: Option<(f32, f32)>,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum SignalDimKind {
-    Scalar,
-    Vector,
-    Matrix,
-    Unknown,
-}
-
-fn parse_dims_from_text(raw: &str) -> Option<SignalDimKind> {
-    // Accept patterns like "[2x1]", "2x1", "3", "3x3" and variants using 'X' or '×'.
-    let trimmed = raw.trim();
-    let inner = if let Some(start) = trimmed.find('[') {
-        let rest = &trimmed[start + 1..];
-        if let Some(end) = rest.find(']') {
-            &rest[..end]
-        } else {
-            trimmed
-        }
-    } else {
-        trimmed
-    };
-
-    let parts: Vec<&str> = inner
-        .split(|c| c == 'x' || c == 'X' || c == '\u{00D7}')
-        .filter(|s| !s.trim().is_empty())
-        .collect();
-
-    if parts.is_empty() {
-        return None;
-    }
-
-    let numbers: Vec<Option<usize>> = parts
-        .iter()
-        .map(|p| p.trim().parse::<usize>().ok())
-        .collect();
-    if numbers.iter().any(|n| n.is_none()) {
-        return None;
-    }
-    let nums: Vec<usize> = numbers.into_iter().flatten().collect();
-
-    match nums.len() {
-        0 => None,
-        1 => {
-            if nums[0] <= 1 {
-                Some(SignalDimKind::Scalar)
-            } else {
-                Some(SignalDimKind::Vector)
-            }
-        }
-        2 => {
-            let (r, c) = (nums[0], nums[1]);
-            if r == 1 && c == 1 {
-                Some(SignalDimKind::Scalar)
-            } else if r == 1 || c == 1 {
-                Some(SignalDimKind::Vector)
-            } else {
-                Some(SignalDimKind::Matrix)
-            }
-        }
-        _ => Some(SignalDimKind::Matrix),
-    }
-}
-
-fn signal_dimension_kind(line: &crate::model::Line) -> SignalDimKind {
-    if let Some(lbl) = &line.labels {
-        if let Some(kind) = parse_dims_from_text(lbl) {
-            return kind;
-        }
-    }
-
-    if let Some(name) = &line.name {
-        if let Some(kind) = parse_dims_from_text(name) {
-            return kind;
-        }
-    }
-
-    SignalDimKind::Unknown
-}
-
-fn signal_style(line: &crate::model::Line, idx: usize) -> LineStyle {
-    // Use a single hue and vary line style by dimensionality (scalar/vector/matrix).
-    let base_color = Color32::from_rgb(60, 90, 140);
-    match signal_dimension_kind(line) {
-        SignalDimKind::Scalar => LineStyle {
-            stroke: Stroke::new(2.2, base_color),
-            dash: None,
-        },
-        SignalDimKind::Vector => LineStyle {
-            stroke: Stroke::new(2.0, base_color),
-            dash: Some((10.0, 6.0)),
-        },
-        SignalDimKind::Matrix => LineStyle {
-            stroke: Stroke::new(2.0, base_color),
-            dash: Some((4.0, 4.0)),
-        },
-        SignalDimKind::Unknown => {
-            // Fall back to hashed patterns to keep nearby signals distinguishable.
-            let mut hasher = DefaultHasher::new();
-            line.name.hash(&mut hasher);
-            idx.hash(&mut hasher);
-            let style_idx = (hasher.finish() % 3) as u8;
-            match style_idx {
-                0 => LineStyle {
-                    stroke: Stroke::new(2.0, base_color),
-                    dash: None,
-                },
-                1 => LineStyle {
-                    stroke: Stroke::new(2.0, base_color),
-                    dash: Some((8.0, 5.0)),
-                },
-                _ => LineStyle {
-                    stroke: Stroke::new(1.8, base_color),
-                    dash: Some((3.0, 6.0)),
-                },
-            }
-        }
-    }
-}
-
 fn update_internal(
     app: &mut SubsystemApp,
     ui: &mut egui::Ui,
@@ -810,7 +676,7 @@ fn update_internal(
                 remaining.remove(pos);
             }
         }
-        let _line_colors: Vec<Color32> = assigned_hues
+        let line_colors: Vec<Color32> = assigned_hues
             .into_iter()
             .enumerate()
             .map(|(i, h)| {
@@ -1117,7 +983,8 @@ fn update_internal(
             port_counts: &HashMap<(String, u8), u32>,
             start: Pos2,
             br: &crate::model::Branch,
-            style: &LineStyle,
+            stroke: Stroke,
+            color: Color32,
             port_label_requests: &mut Vec<(String, u32, bool, f32)>,
             sid_mirrored: &HashMap<String, bool>,
         ) {
@@ -1130,11 +997,7 @@ fn update_internal(
             for seg in pts.windows(2) {
                 let a = to_screen(seg[0]);
                 let b = to_screen(seg[1]);
-                if let Some((dash, gap)) = style.dash {
-                    painter.add(Shape::dashed_line(&[a, b], style.stroke, dash, gap));
-                } else {
-                    painter.line_segment([a, b], style.stroke);
-                }
+                painter.line_segment([a, b], stroke);
             }
             if let Some(dstb) = &br.dst {
                 if let Some(dr) = sid_map.get(&dstb.sid) {
@@ -1155,12 +1018,10 @@ fn update_internal(
                     let a = to_screen(last);
                     let b = to_screen(end_pt);
                     if dstb.port_type == "in" {
-                        draw_arrow_with_trim(painter, a, b, style.stroke.color, style.stroke);
+                        draw_arrow_with_trim(painter, a, b, color, stroke);
                         port_label_requests.push((dstb.sid.clone(), dstb.port_index, true, b.y));
-                    } else if let Some((dash, gap)) = style.dash {
-                        painter.add(Shape::dashed_line(&[a, b], style.stroke, dash, gap));
                     } else {
-                        painter.line_segment([a, b], style.stroke);
+                        painter.line_segment([a, b], stroke);
                     }
                 }
             }
@@ -1172,7 +1033,8 @@ fn update_internal(
                     port_counts,
                     *pts.last().unwrap_or(&cur),
                     sub,
-                    style,
+                    stroke,
+                    color,
                     port_label_requests,
                     sid_mirrored,
                 );
@@ -1193,7 +1055,11 @@ fn update_internal(
         }
 
         for (line, screen_pts, main_anchor, action_opt, li, segments_all) in &line_views {
-            let style = signal_style(line, *li);
+            let color = line_colors
+                .get(*li)
+                .copied()
+                .unwrap_or(line_stroke_default.color);
+            let stroke = Stroke::new(2.0, color);
             let has_in_dst = line.dst.as_ref().map_or(false, |dst| dst.port_type == "in");
             let mut draw_pts = screen_pts.clone();
             if draw_pts.len() >= 2 {
@@ -1212,11 +1078,9 @@ fn update_internal(
             for (seg_idx, seg) in draw_pts.windows(2).enumerate() {
                 let is_last = has_in_dst && seg_idx == last_idx.saturating_sub(1);
                 if is_last {
-                    draw_arrow_with_trim(&painter, seg[0], seg[1], style.stroke.color, style.stroke);
-                } else if let Some((dash, gap)) = style.dash {
-                    painter.add(Shape::dashed_line(&[seg[0], seg[1]], style.stroke, dash, gap));
+                    draw_arrow_with_trim(&painter, seg[0], seg[1], color, stroke);
                 } else {
-                    painter.line_segment([seg[0], seg[1]], style.stroke);
+                    painter.line_segment([seg[0], seg[1]], stroke);
                 }
             }
             for br in &line.branches {
@@ -1227,7 +1091,8 @@ fn update_internal(
                     &port_counts,
                     *main_anchor,
                     br,
-                    &style,
+                    stroke,
+                    color,
                     &mut port_label_requests,
                     &sid_mirrored,
                 );
@@ -1491,8 +1356,11 @@ fn update_internal(
         };
 
         for (line, screen_pts, main_anchor, _action, li, _segments_all) in &line_views {
-            let style = signal_style(line, *li);
-            draw_line_labels(line, screen_pts, *main_anchor, style.stroke.color, *li);
+            let color = line_colors
+                .get(*li)
+                .copied()
+                .unwrap_or(line_stroke_default.color);
+            draw_line_labels(line, screen_pts, *main_anchor, color, *li);
         }
 
         // Clickable labels
