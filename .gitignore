@@ -4,3 +4,5 @@ metadata
 _rels
 *.xml
 simulink
+*.code-workspace
+.vscode
