@@ -20,6 +20,7 @@ rayon = "1.11"
 html-escape = "0.2"
 quick-xml = "0.38"
 bincode = { version = "2.0.1", features = ["serde"] }
+indexmap = { version = "2", features = ["serde"] }
 
 [features]
 # Optional GUI visualization using egui/eframe

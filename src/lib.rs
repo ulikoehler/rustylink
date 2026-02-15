@@ -10,6 +10,9 @@ pub mod label_place;
 pub mod model;
 pub mod parser;
 
+/// SLX archive generator – regenerates `.slx` files from the parsed model.
+pub mod generator;
+
 // Optional mask evaluation feature
 pub mod mask_eval;
 

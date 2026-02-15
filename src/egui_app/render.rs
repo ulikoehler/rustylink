@@ -28,7 +28,12 @@ pub fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect, fo
     let font = egui::FontId::proportional(icon_size);
     let dark_icon = Color32::from_rgb(40, 40, 40); // dark color for icons
     // Lookup icon from centralized registry
-    let cfg = get_block_type_cfg(&block.block_type);
+    let effective_type = if block.is_matlab_function {
+        "MATLAB Function"
+    } else {
+        &block.block_type
+    };
+    let cfg = get_block_type_cfg(effective_type);
     if let Some(icon) = cfg.icon {
         match icon {
             block_types::IconSpec::Utf8(glyph) => {

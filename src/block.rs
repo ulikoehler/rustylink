@@ -1,8 +1,17 @@
+//! Block, Line, Annotation, and System XML parsing.
+//!
+//! All parsing functions produce model types that preserve the full fidelity of
+//! the original XML so that system files can be exactly regenerated.
+
 use crate::model::*;
 use anyhow::Result;
 use camino::Utf8Path;
+use indexmap::IndexMap;
 use roxmltree::Node;
-use std::collections::BTreeMap;
+
+// ────────────────────────────────────────────────────────────────────────────
+// Annotation
+// ────────────────────────────────────────────────────────────────────────────
 
 pub fn parse_annotation_node(node: Node) -> Result<Annotation> {
     let sid = node.attribute("SID").map(|s| s.to_string());
@@ -10,7 +19,7 @@ pub fn parse_annotation_node(node: Node) -> Result<Annotation> {
     let mut zorder: Option<String> = None;
     let mut interpreter: Option<String> = None;
     let mut text: Option<String> = None;
-    let mut properties: BTreeMap<String, String> = BTreeMap::new();
+    let mut properties: IndexMap<String, String> = IndexMap::new();
 
     for child in node
         .children()
@@ -41,8 +50,13 @@ pub fn parse_annotation_node(node: Node) -> Result<Annotation> {
     })
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Mask
+// ────────────────────────────────────────────────────────────────────────────
+
 pub fn parse_mask_node(node: Node) -> Result<Mask> {
     let mut display: Option<String> = None;
+    let mut display_attrs: IndexMap<String, String> = IndexMap::new();
     let mut description: Option<String> = None;
     let mut initialization: Option<String> = None;
     let mut help: Option<String> = None;
@@ -51,7 +65,16 @@ pub fn parse_mask_node(node: Node) -> Result<Mask> {
 
     for child in node.children().filter(|c| c.is_element()) {
         match child.tag_name().name() {
-            "Display" => display = child.text().map(|s| s.to_string()),
+            "Display" => {
+                display = child.text().map(|s| s.to_string());
+                // Capture all attributes on <Display>
+                for attr in child.attributes() {
+                    display_attrs.insert(
+                        attr.name().to_string(),
+                        attr.value().to_string(),
+                    );
+                }
+            }
             "Description" => description = child.text().map(|s| s.to_string()),
             "Initialization" => initialization = child.text().map(|s| s.to_string()),
             "MaskParameter" => {
@@ -61,14 +84,13 @@ pub fn parse_mask_node(node: Node) -> Result<Mask> {
                 dialog.push(parse_dialog_control_node(child));
             }
             "Help" => help = child.text().map(|s| s.to_string()),
-            other => {
-                println!("Unknown tag in Mask: {}", other);
-            }
+            _other => {}
         }
     }
 
     Ok(Mask {
         display,
+        display_attrs,
         description,
         initialization,
         help,
@@ -77,9 +99,12 @@ pub fn parse_mask_node(node: Node) -> Result<Mask> {
     })
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// InstanceData
+// ────────────────────────────────────────────────────────────────────────────
+
 pub fn parse_instance_data_node(node: Node) -> Result<InstanceData> {
-    // <InstanceData> contains multiple <P Name="...">value</P>
-    let mut props: BTreeMap<String, String> = BTreeMap::new();
+    let mut props: IndexMap<String, String> = IndexMap::new();
     for p in node
         .children()
         .filter(|c| c.is_element() && c.has_tag_name("P"))
@@ -92,6 +117,14 @@ pub fn parse_instance_data_node(node: Node) -> Result<InstanceData> {
     Ok(InstanceData { properties: props })
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// MaskParameter
+// ────────────────────────────────────────────────────────────────────────────
+
+fn matches_ignore_case(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+}
+
 pub fn parse_mask_parameter_node(node: Node) -> MaskParameter {
     let name = node.attribute("Name").unwrap_or("").to_string();
     let tattr = node.attribute("Type").unwrap_or("");
@@ -99,10 +132,7 @@ pub fn parse_mask_parameter_node(node: Node) -> MaskParameter {
         t if t.eq_ignore_ascii_case("popup") => MaskParamType::Popup,
         t if t.eq_ignore_ascii_case("edit") => MaskParamType::Edit,
         t if t.eq_ignore_ascii_case("checkbox") => MaskParamType::Checkbox,
-        other => {
-            println!("Unknown MaskParameter Type: {} (Name='{}')", other, name);
-            MaskParamType::Unknown(other.to_string())
-        }
+        other => MaskParamType::Unknown(other.to_string()),
     };
     let tunable = node
         .attribute("Tunable")
@@ -111,17 +141,10 @@ pub fn parse_mask_parameter_node(node: Node) -> MaskParameter {
         .attribute("Visible")
         .map(|v| matches_ignore_case(v, "on") || v == "1");
 
-    // Report unexpected attributes
+    // Capture ALL attributes in their document order for round-trip generation
+    let mut all_attrs = IndexMap::new();
     for attr in node.attributes() {
-        let key = attr.name();
-        if key != "Name" && key != "Type" && key != "Tunable" && key != "Visible" {
-            println!(
-                "Unknown attribute in MaskParameter(Name='{}'): {}='{}'",
-                name,
-                key,
-                attr.value()
-            );
-        }
+        all_attrs.insert(attr.name().to_string(), attr.value().to_string());
     }
 
     let mut prompt: Option<String> = None;
@@ -139,18 +162,11 @@ pub fn parse_mask_parameter_node(node: Node) -> MaskParameter {
                         if let Some(t) = to.text() {
                             type_options.push(t.to_string());
                         }
-                    } else {
-                        println!(
-                            "Unknown tag in MaskParameter TypeOptions: {}",
-                            to.tag_name().name()
-                        );
                     }
                 }
             }
             "Callback" => callback = child.text().map(|s| s.to_string()),
-            other => {
-                println!("Unknown tag in MaskParameter(Name='{}'): {}", name, other);
-            }
+            _ => {}
         }
     }
 
@@ -163,8 +179,13 @@ pub fn parse_mask_parameter_node(node: Node) -> MaskParameter {
         tunable,
         visible,
         type_options,
+        all_attrs,
     }
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// DialogControl
+// ────────────────────────────────────────────────────────────────────────────
 
 pub fn parse_dialog_control_node(node: Node) -> DialogControl {
     let tattr = node.attribute("Type").unwrap_or("");
@@ -174,25 +195,9 @@ pub fn parse_dialog_control_node(node: Node) -> DialogControl {
         t if t.eq_ignore_ascii_case("Edit") => DialogControlType::Edit,
         t if t.eq_ignore_ascii_case("CheckBox") => DialogControlType::CheckBox,
         t if t.eq_ignore_ascii_case("Popup") => DialogControlType::Popup,
-        other => {
-            println!("Unknown DialogControl Type: {}", other);
-            DialogControlType::Unknown(other.to_string())
-        }
+        other => DialogControlType::Unknown(other.to_string()),
     };
     let name = node.attribute("Name").map(|s| s.to_string());
-
-    // Report unexpected attributes
-    for attr in node.attributes() {
-        let key = attr.name();
-        if key != "Type" && key != "Name" {
-            println!(
-                "Unknown attribute in DialogControl(Name='{}'): {}='{}'",
-                name.clone().unwrap_or_default(),
-                key,
-                attr.value()
-            );
-        }
-    }
 
     let mut prompt: Option<String> = None;
     let mut control_options: Option<ControlOptions> = None;
@@ -206,25 +211,10 @@ pub fn parse_dialog_control_node(node: Node) -> DialogControl {
                 if let Some(pl) = child.attribute("PromptLocation") {
                     opts.prompt_location = Some(pl.to_string());
                 }
-                // Log unknown attributes for visibility
-                for attr in child.attributes() {
-                    if attr.name() != "PromptLocation" {
-                        println!(
-                            "Unknown attribute in DialogControl(Name='{}') ControlOptions: {}='{}'",
-                            name.clone().unwrap_or_default(),
-                            attr.name(),
-                            attr.value()
-                        );
-                    }
-                }
                 control_options = Some(opts);
             }
             "DialogControl" => children.push(parse_dialog_control_node(child)),
-            other => println!(
-                "Unknown tag in DialogControl(Name='{}'): {}",
-                name.clone().unwrap_or_default(),
-                other
-            ),
+            _ => {}
         }
     }
 
@@ -237,22 +227,21 @@ pub fn parse_dialog_control_node(node: Node) -> DialogControl {
     }
 }
 
-fn matches_ignore_case(a: &str, b: &str) -> bool {
-    a.eq_ignore_ascii_case(b)
-}
+// ────────────────────────────────────────────────────────────────────────────
+// Value shape analysis
+// ────────────────────────────────────────────────────────────────────────────
 
-fn parse_value_shape(val: &str) -> (crate::model::ValueKind, Option<u32>, Option<u32>) {
+fn parse_value_shape(val: &str) -> (ValueKind, Option<u32>, Option<u32>) {
     let trimmed = val.trim();
     if trimmed.is_empty() {
-        return (crate::model::ValueKind::Unknown, None, None);
+        return (ValueKind::Unknown, None, None);
     }
-    // Non-bracketed -> scalar
     if !trimmed.starts_with('[') || !trimmed.ends_with(']') {
-        return (crate::model::ValueKind::Scalar, Some(1), Some(1));
+        return (ValueKind::Scalar, Some(1), Some(1));
     }
     let inner = &trimmed[1..trimmed.len().saturating_sub(1)];
     if inner.trim().is_empty() {
-        return (crate::model::ValueKind::Unknown, None, None);
+        return (ValueKind::Unknown, None, None);
     }
     let rows: Vec<&str> = inner.split(';').collect();
     let row_count = rows.len();
@@ -264,36 +253,33 @@ fn parse_value_shape(val: &str) -> (crate::model::ValueKind, Option<u32>, Option
             .filter(|s| !s.is_empty())
             .collect();
         if cols.is_empty() {
-            return (crate::model::ValueKind::Unknown, None, None);
+            return (ValueKind::Unknown, None, None);
         }
         match col_count {
             None => col_count = Some(cols.len()),
-            Some(c) if c != cols.len() => {
-                return (crate::model::ValueKind::Unknown, None, None)
-            }
+            Some(c) if c != cols.len() => return (ValueKind::Unknown, None, None),
             _ => {}
         }
     }
     let cols_final = col_count.unwrap_or(0);
     if row_count == 1 {
         if cols_final == 1 {
-            (crate::model::ValueKind::Scalar, Some(1), Some(1))
+            (ValueKind::Scalar, Some(1), Some(1))
         } else {
-            (crate::model::ValueKind::Vector, Some(1), Some(cols_final as u32))
+            (ValueKind::Vector, Some(1), Some(cols_final as u32))
         }
     } else {
-        (crate::model::ValueKind::Matrix, Some(row_count as u32), Some(cols_final as u32))
+        (
+            ValueKind::Matrix,
+            Some(row_count as u32),
+            Some(cols_final as u32),
+        )
     }
 }
 
-fn format_value_kind(kind: &crate::model::ValueKind) -> String {
-    match kind {
-        crate::model::ValueKind::Unknown => "Unknown".to_string(),
-        crate::model::ValueKind::Scalar => "Scalar".to_string(),
-        crate::model::ValueKind::Vector => "Vector".to_string(),
-        crate::model::ValueKind::Matrix => "Matrix".to_string(),
-    }
-}
+// ────────────────────────────────────────────────────────────────────────────
+// Branch
+// ────────────────────────────────────────────────────────────────────────────
 
 pub fn parse_branch_node(node: Node) -> Result<Branch> {
     let mut name = None;
@@ -302,12 +288,14 @@ pub fn parse_branch_node(node: Node) -> Result<Branch> {
     let mut labels = None;
     let mut points_list: Vec<Point> = Vec::new();
     let mut branches: Vec<Branch> = Vec::new();
+    let mut properties: IndexMap<String, String> = IndexMap::new();
 
     for child in node.children().filter(|c| c.is_element()) {
         match child.tag_name().name() {
             "P" => {
                 if let Some(nm) = child.attribute("Name") {
                     let val = child.text().unwrap_or("").to_string();
+                    properties.insert(nm.to_string(), val.clone());
                     match nm {
                         "Name" => name = Some(val),
                         "ZOrder" => zorder = Some(val),
@@ -319,9 +307,7 @@ pub fn parse_branch_node(node: Node) -> Result<Branch> {
                 }
             }
             "Branch" => branches.push(parse_branch_node(child)?),
-            unknown => {
-                println!("Unknown tag in Branch: {}", unknown);
-            }
+            _ => {}
         }
     }
 
@@ -332,8 +318,13 @@ pub fn parse_branch_node(node: Node) -> Result<Branch> {
         points: points_list,
         labels,
         branches,
+        properties,
     })
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Line
+// ────────────────────────────────────────────────────────────────────────────
 
 pub fn parse_line_node(node: Node) -> Result<Line> {
     let mut name = None;
@@ -343,12 +334,14 @@ pub fn parse_line_node(node: Node) -> Result<Line> {
     let mut labels = None;
     let mut points_list: Vec<Point> = Vec::new();
     let mut branches: Vec<Branch> = Vec::new();
+    let mut properties: IndexMap<String, String> = IndexMap::new();
 
     for child in node.children().filter(|c| c.is_element()) {
         match child.tag_name().name() {
             "P" => {
                 if let Some(nm) = child.attribute("Name") {
                     let val = child.text().unwrap_or("").to_string();
+                    properties.insert(nm.to_string(), val.clone());
                     match nm {
                         "Name" => name = Some(val),
                         "ZOrder" => zorder = Some(val),
@@ -363,9 +356,7 @@ pub fn parse_line_node(node: Node) -> Result<Line> {
             "Branch" => {
                 branches.push(parse_branch_node(child)?);
             }
-            unknown => {
-                println!("Unknown tag in Line: {}", unknown);
-            }
+            _ => {}
         }
     }
 
@@ -377,25 +368,35 @@ pub fn parse_line_node(node: Node) -> Result<Line> {
         points: points_list,
         labels,
         branches,
+        properties,
     })
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Block (shallow parse)
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Parse a `<Block>` or `<Reference>` element without cross-file recursion.
+///
+/// All `<P>` values are stored in the `properties` map in their original
+/// insertion order so that the XML can be exactly regenerated.
 pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
-    // Use the same logic as parse_block but without cross-file recursion; also use free helpers
-    // Start with defaults
+    let tag_name = node.tag_name().name().to_string();
     let mut block_type = node.attribute("BlockType").unwrap_or("").to_string();
-    // If the XML element itself is <Reference ...> (no BlockType attr), treat it
-    // as a Reference block.
-    if block_type.is_empty() && node.tag_name().name() == "Reference" {
+    if block_type.is_empty() && tag_name == "Reference" {
         block_type = "Reference".to_string();
     }
     let name = node.attribute("Name").unwrap_or("").to_string();
     let sid = node.attribute("SID").map(|s| s.to_string());
-    let mut properties = BTreeMap::new();
+
+    let mut properties: IndexMap<String, String> = IndexMap::new();
+    let mut ref_properties = std::collections::BTreeSet::new();
     let mut ports = Vec::new();
     let mut position = None;
     let mut zorder = None;
+    let mut port_counts: Option<PortCounts> = None;
     let mut subsystem: Option<Box<System>> = None;
+    let mut system_ref: Option<String> = None;
     let mut commented = false;
     let mut is_matlab_function = false;
     let mut c_output_code: Option<String> = None;
@@ -406,65 +407,58 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
     let mut c_codegen_term: Option<String> = None;
     let mut mask: Option<Mask> = None;
     let mut instance_data: Option<InstanceData> = None;
+    let mut link_data: Option<LinkData> = None;
     let mut annotations: Vec<Annotation> = Vec::new();
     let mut background_color: Option<String> = None;
     let mut show_name: Option<bool> = None;
     let mut font_size: Option<u32> = None;
     let mut font_weight: Option<String> = None;
     let mut block_value: Option<String> = None;
-    let mut name_location: crate::model::NameLocation = crate::model::NameLocation::Bottom;
+    let mut name_location: NameLocation = NameLocation::Bottom;
     let mut current_setting: Option<String> = None;
     let mut block_mirror: Option<bool> = None;
-    let mut value_kind = crate::model::ValueKind::Unknown;
+    let mut value_kind = ValueKind::Unknown;
     let mut value_rows: Option<u32> = None;
     let mut value_cols: Option<u32> = None;
+    let mut child_order: Vec<BlockChildKind> = Vec::new();
 
     for child in node.children().filter(|c| c.is_element()) {
         match child.tag_name().name() {
             "P" => {
                 if let Some(name_attr) = child.attribute("Name") {
-                    let value = child
-                        .attribute("Ref")
-                        .map(|s| s.to_string())
-                        .unwrap_or_else(|| child.text().unwrap_or("").to_string());
+                    // Determine value: from Ref attribute or text content
+                    let is_ref = child.attribute("Ref").is_some();
+                    let value = if let Some(ref_val) = child.attribute("Ref") {
+                        ref_val.to_string()
+                    } else {
+                        child.text().unwrap_or("").to_string()
+                    };
+
+                    // Always store in properties map (preserving insertion order)
+                    properties.insert(name_attr.to_string(), value.clone());
+                    if is_ref {
+                        ref_properties.insert(name_attr.to_string());
+                    }
+                    child_order.push(BlockChildKind::P(name_attr.to_string()));
+
+                    // Derive convenience typed fields
                     match name_attr {
                         "Position" => position = Some(value),
                         "ZOrder" => zorder = Some(value),
                         "Commented" => {
                             commented = value.eq_ignore_ascii_case("on");
-                            properties.insert(name_attr.to_string(), value);
                         }
                         "SFBlockType" => {
                             if value == "MATLAB Function" {
                                 is_matlab_function = true;
                             }
-                            properties.insert(name_attr.to_string(), value);
                         }
-                        // Capture CFunction code snippets
-                        "OutputCode" => {
-                            c_output_code = Some(value.clone());
-                            properties.insert(name_attr.to_string(), value);
-                        }
-                        "StartCode" => {
-                            c_start_code = Some(value.clone());
-                            properties.insert(name_attr.to_string(), value);
-                        }
-                        "TerminateCode" => {
-                            c_term_code = Some(value.clone());
-                            properties.insert(name_attr.to_string(), value);
-                        }
-                        "CodegenOutputCode" => {
-                            c_codegen_output = Some(value.clone());
-                            properties.insert(name_attr.to_string(), value);
-                        }
-                        "CodegenStartCode" => {
-                            c_codegen_start = Some(value.clone());
-                            properties.insert(name_attr.to_string(), value);
-                        }
-                        "CodegenTerminateCode" => {
-                            c_codegen_term = Some(value.clone());
-                            properties.insert(name_attr.to_string(), value);
-                        }
+                        "OutputCode" => c_output_code = Some(value),
+                        "StartCode" => c_start_code = Some(value),
+                        "TerminateCode" => c_term_code = Some(value),
+                        "CodegenOutputCode" => c_codegen_output = Some(value),
+                        "CodegenStartCode" => c_codegen_start = Some(value),
+                        "CodegenTerminateCode" => c_codegen_term = Some(value),
                         "BackgroundColor" => {
                             background_color = crate::color::parse_color(&value);
                         }
@@ -476,7 +470,6 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                                 || value == "1"
                                 || value.eq_ignore_ascii_case("true");
                             block_mirror = Some(on);
-                            properties.insert(name_attr.to_string(), value);
                         }
                         "FontSize" => {
                             font_size = value.parse::<u32>().ok();
@@ -485,41 +478,41 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                             font_weight = Some(value);
                         }
                         "NameLocation" => {
-                            // top/bottom/left/right (case-insensitive). Default handled by field default.
-                            let loc = match value.trim().to_ascii_lowercase().as_str() {
-                                "top" => crate::model::NameLocation::Top,
-                                "bottom" => crate::model::NameLocation::Bottom,
-                                "left" => crate::model::NameLocation::Left,
-                                "right" => crate::model::NameLocation::Right,
-                                _ => crate::model::NameLocation::Bottom,
-                            };
-                            name_location = loc;
-                            properties.insert(name_attr.to_string(), value);
+                            name_location =
+                                match value.trim().to_ascii_lowercase().as_str() {
+                                    "top" => NameLocation::Top,
+                                    "bottom" => NameLocation::Bottom,
+                                    "left" => NameLocation::Left,
+                                    "right" => NameLocation::Right,
+                                    _ => NameLocation::Bottom,
+                                };
                         }
                         "Value" => {
-                            // Keep raw textual value; also store into properties
-                            block_value = Some(value.clone());
-                            properties.insert(name_attr.to_string(), value);
+                            block_value = Some(value);
                         }
                         "CurrentSetting" => {
-                            current_setting = Some(value.clone());
-                            properties.insert(name_attr.to_string(), value);
+                            current_setting = Some(value);
                         }
-                        _ => {
-                            properties.insert(name_attr.to_string(), value);
-                        }
+                        _ => {}
                     }
                 }
             }
             "PortCounts" => {
-                let _ = child;
+                let ins = child
+                    .attribute("in")
+                    .and_then(|s| s.parse::<u32>().ok());
+                let outs = child
+                    .attribute("out")
+                    .and_then(|s| s.parse::<u32>().ok());
+                port_counts = Some(PortCounts { ins, outs });
+                child_order.push(BlockChildKind::PortCounts);
             }
             "PortProperties" => {
                 for pnode in child
                     .children()
                     .filter(|c| c.is_element() && c.has_tag_name("Port"))
                 {
-                    let mut pprops = BTreeMap::new();
+                    let mut pprops = IndexMap::new();
                     let port_type = pnode.attribute("Type").unwrap_or("").to_string();
                     let index = pnode.attribute("Index").and_then(|s| s.parse::<u32>().ok());
                     for pp in pnode
@@ -536,13 +529,39 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                         properties: pprops,
                     });
                 }
+                child_order.push(BlockChildKind::PortProperties);
+            }
+            "LinkData" => {
+                let mut dp_entries = Vec::new();
+                for dp in child
+                    .children()
+                    .filter(|c| c.is_element() && c.has_tag_name("DialogParameters"))
+                {
+                    let block_name = dp.attribute("BlockName").unwrap_or("").to_string();
+                    let mut dp_props = IndexMap::new();
+                    for p in dp
+                        .children()
+                        .filter(|c| c.is_element() && c.has_tag_name("P"))
+                    {
+                        if let Some(nm) = p.attribute("Name") {
+                            dp_props.insert(nm.to_string(), p.text().unwrap_or("").to_string());
+                        }
+                    }
+                    dp_entries.push(DialogParametersEntry {
+                        block_name,
+                        properties: dp_props,
+                    });
+                }
+                link_data = Some(LinkData {
+                    dialog_parameters: dp_entries,
+                });
+                child_order.push(BlockChildKind::LinkData);
             }
             "System" => {
                 if let Some(reference) = child.attribute("Ref") {
-                    let resolved = crate::parser::resolve_system_reference(reference, base_dir);
-                    properties.insert("__SystemRef".to_string(), resolved.as_str().to_string());
+                    // Store just the reference name (e.g., "system_18")
+                    system_ref = Some(reference.to_string());
                 } else {
-                    // Inline nested system: parse shallow
                     match parse_system_shallow(child, base_dir) {
                         Ok(sys) => subsystem = Some(Box::new(sys)),
                         Err(err) => eprintln!(
@@ -551,60 +570,63 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                         ),
                     }
                 }
+                child_order.push(BlockChildKind::System);
             }
             "Mask" => match parse_mask_node(child) {
-                Ok(m) => mask = Some(m),
+                Ok(m) => {
+                    mask = Some(m);
+                    child_order.push(BlockChildKind::Mask);
+                }
                 Err(err) => eprintln!(
                     "[rustylink] Error parsing <Mask> in block '{}': {}",
                     name, err
                 ),
             },
             "InstanceData" => match parse_instance_data_node(child) {
-                Ok(id) => instance_data = Some(id),
+                Ok(id) => {
+                    instance_data = Some(id);
+                    child_order.push(BlockChildKind::InstanceData);
+                }
                 Err(err) => eprintln!(
                     "[rustylink] Warning: failed to parse <InstanceData> in block '{}': {}",
                     name, err
                 ),
             },
             "Annotation" => match parse_annotation_node(child) {
-                Ok(a) => annotations.push(a),
+                Ok(a) => {
+                    let idx = annotations.len();
+                    annotations.push(a);
+                    child_order.push(BlockChildKind::Annotation(idx));
+                }
                 Err(err) => eprintln!(
                     "[rustylink] Warning: failed to parse <Annotation> in block '{}': {}",
                     name, err
                 ),
             },
-            unknown => {
-                println!("Unknown tag in Block: {}", unknown);
-            }
+            _ => {}
         }
     }
 
-    // Simulink omits <P Name="Value"> for Constant blocks that use the implicit default; mirror that default.
-    if block_type == "Constant" && block_value.is_none() {
-        block_value = Some("1".to_string());
-        properties.entry("Value".to_string()).or_insert_with(|| "1".to_string());
-    }
-
+    // Derive value shape from block_value (for API convenience only)
     if let Some(v) = block_value.as_ref() {
         let (kind, rows, cols) = parse_value_shape(v);
         value_kind = kind;
         value_rows = rows;
         value_cols = cols;
-        properties
-            .entry("ValueType".to_string())
-            .or_insert_with(|| format_value_kind(&value_kind));
-        if let (Some(r), Some(c)) = (rows, cols) {
-            properties
-                .entry("ValueDims".to_string())
-                .or_insert_with(|| format!("{}x{}", r, c));
-        }
     }
 
-    if block_type == "SubSystem" && is_matlab_function {
-        block_type = "MATLAB Function".to_string();
+    // Simulink omits <P Name="Value"> for Constant blocks with default value "1".
+    // Set the convenience field but do NOT synthesize it in properties.
+    if block_type == "Constant" && block_value.is_none() {
+        block_value = Some("1".to_string());
     }
+
+    // Note: we do NOT mutate block_type for MATLAB Function blocks.
+    // The is_matlab_function flag indicates this status without changing
+    // the block_type, which is needed for round-trip XML fidelity.
+
     let c_function = if block_type == "CFunction" {
-        Some(crate::model::CFunctionCode {
+        Some(CFunctionCode {
             output_code: c_output_code,
             start_code: c_start_code,
             terminate_code: c_term_code,
@@ -615,20 +637,26 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
     } else {
         None
     };
+
     let mut blk = Block {
         block_type,
         name,
         sid,
+        tag_name,
         position,
         zorder,
         commented,
         name_location,
         is_matlab_function,
         properties,
+        ref_properties,
+        port_counts,
         ports,
         subsystem,
+        system_ref,
         c_function,
         instance_data,
+        link_data,
         mask,
         annotations,
         background_color,
@@ -644,21 +672,9 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
         block_mirror,
         library_source: None,
         library_block_path: None,
+        child_order,
     };
-    // Propagate value metadata to outgoing ports so signals inherit shape/type context
-    if matches!(blk.value_kind, crate::model::ValueKind::Scalar | crate::model::ValueKind::Vector | crate::model::ValueKind::Matrix)
-    {
-        for p in blk.ports.iter_mut().filter(|p| p.port_type.eq_ignore_ascii_case("out")) {
-            p.properties
-                .entry("ValueType".to_string())
-                .or_insert_with(|| format_value_kind(&blk.value_kind));
-            if let (Some(r), Some(c)) = (blk.value_rows, blk.value_cols) {
-                p.properties
-                    .entry("ValueDims".to_string())
-                    .or_insert_with(|| format!("{}x{}", r, c));
-            }
-        }
-    }
+
     if blk.mask_display_text.is_none()
         && blk.mask.as_ref().and_then(|m| m.display.as_ref()).is_some()
     {
@@ -667,17 +683,18 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
     Ok(blk)
 }
 
+/// Alias for backward compatibility.
 pub fn parse_block(node: Node, base_dir: &Utf8Path) -> Result<Block> {
-    // The original method belonged to SimulinkParser but didn't use `self` state.
-    // Reuse the same logic as the original implementation by delegating to the shallow parser
-    // and then performing any linking externally if needed.
-    // For now keep identical behavior to the old method (shallow parse semantics + mask eval).
-    // Note: deeper linking of referenced systems is handled by the caller (SimulinkParser).
     parse_block_shallow(node, base_dir)
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// System (shallow parse)
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Parse a `<System>` element without cross-file recursion.
 pub fn parse_system_shallow(node: Node, base_dir: &Utf8Path) -> Result<System> {
-    let mut properties = BTreeMap::new();
+    let mut properties = IndexMap::new();
     let mut blocks = Vec::new();
     let mut lines = Vec::new();
     let mut annotations: Vec<Annotation> = Vec::new();
@@ -692,8 +709,6 @@ pub fn parse_system_shallow(node: Node, base_dir: &Utf8Path) -> Result<System> {
                 blocks.push(parse_block_shallow(child, base_dir)?);
             }
             "Reference" => {
-                // Some Simulink XMLs use a dedicated <Reference ...> element instead of
-                // <Block BlockType="Reference" ...>. Treat it identically to a Block.
                 blocks.push(parse_block_shallow(child, base_dir)?);
             }
             "Line" => {
@@ -701,11 +716,11 @@ pub fn parse_system_shallow(node: Node, base_dir: &Utf8Path) -> Result<System> {
             }
             "Annotation" => match parse_annotation_node(child) {
                 Ok(a) => annotations.push(a),
-                Err(err) => eprintln!("[rustylink] Warning: failed to parse <Annotation>: {}", err),
+                Err(err) => {
+                    eprintln!("[rustylink] Warning: failed to parse <Annotation>: {}", err)
+                }
             },
-            unknown => {
-                println!("Unknown tag in System: {}", unknown);
-            }
+            _ => {}
         }
     }
     Ok(System {
