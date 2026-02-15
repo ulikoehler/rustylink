@@ -3,7 +3,7 @@ use anyhow::{Context, Result, anyhow};
 use camino::{Utf8Path, Utf8PathBuf};
 use rayon::prelude::*;
 use roxmltree::{Document, Node};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io::Read;
 
 pub trait ContentSource {
@@ -157,6 +157,10 @@ impl<S: ContentSource> SimulinkParser<S> {
                     // Use shallow parsing semantics to avoid cross-file recursion here
                     blocks.push(crate::block::parse_block_shallow(child, base_dir)?);
                 }
+                "Reference" => {
+                    // Support <Reference ...> elements in the same way as <Block BlockType="Reference">.
+                    blocks.push(crate::block::parse_block_shallow(child, base_dir)?);
+                }
                 "Line" => {
                     lines.push(crate::block::parse_line_node(child)?);
                 }
@@ -232,6 +236,121 @@ impl<S: ContentSource> SimulinkParser<S> {
         let gi: GraphicalInterface = serde_json::from_value(gi_value.clone())
             .with_context(|| format!("Failed to deserialize GraphicalInterface in {}", path))?;
         Ok(gi)
+    }
+
+    /// Convenience: return list of library names found in a parsed
+    /// `graphicalInterface.json` (delegates to `GraphicalInterface::library_names`).
+    pub fn graphical_interface_library_names(&mut self, path: impl AsRef<Utf8Path>) -> Result<Vec<String>> {
+        let gi = self.parse_graphical_interface_file(path)?;
+        Ok(gi.library_names())
+    }
+
+    /// Resolve library references in a parsed system by locating and parsing
+    /// library .slx files, then copying referenced blocks' content into the system.
+    ///
+    /// This walks all blocks in `system`, finds those with a `SourceBlock` property,
+    /// locates the corresponding library file, parses it, and copies the referenced
+    /// block's subsystem into the referencing block. The referencing block is marked
+    /// with `library_source` and `library_block_path` for tracking.
+    ///
+    /// # Arguments
+    /// - `system`: The system to resolve references in (modified in-place)
+    /// - `lib_paths`: Search paths for locating LIBNAME.slx files
+    ///
+    /// Note: This creates a new parser instance for each library, which may be slow
+    /// for large models. Consider caching parsed libraries if needed.
+    pub fn resolve_library_references(
+        system: &mut System,
+        lib_paths: &[Utf8PathBuf],
+    ) -> Result<()> {
+        use std::collections::HashMap;
+        let mut library_cache: HashMap<String, System> = HashMap::new();
+        let resolver = LibraryResolver::new(lib_paths.iter());
+
+        Self::resolve_library_references_recursive(system, &resolver, &mut library_cache)?;
+        Ok(())
+    }
+
+    fn resolve_library_references_recursive(
+        system: &mut System,
+        resolver: &LibraryResolver,
+        cache: &mut HashMap<String, System>,
+    ) -> Result<()> {
+        for block in &mut system.blocks {
+            // Check if this block references a library block
+            if let Some(source_block) = block.properties.get("SourceBlock").cloned() {
+                // source_block is like "Regler/Joint_Interpolator" or "simulink/Logic and Bit Operations/Compare To Constant"
+                if let Some((lib_name, block_path)) = source_block.split_once('/') {
+                    let lib_name = lib_name.trim();
+                    let block_path = block_path.trim();
+
+                    // Try to locate and load the library
+                    if !cache.contains_key(lib_name) {
+                        let lookup = resolver.locate(std::iter::once(lib_name));
+                        if let Some((_, lib_file)) = lookup.found.first() {
+                            // Parse the library .slx file
+                            match Self::parse_library_file(lib_file) {
+                                Ok(lib_system) => {
+                                    cache.insert(lib_name.to_string(), lib_system);
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "[rustylink] Warning: failed to parse library {}: {}",
+                                        lib_name, e
+                                    );
+                                    continue;
+                                }
+                            }
+                        } else {
+                            eprintln!(
+                                "[rustylink] Warning: library {} not found in search paths",
+                                lib_name
+                            );
+                            continue;
+                        }
+                    }
+
+                    // Look up the referenced block in the library
+                    if let Some(lib_system) = cache.get(lib_name) {
+                        if let Some(lib_block) = Self::find_block_by_name(lib_system, block_path) {
+                            // Copy the library block's subsystem into this block
+                            if let Some(ref lib_subsystem) = lib_block.subsystem {
+                                block.subsystem = Some(lib_subsystem.clone());
+                            }
+                            // Mark this block with library source metadata
+                            block.library_source = Some(lib_name.to_string());
+                            block.library_block_path = Some(source_block.clone());
+                        } else {
+                            eprintln!(
+                                "[rustylink] Warning: block '{}' not found in library '{}'",
+                                block_path, lib_name
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Recursively resolve in subsystems
+            if let Some(ref mut subsystem) = block.subsystem {
+                Self::resolve_library_references_recursive(subsystem, resolver, cache)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Parse a library .slx file and return its root system.
+    fn parse_library_file(lib_path: &Utf8Path) -> Result<System> {
+        let file = std::fs::File::open(lib_path.as_std_path())
+            .with_context(|| format!("Open library {}", lib_path))?;
+        let reader = std::io::BufReader::new(file);
+        let mut parser = SimulinkParser::new("", ZipSource::new(reader)?);
+        let root = Utf8PathBuf::from("simulink/systems/system_root.xml");
+        parser.parse_system_file(&root)
+    }
+
+    /// Find a block by name in a system (searches only top-level blocks).
+    fn find_block_by_name(system: &System, name: &str) -> Option<Block> {
+        system.blocks.iter().find(|b| b.name == name).cloned()
     }
 }
 
@@ -370,7 +489,19 @@ impl<'de> serde::Deserialize<'de> for ExternalFileReferenceType {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+impl serde::Serialize for ExternalFileReferenceType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            ExternalFileReferenceType::LibraryBlock => serializer.serialize_str("LIBRARY_BLOCK"),
+            ExternalFileReferenceType::Other(s) => serializer.serialize_str(s),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 pub struct ExternalFileReference {
     #[serde(rename = "Path")]
     pub path: String,
@@ -403,7 +534,19 @@ impl<'de> serde::Deserialize<'de> for SolverName {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+impl serde::Serialize for SolverName {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            SolverName::FixedStepDiscrete => serializer.serialize_str("FixedStepDiscrete"),
+            SolverName::Other(s) => serializer.serialize_str(s),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct GraphicalInterface {
     #[serde(rename = "ExternalFileReferences")]
     pub external_file_references: Vec<ExternalFileReference>,
@@ -413,6 +556,95 @@ pub struct GraphicalInterface {
     pub simulink_sub_domain_type: Option<String>,
     #[serde(rename = "SolverName")]
     pub solver_name: Option<SolverName>,
+}
+
+impl GraphicalInterface {
+    /// Return a list of library names referenced by `ExternalFileReferences`.
+    ///
+    /// Behavior:
+    /// - Only consider entries with `Type == LIBRARY_BLOCK`.
+    /// - Extract the part before the first '/' from the `Reference` field.
+    /// - Return unique names in the order they appear.
+    pub fn library_names(&self) -> Vec<String> {
+        use std::collections::HashSet;
+        let mut out: Vec<String> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for r in &self.external_file_references {
+            if r.r#type != ExternalFileReferenceType::LibraryBlock {
+                continue;
+            }
+            let lib = r
+                .reference
+                .split_once('/')
+                .map(|(a, _)| a.trim().to_string())
+                .unwrap_or_else(|| r.reference.trim().to_string());
+            if lib.is_empty() {
+                continue;
+            }
+            if seen.insert(lib.clone()) {
+                out.push(lib);
+            }
+        }
+        out
+    }
+}
+
+/// Result for library resolution: which libraries were found (with path)
+/// and which were not found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryLookupResult {
+    pub found: Vec<(String, Utf8PathBuf)>,
+    pub not_found: Vec<String>,
+}
+
+/// Resolver that searches for `LIBNAME.slx` files in an ordered list of
+/// directories (first match wins).
+#[derive(Debug, Clone)]
+pub struct LibraryResolver {
+    search_paths: Vec<Utf8PathBuf>,
+}
+
+impl LibraryResolver {
+    /// Create a resolver that will search the provided directories in order.
+    pub fn new<P: AsRef<Utf8Path>>(paths: impl IntoIterator<Item = P>) -> Self {
+        Self {
+            search_paths: paths.into_iter().map(|p| p.as_ref().to_path_buf()).collect(),
+        }
+    }
+
+    /// Locate the given library names (e.g. `Regler`) by looking for
+    /// `Regler.slx` under the configured search paths. Returns a list of
+    /// found libraries (library name + full path) and a list of not-found names.
+    pub fn locate<'a, I>(&self, libs: I) -> LibraryLookupResult
+    where
+        I: IntoIterator<Item = &'a str>,
+    {
+        use std::collections::HashSet;
+        let mut found = Vec::new();
+        let mut not_found = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for lib in libs {
+            let lib = lib.trim();
+            if lib.is_empty() || !seen.insert(lib.to_string()) {
+                continue; // skip duplicates / empty
+            }
+            let file_name = format!("{}.slx", lib);
+            let mut matched: Option<Utf8PathBuf> = None;
+            for dir in &self.search_paths {
+                let candidate = dir.join(&file_name);
+                if candidate.exists() {
+                    matched = Some(candidate);
+                    break;
+                }
+            }
+            if let Some(p) = matched {
+                found.push((lib.to_string(), p));
+            } else {
+                not_found.push(lib.to_string());
+            }
+        }
+        LibraryLookupResult { found, not_found }
+    }
 }
 
 // --------------------- end JSON types ---------------------

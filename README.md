@@ -40,6 +40,30 @@ Or point to an XML system file:
 cargo run --example tree -- simulink/systems/system_root.xml
 ```
 
+Analyze which libraries a model uses and where they are located. Outputs human-readable text by default or JSON with `--json`.
+
+```sh
+# human readable
+cargo run --example analyze_libraries -- MyModel.slx
+
+# JSON output and custom library search paths
+cargo run --example analyze_libraries -- MyModel.slx --json -L /opt/matlab/toolbox -L ./libs
+```
+
+Example JSON output (abridged):
+
+```json
+{
+  "libraries": {
+    "Regler": {
+      "found_at": "/opt/matlab/toolbox/Regler.slx",
+      "blocks": [ { "Path": "$bdroot/...", "Reference": "Regler/SomeBlock", "SID": "245501", "Type": "LIBRARY_BLOCK" }, ... ]
+    },
+    "simulink": { "found_at": "", "blocks": [ ... ] }
+  }
+}
+```
+
 ## Library usage
 
 ```rust

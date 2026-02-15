@@ -384,6 +384,11 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
     // Use the same logic as parse_block but without cross-file recursion; also use free helpers
     // Start with defaults
     let mut block_type = node.attribute("BlockType").unwrap_or("").to_string();
+    // If the XML element itself is <Reference ...> (no BlockType attr), treat it
+    // as a Reference block.
+    if block_type.is_empty() && node.tag_name().name() == "Reference" {
+        block_type = "Reference".to_string();
+    }
     let name = node.attribute("Name").unwrap_or("").to_string();
     let sid = node.attribute("SID").map(|s| s.to_string());
     let mut properties = BTreeMap::new();
@@ -637,6 +642,8 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
         value_cols,
         current_setting,
         block_mirror,
+        library_source: None,
+        library_block_path: None,
     };
     // Propagate value metadata to outgoing ports so signals inherit shape/type context
     if matches!(blk.value_kind, crate::model::ValueKind::Scalar | crate::model::ValueKind::Vector | crate::model::ValueKind::Matrix)
@@ -682,6 +689,11 @@ pub fn parse_system_shallow(node: Node, base_dir: &Utf8Path) -> Result<System> {
                 }
             }
             "Block" => {
+                blocks.push(parse_block_shallow(child, base_dir)?);
+            }
+            "Reference" => {
+                // Some Simulink XMLs use a dedicated <Reference ...> element instead of
+                // <Block BlockType="Reference" ...>. Treat it identically to a Block.
                 blocks.push(parse_block_shallow(child, base_dir)?);
             }
             "Line" => {

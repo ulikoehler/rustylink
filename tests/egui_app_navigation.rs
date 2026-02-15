@@ -40,6 +40,8 @@ fn simple_system() -> System {
         value_cols: None,
         current_setting: None,
         block_mirror: None,
+        library_source: None,
+        library_block_path: None,
     };
     System {
         properties: Default::default(),

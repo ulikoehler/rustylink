@@ -124,6 +124,12 @@ pub struct Block {
     /// Optional flag indicating the block is mirrored (inputs on right, outputs on left)
     #[serde(default)]
     pub block_mirror: Option<bool>,
+    /// Library source information: name of the library this block was copied from (e.g., "Regler")
+    #[serde(default)]
+    pub library_source: Option<String>,
+    /// Full library block path (e.g., "Regler/Joint_Interpolator") for tracking original source
+    #[serde(default)]
+    pub library_block_path: Option<String>,
 }
 
 impl Block {

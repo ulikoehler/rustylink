@@ -47,6 +47,8 @@ fn test_eval_simple() {
         value_cols: None,
         current_setting: None,
         block_mirror: None,
+        library_source: None,
+        library_block_path: None,
     };
     evaluate_mask_display(&mut block);
     assert_eq!(block.mask_display_text.as_deref(), Some("Position"));

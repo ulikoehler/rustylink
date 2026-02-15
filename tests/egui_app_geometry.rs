@@ -32,6 +32,8 @@ fn test_ports_and_rect() {
         value_cols: None,
         current_setting: None,
         block_mirror: None,
+        library_source: None,
+        library_block_path: None,
     };
     let r = parse_block_rect(&b).unwrap();
     let p_in = port_anchor_pos(r, PortSide::In, 1, Some(2));
