@@ -26,6 +26,10 @@ pub mod egui_app;
 #[cfg(feature = "egui")]
 pub mod block_types;
 
+// Comprehensive model editor (egui feature)
+#[cfg(feature = "egui")]
+pub mod editor;
+
 // Re-export core API so downstream users can easily access/modify the registry
 #[cfg(feature = "egui")]
 pub use block_types::{

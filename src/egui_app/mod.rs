@@ -12,13 +12,16 @@ mod state;
 pub mod text;
 mod ui;
 
+// Re-export geometry items needed by the editor module
 pub use geometry::{
-    PortSide, endpoint_pos, endpoint_pos_with_target, parse_block_rect, port_anchor_pos,
+    PortSide, endpoint_pos, endpoint_pos_maybe_mirrored,
+    endpoint_pos_with_target, endpoint_pos_with_target_maybe_mirrored,
+    parse_block_rect, parse_rect_str, port_anchor_pos,
 };
 pub use navigation::{
     collect_subsystems_paths, resolve_subsystem_by_path, resolve_subsystem_by_vec,
 };
-pub use render::render_block_icon;
+pub(crate) use render::{get_block_type_cfg, render_block_icon};
 pub use state::{
     BlockContextMenuItem, BlockDialog, BlockDialogButton, ChartView, SignalContextMenuItem,
     SignalDialog, SignalDialogButton, SubsystemApp, SubsystemEntities,
