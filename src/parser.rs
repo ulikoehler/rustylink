@@ -217,6 +217,22 @@ impl<S: ContentSource> SimulinkParser<S> {
         let text = self.source.read_to_string(path)?;
         parse_chart_from_text(&text, Some(path.as_str()))
     }
+
+    /// Parse `simulink/graphicalInterface.json` and return a strongly-typed
+    /// `GraphicalInterface` structure. The JSON root is expected to be
+    /// `{ "GraphicalInterface": { ... } }` — we deserialize the inner object.
+    pub fn parse_graphical_interface_file(&mut self, path: impl AsRef<Utf8Path>) -> Result<GraphicalInterface> {
+        let path = path.as_ref();
+        let text = self.source.read_to_string(path)?;
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .with_context(|| format!("Failed to parse JSON {}", path))?;
+        let gi_value = v
+            .get("GraphicalInterface")
+            .ok_or_else(|| anyhow!("Missing top-level 'GraphicalInterface' object in {}", path))?;
+        let gi: GraphicalInterface = serde_json::from_value(gi_value.clone())
+            .with_context(|| format!("Failed to deserialize GraphicalInterface in {}", path))?;
+        Ok(gi)
+    }
 }
 
 impl<S: ContentSource> SimulinkParser<S> {
@@ -329,9 +345,82 @@ pub(crate) fn parse_endpoint(s: &str) -> Result<EndpointRef> {
 
 // ---------------- Free helper functions and shallow parsing ----------------
 
+// --------------------- GraphicalInterface JSON types ---------------------
+
+/// Type of external file reference in `graphicalInterface.json`.
+///
+/// The JSON uses strings like "LIBRARY_BLOCK"; unknown values are preserved
+/// in the `Other` variant so parsing is forward-compatible.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExternalFileReferenceType {
+    LibraryBlock,
+    Other(String),
+}
+
+impl<'de> serde::Deserialize<'de> for ExternalFileReferenceType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "LIBRARY_BLOCK" => Ok(ExternalFileReferenceType::LibraryBlock),
+            other => Ok(ExternalFileReferenceType::Other(other.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct ExternalFileReference {
+    #[serde(rename = "Path")]
+    pub path: String,
+    #[serde(rename = "Reference")]
+    pub reference: String,
+    #[serde(rename = "SID")]
+    pub sid: String,
+    #[serde(rename = "Type")]
+    pub r#type: ExternalFileReferenceType,
+}
+
+/// Solver name from the `graphicalInterface.json` file. Known value in the
+/// repository is `FixedStepDiscrete`; unknown values are preserved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SolverName {
+    FixedStepDiscrete,
+    Other(String),
+}
+
+impl<'de> serde::Deserialize<'de> for SolverName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.as_str() {
+            "FixedStepDiscrete" => Ok(SolverName::FixedStepDiscrete),
+            other => Ok(SolverName::Other(other.to_string())),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
+pub struct GraphicalInterface {
+    #[serde(rename = "ExternalFileReferences")]
+    pub external_file_references: Vec<ExternalFileReference>,
+    #[serde(rename = "PreCompExecutionDomainType")]
+    pub precomp_execution_domain_type: Option<String>,
+    #[serde(rename = "SimulinkSubDomainType")]
+    pub simulink_sub_domain_type: Option<String>,
+    #[serde(rename = "SolverName")]
+    pub solver_name: Option<SolverName>,
+}
+
+// --------------------- end JSON types ---------------------
+
 // Block-related parsing helpers were moved to `src/block.rs`.
 
 fn parse_chart_from_text(text: &str, path_hint: Option<&str>) -> Result<Chart> {
+
     let doc = Document::parse(text)
         .with_context(|| format!("Failed to parse XML {}", path_hint.unwrap_or("<chart>")))?;
     let chart_node = doc
