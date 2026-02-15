@@ -14,7 +14,7 @@ pub fn resolve_subsystem_by_path<'a>(root: &'a System, path: &str) -> Option<&'a
     for name in parts.by_ref() {
         let mut found = None;
         for b in &cur.blocks {
-            if b.block_type == "SubSystem" && b.name == name {
+            if (b.block_type == "SubSystem" || b.block_type == "Reference") && b.name == name {
                 if let Some(sub) = &b.subsystem {
                     found = Some(sub.as_ref());
                     break;
@@ -32,7 +32,7 @@ pub fn resolve_subsystem_by_vec<'a>(root: &'a System, path: &[String]) -> Option
     for name in path {
         let mut found = None;
         for b in &cur.blocks {
-            if b.block_type == "SubSystem" && &b.name == name {
+            if (b.block_type == "SubSystem" || b.block_type == "Reference") && &b.name == name {
                 if let Some(sub) = &b.subsystem {
                     found = Some(sub.as_ref());
                     break;
@@ -49,7 +49,7 @@ pub fn resolve_subsystem_by_vec<'a>(root: &'a System, path: &[String]) -> Option
 pub fn collect_subsystems_paths(root: &System) -> Vec<Vec<String>> {
     fn rec(cur: &System, path: &mut Vec<String>, out: &mut Vec<Vec<String>>) {
         for b in &cur.blocks {
-            if b.block_type == "SubSystem" {
+            if b.block_type == "SubSystem" || b.block_type == "Reference" {
                 if let Some(sub) = &b.subsystem {
                     if sub.chart.is_none() {
                         path.push(b.name.clone());

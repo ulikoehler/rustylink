@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+use camino::Utf8PathBuf;
 use eframe::egui::{self, Vec2};
 
 use crate::model::{Annotation, Block, Chart, Line, System};
@@ -101,6 +102,11 @@ pub struct SubsystemApp {
     pub signal_menu_items: Vec<SignalContextMenuItem>,
     /// Custom context menu items for blocks.
     pub block_menu_items: Vec<BlockContextMenuItem>,
+    /// Transient in-GUI notification shown for a short time.
+    pub transient_notification: Option<(String, std::time::Instant)>,
+    /// The library search paths that were used when the root system was parsed.
+    /// Empty if no library lookup was performed.
+    pub library_search_paths: Vec<Utf8PathBuf>,
     /// Registered listeners to be notified whenever the displayed subsystem changes.
     subsystem_change_listeners: Vec<Arc<dyn Fn(&[String], &SubsystemEntities) + Send + Sync>>, // private to encourage using the API
     /// Optional click handler to override default action when clicking a block.
@@ -135,6 +141,8 @@ impl SubsystemApp {
             block_buttons: Vec::new(),
             signal_menu_items: Vec::new(),
             block_menu_items: Vec::new(),
+            transient_notification: None,
+            library_search_paths: Vec::new(),
             subsystem_change_listeners: Vec::new(),
             block_click_handler: None,
         }
@@ -173,6 +181,17 @@ impl SubsystemApp {
                 cb(&self.path, &entities);
             }
         }
+    }
+
+    /// Show a short-lived in-GUI notification message (milliseconds).
+    pub fn show_notification(&mut self, msg: impl Into<String>, duration_ms: u64) {
+        let expiry = std::time::Instant::now() + std::time::Duration::from_millis(duration_ms);
+        self.transient_notification = Some((msg.into(), expiry));
+    }
+
+    /// Clear the transient notification immediately.
+    pub fn clear_notification(&mut self) {
+        self.transient_notification = None;
     }
 
     fn notify_subsystem_changed(&self) {
@@ -286,7 +305,7 @@ impl SubsystemApp {
 
     /// If the block is a non-chart subsystem, open it and return true.
     pub fn open_block_if_subsystem(&mut self, b: &Block) -> bool {
-        if b.block_type == "SubSystem" {
+        if b.block_type == "SubSystem" || b.block_type == "Reference" {
             if let Some(sub) = &b.subsystem {
                 if sub.chart.is_none() {
                     self.path.push(b.name.clone());

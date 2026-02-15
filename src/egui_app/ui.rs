@@ -18,6 +18,7 @@ use super::render::{
     ComputedPortYCoordinates, get_block_type_cfg, render_block_icon, render_manual_switch,
 };
 use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
+use super::navigation::resolve_subsystem_by_vec;
 use super::text::{highlight_query_job, matlab_syntax_job};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,7 +46,7 @@ pub enum UpdateResponse {
 }
 
 fn is_block_subsystem(b: &crate::model::Block) -> bool {
-    b.block_type == "SubSystem"
+    (b.block_type == "SubSystem" || b.block_type == "Reference")
         && b.subsystem
             .as_ref()
             .map_or(false, |sub| sub.chart.is_none())
@@ -227,6 +228,18 @@ fn update_internal(
             if resp.changed() {
                 app.update_search_matches();
             }
+            // Render transient in-GUI notification (right-aligned in the top bar)
+            if let Some((msg, expiry)) = &app.transient_notification {
+                if std::time::Instant::now() > *expiry {
+                    // Clear expired message
+                    app.transient_notification = None;
+                } else {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        let label = egui::Label::new(RichText::new(msg).color(Color32::from_rgb(255, 200, 80)));
+                        ui.add(label);
+                    });
+                }
+            }
         });
         if !app.search_query.trim().is_empty() && !app.search_matches.is_empty() {
             egui::Frame::group(ui.style()).show(ui, |ui| {
@@ -270,7 +283,77 @@ fn update_internal(
 
     egui::CentralPanel::default().show_inside(ui, |ui| {
         if !system_valid {
-            ui.colored_label(Color32::RED, "Invalid path – nothing to render");
+            // Provide detailed diagnostics to help the user resolve missing subsystems / libraries.
+            let requested = if app.path.is_empty() {
+                String::from("/")
+            } else {
+                format!("/{}", app.path.join("/"))
+            };
+            ui.colored_label(Color32::RED, "Invalid path — nothing to render");
+            ui.label(format!("Requested path: {}", requested));
+
+            // Find the longest existing parent and the missing segment
+            let mut existing_parent: Vec<String> = Vec::new();
+            let mut missing_segment: Option<String> = None;
+            for i in 0..=app.path.len() {
+                let prefix = app.path[..i].to_vec();
+                if resolve_subsystem_by_vec(&app.root, &prefix).is_some() {
+                    existing_parent = prefix;
+                } else if i > 0 {
+                    missing_segment = Some(app.path[i - 1].clone());
+                    break;
+                }
+            }
+            if !existing_parent.is_empty() {
+                ui.label(format!("Nearest existing parent: /{}", existing_parent.join("/")));
+                if let Some(parent_sys) = resolve_subsystem_by_vec(&app.root, &existing_parent) {
+                    let names: Vec<String> = parent_sys
+                        .blocks
+                        .iter()
+                        .filter(|b| b.subsystem.is_some())
+                        .map(|b| b.name.clone())
+                        .collect();
+                    if !names.is_empty() {
+                        ui.label(format!("Available subsystems under parent: {}", names.join(", ")));
+                    }
+                }
+            }
+            if let Some(ms) = missing_segment {
+                ui.colored_label(Color32::YELLOW, format!("Missing segment: '{}'", ms));
+            }
+
+            // Report unresolved Reference blocks found anywhere in the root system
+            let mut unresolved_refs: Vec<(String, Option<String>)> = Vec::new();
+            fn collect_unresolved(sys: &crate::model::System, acc: &mut Vec<(String, Option<String>)>) {
+                for b in &sys.blocks {
+                    if b.block_type == "Reference" && b.subsystem.is_none() {
+                        acc.push((b.name.clone(), b.system_ref.clone()));
+                    }
+                    if let Some(sub) = &b.subsystem {
+                        collect_unresolved(sub, acc);
+                    }
+                }
+            }
+            collect_unresolved(&app.root, &mut unresolved_refs);
+            if !unresolved_refs.is_empty() {
+                ui.colored_label(Color32::YELLOW, "Unresolved reference blocks found:");
+                for (n, ref_name) in &unresolved_refs {
+                    ui.label(format!("  - {} (SystemRef={:?})", n, ref_name));
+                }
+            }
+
+            // Show where we searched for libraries (if known)
+            if !app.library_search_paths.is_empty() {
+                ui.colored_label(Color32::LIGHT_BLUE, "Library search paths:");
+                for p in &app.library_search_paths {
+                    ui.label(format!("  - {}", p));
+                }
+            } else {
+                ui.label("Library search paths: (none) — use -L to add paths or place library .slx next to the main .slx file");
+            }
+
+            ui.separator();
+            ui.label("Hints: use -L <dir> to add library search paths, or open the library .slx directly.");
             return;
         }
         // Use entities snapshot for this frame
@@ -495,7 +578,22 @@ fn update_internal(
                         handled = handler(app, b);
                     }
                     if !handled && is_block_subsystem(b) {
+                        // Normal subsystem open
                         block_to_open_subsystem = Some((*b).clone());
+                    } else if !handled && b.block_type == "Reference" && b.subsystem.is_none() {
+                        // Inform user when a Reference block can't be opened because the
+                        // referenced library/subsystem was not resolved.
+                        let hint = match b.system_ref.as_deref() {
+                            Some(r) => format!(" (System Ref=\"{}\")", r),
+                            None => String::new(),
+                        };
+                        let msg = format!(
+                            "Cannot open reference block '{}'{}: referenced subsystem not resolved. Try adding the library path with -L or placing the library next to the .slx file.",
+                            b.name, hint
+                        );
+                        println!("{}", msg);
+                        // show transient in-GUI notification for 5s
+                        app.show_notification(msg, 5000);
                     }
                 }
                 record_interaction(
