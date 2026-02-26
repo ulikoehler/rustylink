@@ -112,6 +112,12 @@ fn library_resolver_finds_and_reports_missing_libraries() {
     let names = vec!["Regler", "OtherLib", "MissingLib"];
     let res = resolver.locate(names.iter().map(|s| *s));
 
+    // verify virtual library helper recognizes the new simulink/Logic and Bit entry
+    assert!(rustylink::parser::is_virtual_library("simulink/Logic and Bit/Whatever"));
+    assert!(rustylink::parser::is_virtual_library("simulink.slx"));
+    assert!(rustylink::parser::is_virtual_library("matrix_library"));
+    assert!(!rustylink::parser::is_virtual_library("NormalLib"));
+
     // Regler should be found in dir1 (first preference)
     assert_eq!(res.found.len(), 2);
     assert_eq!(res.not_found.len(), 1);
@@ -123,4 +129,69 @@ fn library_resolver_finds_and_reports_missing_libraries() {
     assert_eq!(other_entry.1, Utf8PathBuf::from_path_buf(dir2.join("OtherLib.slx")).unwrap());
 
     assert_eq!(res.not_found, vec!["MissingLib".to_string()]);
+}
+
+#[test]
+fn resolve_virtual_simulink_logic_and_bit() {
+    use camino::Utf8PathBuf;
+    use rustylink::parser::{FsSource, SimulinkParser};
+    use rustylink::model::{System, Block};
+    use indexmap::IndexMap;
+
+    // build a minimal system referencing the special virtual library
+    let mut sys = System {
+        properties: IndexMap::new(),
+        blocks: vec![Block {
+            block_type: "Foo".to_string(),
+            name: "A".to_string(),
+            sid: None,
+            tag_name: "Block".to_string(),
+            position: None,
+            zorder: None,
+            commented: false,
+            name_location: Default::default(),
+            is_matlab_function: false,
+            value: None,
+            value_kind: Default::default(),
+            value_rows: None,
+            value_cols: None,
+            properties: {
+                let mut m = IndexMap::new();
+                m.insert(
+                    "SourceBlock".to_string(),
+                    "simulink/Logic and Bit/SomeBlock".to_string(),
+                );
+                m
+            },
+            ref_properties: Default::default(),
+            port_counts: None,
+            ports: Vec::new(),
+            mask: None,
+            annotations: Vec::new(),
+            subsystem: None,
+            system_ref: None,
+            c_function: None,
+            instance_data: None,
+            link_data: None,
+            background_color: None,
+            show_name: None,
+            font_size: None,
+            font_weight: None,
+            mask_display_text: None,
+            current_setting: None,
+            block_mirror: None,
+            library_source: None,
+            library_block_path: None,
+            child_order: vec![],
+        }],
+        lines: Vec::new(),
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    // resolution should succeed (no panic) even though library is virtual/empty
+    SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &[]).unwrap();
+    // block still unresolved but no crash
+    assert!(sys.blocks[0].library_source.is_none());
+    assert!(sys.blocks[0].library_block_path.is_none());
 }

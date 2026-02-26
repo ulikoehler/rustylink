@@ -160,7 +160,12 @@ impl<S: ContentSource> SimulinkParser<S> {
                     let lib_name = lib_name.trim();
                     let block_path = block_path.trim();
                     if !cache.contains_key(lib_name) {
-                        if crate::parser::library::is_virtual_library(lib_name) {
+                        // Some virtual libraries include slashes in their logical name
+                        // (e.g. "simulink/Logic and Bit").  We therefore check both
+                        // the stripped library name and the full SourceBlock value.
+                        if crate::parser::library::is_virtual_library(lib_name)
+                            || crate::parser::library::is_virtual_library(&source_block)
+                        {
                             cache.insert(lib_name.to_string(), empty_library_system());
                         } else {
                             let lookup = resolver.locate(std::iter::once(lib_name));
@@ -373,5 +378,55 @@ impl<S: ContentSource> SimulinkParser<S> {
                 self.link_system_refs(sub, current_base);
             }
         }
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Block, ValueKind};
+    use crate::parser::{LibraryResolver, SimulinkParser, FsSource};
+    use camino::Utf8PathBuf;
+    use indexmap::IndexMap;
+
+    #[test]
+    fn virtual_library_detection() {
+        assert!(is_virtual_library("simulink"));
+        assert!(is_virtual_library("Simulink.SLX"));
+        assert!(is_virtual_library("matrix_library"));
+        assert!(is_virtual_library("simulink/Logic and Bit"));
+        assert!(is_virtual_library("Simulink/logic and BIT"));
+        assert!(!is_virtual_library("other"));
+    }
+
+    #[test]
+    fn resolving_virtual_library_inserts_empty() {
+        // Build a system containing a single block referencing the virtual lib
+        let mut blk = crate::editor::operations::create_default_block("Some", "B", 0, 0, 0, 0);
+        blk.properties.insert(
+            "SourceBlock".to_string(),
+            "simulink/Logic and Bit/Foo".to_string(),
+        );
+        let mut sys = System {
+            properties: IndexMap::new(),
+            blocks: vec![blk],
+            lines: Vec::new(),
+            annotations: Vec::new(),
+            chart: None,
+        };
+
+        let resolver = LibraryResolver::new(std::iter::empty::<Utf8PathBuf>());
+        let mut cache = std::collections::HashMap::new();
+        SimulinkParser::<FsSource>::resolve_library_references_recursive(
+            &mut sys,
+            "",
+            &resolver,
+            &mut cache,
+        )
+        .unwrap();
+        // library name is just the first segment ("simulink")
+        assert!(cache.contains_key("simulink"));
+        assert!(cache.get("simulink").unwrap().blocks.is_empty());
     }
 }

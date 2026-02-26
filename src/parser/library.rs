@@ -25,7 +25,13 @@ pub struct LibraryResolver {
 /// Initial set:
 /// - `simulink.slx`
 /// - `matrix_library.slx`
-pub const SPECIAL_VIRTUAL_LIBRARIES: [&str; 2] = ["simulink.slx", "matrix_library.slx"];
+pub const SPECIAL_VIRTUAL_LIBRARIES: [&str; 3] = [
+    "simulink.slx",
+    "matrix_library.slx",
+    // Some blocks are referenced with the full path "simulink/Logic and Bit/...";
+    // treat that prefix as a virtual library as well.
+    "simulink/Logic and Bit",
+];
 
 /// Return true if the given library name should be treated as a virtual library.
 ///
@@ -35,14 +41,26 @@ pub fn is_virtual_library(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    let normalized = name
+    // lowercase first so that suffix stripping is case-insensitive
+    let mut normalized = name.to_ascii_lowercase();
+    normalized = normalized
         .strip_suffix(".slx")
-        .unwrap_or(name)
-        .to_ascii_lowercase();
+        .unwrap_or(&normalized)
+        .to_string();
+    // collapse multiple slashes for consistency (not strictly needed but harmless)
+    normalized = normalized.replace("\\\\", "/");
 
     SPECIAL_VIRTUAL_LIBRARIES.iter().any(|s| {
-        let s_norm = s.strip_suffix(".slx").unwrap_or(s).to_ascii_lowercase();
-        s_norm == normalized
+        let mut s_norm = s.to_ascii_lowercase();
+        s_norm = s_norm
+            .strip_suffix(".slx")
+            .unwrap_or(&s_norm)
+            .to_string();
+        s_norm = s_norm.replace("\\\\", "/");
+        // match if the names are equal, or if the candidate is a prefix of the
+        // normalized name followed by a slash.  This lets entries like
+        // "simulink/Logic and Bit" cover "simulink/Logic and Bit/SomeBlock".
+        normalized == s_norm || normalized.starts_with(&format!("{}/", s_norm))
     })
 }
 
