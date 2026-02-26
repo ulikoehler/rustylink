@@ -184,10 +184,17 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
         },
     );
 
+    // explicit icon for matrix multiply (product) block
+    m.insert(
+        "MatrixMultiply".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Svg("matrix/matrix_product.svg")),
+            ..Default::default()
+        },
+    );
+
     // The remaining matrix-library virtual blocks currently share a generic placeholder.
     for name in [
-        // "CrossProduct",  // handled above
-        "MatrixMultiply",
         "Submatrix",
         "Transpose",
         "HermitianTranspose",

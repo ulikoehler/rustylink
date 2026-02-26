@@ -522,8 +522,14 @@ mod tests {
 
     #[test]
     fn embedded_svg_assets_exist() {
-        let bytes = super::super::icon_assets::get("matrix/identity_matrix.svg");
-        assert!(bytes.is_some());
+        for path in &[
+            "matrix/identity_matrix.svg",
+            "matrix/is_triangular.svg",
+            "matrix/matrix_product.svg",
+        ] {
+            let bytes = super::super::icon_assets::get(path);
+            assert!(bytes.is_some(), "missing asset {}", path);
+        }
     }
 
     #[test]
