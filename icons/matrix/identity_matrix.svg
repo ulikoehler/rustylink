@@ -66,7 +66,7 @@
   <text
      x="38"
      y="25"
-     font-family="Arial, sans-serif"
+     font-family="sans-serif"
      font-size="20px"
      font-weight="bold"
      fill="#ffffff"
@@ -88,7 +88,7 @@
   <text
      x="82"
      y="25"
-     font-family="Arial, sans-serif"
+     font-family="sans-serif"
      font-size="20px"
      font-weight="bold"
      fill="#333333"
@@ -110,7 +110,7 @@
   <text
      x="126"
      y="25"
-     font-family="Arial, sans-serif"
+     font-family="sans-serif"
      font-size="20px"
      font-weight="bold"
      fill="#333333"
@@ -133,7 +133,7 @@
   <text
      x="38"
      y="69"
-     font-family="Arial, sans-serif"
+     font-family="sans-serif"
      font-size="20px"
      font-weight="bold"
      fill="#333333"
@@ -155,7 +155,7 @@
   <text
      x="82"
      y="69"
-     font-family="Arial, sans-serif"
+     font-family="sans-serif"
      font-size="20px"
      font-weight="bold"
      fill="#ffffff"
@@ -177,7 +177,7 @@
   <text
      x="126"
      y="69"
-     font-family="Arial, sans-serif"
+     font-family="sans-serif"
      font-size="20px"
      font-weight="bold"
      fill="#333333"
@@ -200,7 +200,7 @@
   <text
      x="38"
      y="113"
-     font-family="Arial, sans-serif"
+     font-family="sans-serif"
      font-size="20px"
      font-weight="bold"
      fill="#333333"
@@ -222,7 +222,7 @@
   <text
      x="82"
      y="113"
-     font-family="Arial, sans-serif"
+     font-family="sans-serif"
      font-size="20px"
      font-weight="bold"
      fill="#333333"
@@ -244,7 +244,7 @@
   <text
      x="126"
      y="113"
-     font-family="Arial, sans-serif"
+     font-family="sans-serif"
      font-size="20px"
      font-weight="bold"
      fill="#ffffff"
@@ -256,7 +256,7 @@
   <text
      x="83.563477"
      y="171.33577"
-     font-family="Georgia, serif"
+     font-family="sans-serif"
      font-size="18px"
      font-weight="bold"
      fill="#333333"

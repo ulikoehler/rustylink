@@ -5,6 +5,7 @@ use crate::model::Block;
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Vec2};
 
 use super::icon_assets;
+use std::sync::{Arc, OnceLock};
 
 pub(crate) fn rgb_to_color32(c: Rgb) -> Color32 {
     Color32::from_rgb(c.0, c.1, c.2)
@@ -177,6 +178,33 @@ struct SvgCachedTexture {
     px_size: [usize; 2],
 }
 
+fn embedded_egui_sans_fontdb() -> Option<Arc<resvg::usvg::fontdb::Database>> {
+    static FONTDB: OnceLock<Option<Arc<resvg::usvg::fontdb::Database>>> = OnceLock::new();
+    FONTDB
+        .get_or_init(|| {
+            let font_defs = egui::FontDefinitions::default();
+            let ubuntu = font_defs.font_data.get("Ubuntu-Light")?;
+
+            let mut db = resvg::usvg::fontdb::Database::new();
+            db.load_font_data(ubuntu.as_ref().font.as_ref().to_vec());
+
+            // Ensure CSS generic `sans-serif` resolves to the embedded font.
+            // Use the actual family name declared in the font (typically "Ubuntu").
+            let family_name = db
+                .faces()
+                .next()
+                .and_then(|face| face.families.first().map(|(family, _lang)| family.clone()));
+            if let Some(family_name) = family_name {
+                db.set_sans_serif_family(family_name.clone());
+                // reasonable fallback for `serif` too, in case SVG uses it
+                db.set_serif_family(family_name);
+            }
+
+            Some(Arc::new(db))
+        })
+        .clone()
+}
+
 fn svg_dest_size_points(avail_points: Vec2, px_size: [usize; 2], pixels_per_point: f32) -> Vec2 {
     if pixels_per_point <= 0.0 {
         return Vec2::ZERO;
@@ -209,18 +237,25 @@ fn get_or_create_svg_texture(
 
     // IMPORTANT: never call `ctx.load_texture` inside `ctx.data_mut`, since both
     // take a write lock on the same internal context lock, which will deadlock.
-    let hit = ctx.data_mut(|d| {
-        let cache = d.get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
+    if let Some(hit) = ctx.data_mut(|d| {
+        d.get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
             cache_id,
-        );
-        cache.get(&key).cloned()
-    });
-    if hit.is_some() {
-        return hit;
+        )
+        .get(&key)
+        .cloned()
+    }) {
+        return Some(hit);
     }
 
     let bytes = icon_assets::get(path)?;
-    let options = resvg::usvg::Options::default();
+    let mut options = resvg::usvg::Options::default();
+    // usvg's font database is empty by default; populate it from egui's embedded fonts.
+    // This avoids relying on system-installed fonts.
+    if let Some(db) = embedded_egui_sans_fontdb() {
+        options.fontdb = db;
+        options.font_family = "sans-serif".to_owned();
+    }
+
     let image = egui_extras::image::load_svg_bytes_with_size(
         &bytes,
         egui::SizeHint::Size {
@@ -238,18 +273,18 @@ fn get_or_create_svg_texture(
         image,
         egui::TextureOptions::LINEAR,
     );
-    let value = SvgCachedTexture {
-        texture,
-        px_size,
-    };
+    let value = SvgCachedTexture { texture, px_size };
 
-    ctx.data_mut(|d| {
+    // Insert after creating the texture (to avoid deadlock), then return the stored value.
+    Some(ctx.data_mut(|d| {
         let cache = d.get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
             cache_id,
         );
-        cache.entry(key).or_insert_with(|| value.clone());
-        cache.get(&key).cloned()
-    })
+        cache
+            .entry(key)
+            .or_insert_with(|| value.clone())
+            .clone()
+    }))
 }
 
 /// Render an icon in the center of the block according to its type.
