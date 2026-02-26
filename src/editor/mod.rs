@@ -31,4 +31,15 @@ pub use operations::{
 };
 pub use selection::{EditorSelection, SelectionRect};
 pub use state::EditorState;
-pub use ui::{editor_update, editor_update_with_info};
+pub use ui::{
+    editor_update,
+    editor_update_with_info,
+    // helper utilities needed by integration tests
+    hash_color,
+    contrast_color,
+    is_code_block,
+    is_subsystem_block,
+    get_block_code,
+    set_block_code,
+    compute_line_colors,
+};

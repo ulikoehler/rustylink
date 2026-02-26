@@ -6,7 +6,7 @@
 #![cfg(feature = "egui")]
 
 mod geometry;
-mod icon_assets;
+pub mod icon_assets;
 mod navigation;
 mod render;
 mod state;
@@ -23,6 +23,9 @@ pub use navigation::{
     collect_subsystems_paths, resolve_subsystem_by_path, resolve_subsystem_by_vec,
 };
 pub(crate) use render::{get_block_type_cfg, render_block_icon, wrap_text_to_max_width};
+
+// Helpers which are useful for integration tests
+pub use render::{compute_icon_available_rect, PortLabelMaxWidths};
 pub use state::{
     BlockContextMenuItem, BlockDialog, BlockDialogButton, ChartView, SignalContextMenuItem,
     SignalDialog, SignalDialogButton, SubsystemApp, SubsystemEntities,

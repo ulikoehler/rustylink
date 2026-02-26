@@ -165,7 +165,7 @@ pub(crate) fn wrap_text_to_max_width(
     out
 }
 
-fn compute_icon_available_rect(
+pub fn compute_icon_available_rect(
     rect: &Rect,
     font_scale: f32,
     port_label_widths: Option<PortLabelMaxWidths>,
@@ -411,25 +411,32 @@ pub fn render_block_icon(
     port_label_widths: Option<PortLabelMaxWidths>,
 ) {
     let dark_icon = Color32::from_rgb(40, 40, 40); // dark color for icons
-    // Lookup icon from centralized registry
-    // If this block originates from a library, prefer the library block
-    // name when looking up an icon.  The `block_type` of a referenced block
-    // is typically just "SubSystem" or "Reference", which would not match
-    // our virtual matrix library entries.  Using `library_block_path` lets us
-    // show the custom eye glyph for matrix library blocks.
-    let effective_type = if block.is_matlab_function {
-        "MATLAB Function"
-    } else if let Some(ref lib_path) = block.library_block_path {
-        // lib_path looks like "matrix_library/IsTriangular"; take the part
-        // after the last slash.
-        lib_path
-            .rsplit_once('/')
-            .map(|(_, name)| name)
-            .unwrap_or(lib_path.as_str())
-    } else {
-        &block.block_type
+    // Lookup icon from centralized registry.  If the block originates from a
+    // library, first try the full library path (e.g. "matrix_library/IsTriangular").
+    // Only if that is missing do we fall back to the last path segment or the
+    // generic `block_type`.
+    let cfg = {
+        let map = block_types::get_block_type_config_map();
+        if let Ok(g) = map.read() {
+            if block.is_matlab_function {
+                g.get("MATLAB Function")
+                    .cloned()
+                    .unwrap_or_default()
+            } else if let Some(ref lib_path) = block.library_block_path {
+                if let Some(cfg) = g.get(lib_path.as_str()) {
+                    cfg.clone()
+                } else if let Some((_, name)) = lib_path.rsplit_once('/') {
+                    g.get(name).cloned().unwrap_or_default()
+                } else {
+                    g.get(&block.block_type).cloned().unwrap_or_default()
+                }
+            } else {
+                g.get(&block.block_type).cloned().unwrap_or_default()
+            }
+        } else {
+            BlockTypeConfig::default()
+        }
     };
-    let cfg = get_block_type_cfg(effective_type);
     if let Some(icon) = cfg.icon {
         match icon {
             block_types::IconSpec::Utf8(glyph) => {
@@ -472,105 +479,6 @@ pub fn render_block_icon(
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn icon_available_rect_respects_10_percent_margin() {
-        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(100.0, 50.0));
-        let avail = compute_icon_available_rect(&rect, 1.0, None);
-        assert!((avail.left() - 10.0).abs() < 1e-6);
-        assert!((avail.right() - 90.0).abs() < 1e-6);
-        assert!((avail.top() - 5.0).abs() < 1e-6);
-        assert!((avail.bottom() - 45.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn icon_available_rect_accounts_for_inside_port_labels() {
-        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(100.0, 50.0));
-        let avail = compute_icon_available_rect(
-            &rect,
-            1.0,
-            Some(PortLabelMaxWidths {
-                left: 30.0,
-                right: 0.0,
-            }),
-        );
-        // margin is 10.0, but label inset should win:
-        // label_pad=4.0, left=30.0, gap=2.0 => 36.0.
-        assert!((avail.left() - 36.0).abs() < 1e-6);
-        assert!((avail.right() - 90.0).abs() < 1e-6);
-        assert!(avail.center().x > rect.center().x);
-    }
-
-    #[test]
-    fn icon_available_rect_degenerates_safely_when_insets_exceed_width() {
-        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(50.0, 20.0));
-        let avail = compute_icon_available_rect(
-            &rect,
-            1.0,
-            Some(PortLabelMaxWidths {
-                left: 1000.0,
-                right: 1000.0,
-            }),
-        );
-        assert!(avail.width() <= 0.0);
-        assert!((avail.center().x - rect.center().x).abs() < 1e-6);
-    }
-
-    #[test]
-    fn embedded_svg_assets_exist() {
-        for path in &[
-            "matrix/identity_matrix.svg",
-            "matrix/is_triangular.svg",
-            "matrix/matrix_product.svg",
-        ] {
-            let bytes = super::super::icon_assets::get(path);
-            assert!(bytes.is_some(), "missing asset {}", path);
-        }
-    }
-
-    #[test]
-    fn svg_rasterization_preserves_aspect_ratio() {
-        let bytes = super::super::icon_assets::get("matrix/is_triangular.svg").unwrap();
-        let options = resvg::usvg::Options::default();
-
-        let tree = resvg::usvg::Tree::from_data(&bytes, &options).unwrap();
-        let src_w = tree.size().width();
-        let src_h = tree.size().height();
-        let src_ratio = src_w / src_h;
-
-        let image = egui_extras::image::load_svg_bytes_with_size(
-            &bytes,
-            egui::SizeHint::Size {
-                width: 128,
-                height: 64,
-                maintain_aspect_ratio: true,
-            },
-            &options,
-        )
-        .unwrap();
-
-        assert!(image.size[0] <= 128);
-        assert!(image.size[1] <= 64);
-        let out_ratio = image.size[0] as f32 / image.size[1] as f32;
-        assert!((out_ratio - src_ratio).abs() < 0.02);
-    }
-
-    #[test]
-    fn svg_dest_size_never_exceeds_available_rect() {
-        let avail = Vec2::new(80.0, 40.0);
-        let ppp = 2.0;
-        let px_size = [160, 80];
-        let dst = svg_dest_size_points(avail, px_size, ppp);
-        assert!(dst.x <= avail.x + 1e-6);
-        assert!(dst.y <= avail.y + 1e-6);
-        assert!((dst.x / dst.y - (px_size[0] as f32 / px_size[1] as f32)).abs() < 1e-6);
-    }
-}
-
 /// Screen-space Y coordinates computed for a block's ports (as used by the UI when placing
 /// port labels and clamped within the block rect). Keys are 1-based port indices.
 #[derive(Clone, Debug, Default)]

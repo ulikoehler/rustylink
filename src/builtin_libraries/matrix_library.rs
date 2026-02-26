@@ -80,7 +80,6 @@ pub fn port_counts_for(name: &str) -> (u32, u32) {
     }
     (1, 1)
 }
-
 /// Construct a minimal `Block` stub suitable for rendering an unknown block
 /// from the matrix library.
 ///

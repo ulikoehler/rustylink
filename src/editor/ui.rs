@@ -45,7 +45,7 @@ fn luminance(c: Color32) -> f32 {
     0.2126 * to_lin(c.r()) + 0.7152 * to_lin(c.g()) + 0.0722 * to_lin(c.b())
 }
 
-fn contrast_color(bg: Color32) -> Color32 {
+pub fn contrast_color(bg: Color32) -> Color32 {
     if luminance(bg) > 0.6 { Color32::from_rgb(25, 35, 45) } else { Color32::from_rgb(235, 245, 245) }
 }
 
@@ -58,7 +58,7 @@ fn hsv_to_color(h: f32, s: f32, v: f32) -> Color32 {
     Color32::from_rgb(((r1 + m) * 255.0) as u8, ((g1 + m) * 255.0) as u8, ((b1 + m) * 255.0) as u8)
 }
 
-fn hash_color(input: &str, s: f32, v: f32) -> Color32 {
+pub fn hash_color(input: &str, s: f32, v: f32) -> Color32 {
     let mut hasher = DefaultHasher::new();
     input.hash(&mut hasher);
     let h = (hasher.finish() as f32 / u64::MAX as f32) % 1.0;
@@ -1203,7 +1203,7 @@ fn show_code_editor(state: &mut EditorState, ui: &mut egui::Ui) {
 // Helper functions
 // ────────────────────────────────────────────────────────────────────────────
 
-fn is_code_block(block: &crate::model::Block) -> bool {
+pub fn is_code_block(block: &crate::model::Block) -> bool {
     block.block_type == "SubSystem" && block.is_matlab_function
         || block.block_type == "MATLABSystem"
         || block.block_type == "Fcn"
@@ -1211,7 +1211,7 @@ fn is_code_block(block: &crate::model::Block) -> bool {
         || block.block_type == "CFunction"
 }
 
-fn is_subsystem_block(block: &crate::model::Block) -> bool {
+pub fn is_subsystem_block(block: &crate::model::Block) -> bool {
     (block.block_type == "SubSystem" || block.block_type == "Reference")
         && block.subsystem.as_ref().map_or(false, |s| s.chart.is_none())
 }
@@ -1221,7 +1221,7 @@ fn open_code_editor(state: &mut EditorState, block_idx: usize, block: &crate::mo
     state.code_editor.open_for_block(block_idx, &block.name, &code);
 }
 
-fn get_block_code(block: &crate::model::Block) -> String {
+pub fn get_block_code(block: &crate::model::Block) -> String {
     // Try Script property (MATLAB Function), then Code (CFunction)
     if let Some(script) = block.properties.get("Script") {
         return script.clone();
@@ -1235,7 +1235,7 @@ fn get_block_code(block: &crate::model::Block) -> String {
     String::new()
 }
 
-fn set_block_code(block: &mut crate::model::Block, code: &str) {
+pub fn set_block_code(block: &mut crate::model::Block, code: &str) {
     if block.properties.contains_key("Script") {
         block.properties.insert("Script".to_string(), code.to_string());
     } else if block.properties.contains_key("Code") {
@@ -1447,7 +1447,7 @@ fn draw_branch_rec(
     }
 }
 
-fn compute_line_colors(
+pub fn compute_line_colors(
     lines: &[crate::model::Line],
     _port_counts: &HashMap<(String, u8), u32>,
 ) -> Vec<Color32> {
@@ -1524,163 +1524,4 @@ fn compute_line_colors(
         let default_h = i as f32 / n.max(1) as f32;
         hue_to_color(h.unwrap_or(default_h))
     }).collect()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_hash_color_deterministic() {
-        let c1 = hash_color("Gain", 0.35, 0.90);
-        let c2 = hash_color("Gain", 0.35, 0.90);
-        assert_eq!(c1, c2);
-    }
-
-    #[test]
-    fn test_hash_color_different_inputs() {
-        let c1 = hash_color("Gain", 0.35, 0.90);
-        let c2 = hash_color("Sum", 0.35, 0.90);
-        // Different inputs should produce different colors (with high probability)
-        assert_ne!(c1, c2);
-    }
-
-    #[test]
-    fn test_contrast_color_light_bg() {
-        let c = contrast_color(Color32::WHITE);
-        assert_eq!(c, Color32::from_rgb(25, 35, 45));
-    }
-
-    #[test]
-    fn test_contrast_color_dark_bg() {
-        let c = contrast_color(Color32::BLACK);
-        assert_eq!(c, Color32::from_rgb(235, 245, 245));
-    }
-
-    #[test]
-    fn test_is_code_block() {
-        let mut block = crate::model::Block {
-            block_type: "SubSystem".to_string(),
-            name: "test".to_string(),
-            is_matlab_function: true,
-            sid: None,
-            tag_name: "Block".to_string(),
-            position: None,
-            zorder: None,
-            commented: false,
-            name_location: crate::model::NameLocation::Bottom,
-            value: None,
-            value_kind: crate::model::ValueKind::Unknown,
-            value_rows: None,
-            value_cols: None,
-            properties: indexmap::IndexMap::new(),
-            ref_properties: std::collections::BTreeSet::new(),
-            system_ref: None,
-            mask: None,
-            ports: Vec::new(),
-            port_counts: None,
-            subsystem: None,
-            annotations: Vec::new(),
-            child_order: Vec::new(),
-            block_mirror: None,
-            background_color: None,
-            instance_data: None,
-            c_function: None,
-            link_data: None,
-            show_name: None,
-            font_size: None,
-            font_weight: None,
-            mask_display_text: None,
-            current_setting: None,
-            library_source: None,
-            library_block_path: None,
-        };
-        assert!(is_code_block(&block));
-        block.is_matlab_function = false;
-        assert!(!is_code_block(&block));
-        block.block_type = "CFunction".to_string();
-        assert!(is_code_block(&block));
-    }
-
-    #[test]
-    fn test_is_subsystem_block() {
-        let mut block = crate::model::Block {
-            block_type: "SubSystem".to_string(),
-            name: "test".to_string(),
-            is_matlab_function: false,
-            sid: None,
-            tag_name: "Block".to_string(),
-            position: None,
-            zorder: None,
-            commented: false,
-            name_location: crate::model::NameLocation::Bottom,
-            value: None,
-            value_kind: crate::model::ValueKind::Unknown,
-            value_rows: None,
-            value_cols: None,
-            properties: indexmap::IndexMap::new(),
-            ref_properties: std::collections::BTreeSet::new(),
-            system_ref: None,
-            mask: None,
-            ports: Vec::new(),
-            port_counts: None,
-            subsystem: Some(Box::new(crate::model::System {
-                properties: indexmap::IndexMap::new(),
-                blocks: Vec::new(),
-                lines: Vec::new(),
-                annotations: Vec::new(),
-                chart: None,
-            })),
-            annotations: Vec::new(),
-            child_order: Vec::new(),
-            block_mirror: None,
-            background_color: None,
-            instance_data: None,
-            c_function: None,
-            link_data: None,
-            show_name: None,
-            font_size: None,
-            font_weight: None,
-            mask_display_text: None,
-            current_setting: None,
-            library_source: None,
-            library_block_path: None,
-        };
-        assert!(is_subsystem_block(&block));
-        block.subsystem = None;
-        assert!(!is_subsystem_block(&block));
-    }
-
-    #[test]
-    fn test_get_set_block_code() {
-        let mut block = super::super::operations::create_default_block("SubSystem", "Test", 0, 0, 1, 1);
-        block.properties.insert("Script".to_string(), "function y = f(x)\n  y = x;\nend".to_string());
-
-        assert_eq!(get_block_code(&block), "function y = f(x)\n  y = x;\nend");
-
-        set_block_code(&mut block, "function y = g(x)\n  y = 2*x;\nend");
-        assert_eq!(block.properties.get("Script").unwrap(), "function y = g(x)\n  y = 2*x;\nend");
-    }
-
-    #[test]
-    fn test_compute_line_colors_empty() {
-        let colors = compute_line_colors(&[], &HashMap::new());
-        assert!(colors.is_empty());
-    }
-
-    #[test]
-    fn test_compute_line_colors_single() {
-        let line = crate::model::Line {
-            name: None,
-            zorder: None,
-            src: Some(EndpointRef { sid: "1".to_string(), port_type: "out".to_string(), port_index: 1 }),
-            dst: Some(EndpointRef { sid: "2".to_string(), port_type: "in".to_string(), port_index: 1 }),
-            points: Vec::new(),
-            labels: None,
-            branches: Vec::new(),
-            properties: indexmap::IndexMap::new(),
-        };
-        let colors = compute_line_colors(&[line], &HashMap::new());
-        assert_eq!(colors.len(), 1);
-    }
 }
