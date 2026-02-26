@@ -1,6 +1,6 @@
 #![cfg(feature = "egui")]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use camino::Utf8PathBuf;
@@ -112,6 +112,19 @@ pub struct SubsystemApp {
     /// Optional click handler to override default action when clicking a block.
     /// Return true from the handler to indicate the click was handled and suppress the default behavior.
     pub block_click_handler: Option<Arc<dyn Fn(&mut SubsystemApp, &Block) -> bool + Send + Sync>>,
+
+    /// Global default for showing block names.
+    ///
+    /// Per-block override: `Block::show_name = Some(true/false)`.
+    pub show_block_names_default: bool,
+
+    /// Block-name font size as a factor of the port chevron height.
+    ///
+    /// A value of ~1.0 makes the text approximately the same height as the chevrons.
+    pub block_name_font_factor: f32,
+
+    /// Selected block SIDs in the current view (supports multi-selection).
+    pub selected_block_sids: BTreeSet<String>,
 }
 
 impl SubsystemApp {
@@ -145,6 +158,9 @@ impl SubsystemApp {
             library_search_paths: Vec::new(),
             subsystem_change_listeners: Vec::new(),
             block_click_handler: None,
+            show_block_names_default: true,
+            block_name_font_factor: 0.85,
+            selected_block_sids: BTreeSet::new(),
         }
     }
 
@@ -290,6 +306,7 @@ impl SubsystemApp {
         if !self.path.is_empty() {
             self.path.pop();
             self.reset_view = true;
+            self.selected_block_sids.clear();
             self.notify_subsystem_changed();
         }
     }
@@ -299,6 +316,7 @@ impl SubsystemApp {
         if resolve_subsystem_by_vec(&self.root, &p).is_some() {
             self.path = p;
             self.reset_view = true;
+            self.selected_block_sids.clear();
             self.notify_subsystem_changed();
         }
     }
@@ -310,6 +328,7 @@ impl SubsystemApp {
                 if sub.chart.is_none() {
                     self.path.push(b.name.clone());
                     self.reset_view = true;
+                    self.selected_block_sids.clear();
                     self.notify_subsystem_changed();
                     return true;
                 }

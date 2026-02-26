@@ -14,7 +14,7 @@ use super::geometry::{
 };
 use super::render::{
     ComputedPortYCoordinates, PortLabelMaxWidths, get_block_type_cfg, port_label_display_name,
-    render_block_icon, render_center_glyph_maximized, render_manual_switch,
+    render_block_icon, render_center_glyph_maximized, render_manual_switch, wrap_text_to_max_width,
 };
 use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
 use super::navigation::resolve_subsystem_by_vec;
@@ -227,6 +227,16 @@ fn update_internal(
             if resp.changed() {
                 app.update_search_matches();
             }
+
+            ui.separator();
+            ui.checkbox(&mut app.show_block_names_default, "Block names");
+            ui.label("Name size");
+            ui.add(
+                egui::DragValue::new(&mut app.block_name_font_factor)
+                    .speed(0.05)
+                    .range(0.2..=2.0),
+            );
+
             // Render transient in-GUI notification (right-aligned in the top bar)
             if let Some((msg, expiry)) = &app.transient_notification {
                 if std::time::Instant::now() > *expiry {
@@ -424,7 +434,7 @@ fn update_internal(
             staged_reset = false;
         }
 
-        let canvas_resp = ui.interact(avail, ui.id().with("canvas"), Sense::drag());
+        let canvas_resp = ui.interact(avail, ui.id().with("canvas"), Sense::click_and_drag());
         if canvas_resp.dragged() {
             let d = canvas_resp.drag_delta();
             staged_pan += d;
@@ -497,6 +507,25 @@ fn update_internal(
         let mut sid_map: HashMap<String, Rect> = HashMap::new();
         let mut sid_screen_map: HashMap<String, Rect> = HashMap::new();
         let mut block_views: Vec<(&crate::model::Block, Rect, bool, Color32)> = Vec::new();
+        let mut any_block_clicked = false;
+
+        fn paint_selected_shadow(painter: &egui::Painter, r: Rect, rounding: f32, font_scale: f32) {
+            let scale = font_scale.max(0.2);
+            // Draw a soft-ish shadow using multiple outside strokes. This ensures the
+            // highlight is only outside the block, never covering its interior.
+            let widths = [10.0 * scale, 18.0 * scale, 28.0 * scale];
+            let alphas = [50_u8, 30_u8, 18_u8];
+            for (w, a) in widths.into_iter().zip(alphas) {
+                let col = Color32::from_rgba_premultiplied(200, 60, 60, a);
+                painter.rect_stroke(
+                    r,
+                    rounding,
+                    Stroke::new(w, col),
+                    egui::StrokeKind::Outside,
+                );
+            }
+        }
+
         for (b, r) in &blocks {
             if let Some(sid) = &b.sid {
                 sid_map.insert(sid.clone(), *r);
@@ -505,19 +534,12 @@ fn update_internal(
             if let Some(sid) = &b.sid {
                 sid_screen_map.insert(sid.clone(), r_screen);
             }
+
+            let resp = ui.allocate_rect(r_screen, Sense::click());
             let cfg = get_block_type_cfg(&b.block_type);
             let bg = block_base_color(b, &cfg);
             let mut effective_bg = bg;
-            if b.commented {
-                // Light gray background, no outline
-                let commented_bg = Color32::from_rgb(230, 230, 230);
-                effective_bg = commented_bg;
-                ui.painter().rect_filled(r_screen, 0.0, commented_bg);
-            } else {
-                // Normal block rendering
-                ui.painter().rect_filled(r_screen, 6.0, bg);
-            }
-            let resp = ui.allocate_rect(r_screen, Sense::click());
+
             let mut block_action: Option<ClickAction> = None;
             if resp.double_clicked() {
                 println!("Block {} double-clicked", b.name);
@@ -528,6 +550,59 @@ fn update_internal(
             } else if resp.clicked() {
                 println!("Block {} clicked", b.name);
                 block_action = Some(ClickAction::Primary);
+            }
+
+            // Selection: single-click selects, Shift-click toggles (multi-select).
+            // This is independent from block dialogs (which remain available on double-click).
+            if matches!(block_action, Some(ClickAction::Primary)) {
+                any_block_clicked = true;
+                if let Some(sid) = &b.sid {
+                    let shift = ui.input(|i| i.modifiers.shift);
+                    if shift {
+                        if app.selected_block_sids.contains(sid) {
+                            app.selected_block_sids.remove(sid);
+                        } else {
+                            app.selected_block_sids.insert(sid.clone());
+                        }
+                    } else {
+                        app.selected_block_sids.clear();
+                        app.selected_block_sids.insert(sid.clone());
+                    }
+                }
+            }
+
+            // Clear selection when clicking empty canvas.
+            if canvas_resp.clicked() && !any_block_clicked {
+                if let Some(pos) = canvas_resp.interact_pointer_pos() {
+                    let hit_any = blocks.iter().any(|(_, br)| {
+                        let br_screen = Rect::from_min_max(to_screen(br.min), to_screen(br.max));
+                        br_screen.contains(pos)
+                    });
+                    if !hit_any {
+                        app.selected_block_sids.clear();
+                    }
+                }
+            }
+
+            // Paint selection shadow behind the block (outside-only).
+            if b
+                .sid
+                .as_ref()
+                .map(|sid| app.selected_block_sids.contains(sid))
+                .unwrap_or(false)
+            {
+                let rounding = if b.commented { 0.0 } else { 6.0 };
+                paint_selected_shadow(ui.painter(), r_screen, rounding, font_scale);
+            }
+
+            if b.commented {
+                // Light gray background, no outline
+                let commented_bg = Color32::from_rgb(230, 230, 230);
+                effective_bg = commented_bg;
+                ui.painter().rect_filled(r_screen, 0.0, commented_bg);
+            } else {
+                // Normal block rendering
+                ui.painter().rect_filled(r_screen, 6.0, bg);
             }
             if enable_context_menus {
                 resp.context_menu(|ui| {
@@ -554,7 +629,10 @@ fn update_internal(
             }
             if let Some(action) = block_action {
                 let mut handled = false;
-                if matches!(action, ClickAction::Primary | ClickAction::DoublePrimary) {
+                if matches!(action, ClickAction::Primary) {
+                    // Primary click is used for selection; keep it from opening dialogs/subsystems.
+                    handled = true;
+                } else if matches!(action, ClickAction::DoublePrimary) {
                     if let Some(handler) = block_click_handler_snapshot.as_ref() {
                         handled = handler(app, b);
                     }
@@ -1572,7 +1650,8 @@ fn update_internal(
             ) {
                 let scale = font_scale.max(0.2);
                 // make chevron much larger than previous circle markers
-                let stroke_w = (2.0 * scale).max(1.0);
+                // increase stroke width (dash thickness) to twice previous value
+                let stroke_w = (4.0 * scale).max(1.0);
                 // height/width before scaling were 8x6; multiply by 4
                 let h = (8.0 * scale * 4.0).max(3.0 * 4.0);
                 let w = (6.0 * scale * 4.0).max(2.0 * 4.0);
@@ -1717,72 +1796,80 @@ fn update_internal(
                     icon_port_label_widths,
                 );
             }
-            // Respect ShowName flag when drawing label near the block according to NameLocation.
-            // If value is shown or mask display is used, do not draw the name label
-            let show_name = b.show_name.unwrap_or(true);
-            let suppress_label = b.mask.is_some();
-            if show_name && !suppress_label {
-                let lines: Vec<&str> = b.name.split('\n').collect();
-                let font = egui::FontId::proportional(10.0 * font_scale);
-                // Force white labels beneath/around blocks for consistent readability
+            // Draw block name label near the block according to NameLocation.
+            // Global default can be toggled; per-block override uses `Block::show_name`.
+            let show_name = b.show_name.unwrap_or(app.show_block_names_default);
+            if show_name {
+                let scale = font_scale.max(0.2);
+
+                // Keep name width bounded relative to (block + chevrons) width.
+                let chevron_h = (8.0 * scale * 4.0).max(3.0 * 4.0);
+                let chevron_w = (6.0 * scale * 4.0).max(2.0 * 4.0);
+
+                let in_count = b.port_counts.as_ref().and_then(|p| p.ins).unwrap_or(0);
+                let out_count = b.port_counts.as_ref().and_then(|p| p.outs).unwrap_or(0);
+                let mirrored = b.block_mirror.unwrap_or(false);
+                let ins_left_side = !mirrored;
+                let outs_left_side = mirrored;
+                let has_left = (in_count > 0 && ins_left_side) || (out_count > 0 && outs_left_side);
+                let has_right = (in_count > 0 && !ins_left_side)
+                    || (out_count > 0 && !outs_left_side);
+                let left_extra = if has_left { chevron_w } else { 0.0 };
+                let right_extra = if has_right { chevron_w } else { 0.0 };
+                let overall_w = r_screen.width() + left_extra + right_extra;
+                let max_label_w = overall_w * 0.95;
+
+                let font_px = (chevron_h * app.block_name_font_factor).max(1.0);
+                let font = egui::FontId::proportional(font_px);
+                let line_height = (font_px * 1.2).max(1.0);
                 let color = Color32::WHITE;
-                let line_height = 16.0 * font_scale;
-                match b.name_location {
-                    crate::model::NameLocation::Bottom => {
-                        let mut y = r_screen.bottom() + 2.0 * font_scale;
-                        for line in lines.iter().copied() {
-                            let pos = Pos2::new(r_screen.center().x, y);
-                            painter.text(pos, Align2::CENTER_TOP, line, font.clone(), color);
-                            y += line_height;
+
+                let lines = wrap_text_to_max_width(painter, &b.name, font.clone(), max_label_w);
+                if !lines.is_empty() {
+                    let left = r_screen.left() - left_extra;
+                    let right = r_screen.right() + right_extra;
+                    let center_x = (left + right) * 0.5;
+
+                    match b.name_location {
+                        crate::model::NameLocation::Bottom => {
+                            let mut y = r_screen.bottom() + 2.0 * font_scale;
+                            for line in &lines {
+                                let pos = Pos2::new(center_x, y);
+                                painter.text(pos, Align2::CENTER_TOP, line, font.clone(), color);
+                                y += line_height;
+                            }
                         }
-                    }
-                    crate::model::NameLocation::Top => {
-                        // Mirror of bottom: start just above the block and stack upwards.
-                        // Keep the first line closest to the block (same as bottom behavior).
-                        let mut y = r_screen.top() - 2.0 * font_scale;
-                        for line in lines.iter().copied() {
-                            let pos = Pos2::new(r_screen.center().x, y);
-                            painter.text(pos, Align2::CENTER_BOTTOM, line, font.clone(), color);
-                            y -= line_height;
+                        crate::model::NameLocation::Top => {
+                            // Mirror of bottom: keep the first line closest to the block.
+                            let mut y = r_screen.top() - 2.0 * font_scale;
+                            for line in &lines {
+                                let pos = Pos2::new(center_x, y);
+                                painter.text(pos, Align2::CENTER_BOTTOM, line, font.clone(), color);
+                                y -= line_height;
+                            }
                         }
-                    }
-                    crate::model::NameLocation::Left => {
-                        // Place labels to the left of the block without overlap: align each line's right edge
-                        // to r_screen.left() - gap.
-                        let mut galleys: Vec<(std::sync::Arc<egui::Galley>, f32)> = Vec::new();
-                        for line in lines.iter().copied() {
-                            let galley =
-                                painter.layout_no_wrap(line.to_string(), font.clone(), color);
-                            galleys.push((galley, line_height));
+                        crate::model::NameLocation::Left => {
+                            let total_h = (lines.len() as f32) * line_height;
+                            let mut y = r_screen.center().y - total_h * 0.5;
+                            let gap = 2.0 * font_scale;
+                            let x_right = r_screen.left() - gap;
+                            for line in &lines {
+                                let galley = painter.layout_no_wrap(line.to_string(), font.clone(), color);
+                                let pos = Pos2::new(x_right - galley.size().x, y);
+                                painter.galley(pos, galley, color);
+                                y += line_height;
+                            }
                         }
-                        let total_h = (lines.len() as f32) * line_height;
-                        let mut y = r_screen.center().y - total_h * 0.5;
-                        let gap = 2.0 * font_scale;
-                        let x_right = r_screen.left() - gap;
-                        for (galley, lh) in galleys {
-                            let pos = Pos2::new(x_right - galley.size().x, y);
-                            painter.galley(pos, galley, color);
-                            y += lh;
-                        }
-                    }
-                    crate::model::NameLocation::Right => {
-                        // Place labels to the right of the block
-                        let mut galleys: Vec<(std::sync::Arc<egui::Galley>, f32)> = Vec::new();
-                        let mut max_w = 0.0f32;
-                        for line in lines.iter().copied() {
-                            let galley =
-                                painter.layout_no_wrap(line.to_string(), font.clone(), color);
-                            max_w = max_w.max(galley.size().x);
-                            galleys.push((galley, line_height));
-                        }
-                        let total_h = (lines.len() as f32) * line_height;
-                        let mut y = r_screen.center().y - total_h * 0.5;
-                        let x = r_screen.right() + 2.0 * font_scale;
-                        for (galley, lh) in galleys {
-                            // draw at left-top; ensure we offset slightly from block on the right
-                            let pos = Pos2::new(x + 2.0 * font_scale, y);
-                            painter.galley(pos, galley, color);
-                            y += lh;
+                        crate::model::NameLocation::Right => {
+                            let total_h = (lines.len() as f32) * line_height;
+                            let mut y = r_screen.center().y - total_h * 0.5;
+                            let x = r_screen.right() + 2.0 * font_scale;
+                            for line in &lines {
+                                let galley = painter.layout_no_wrap(line.to_string(), font.clone(), color);
+                                let pos = Pos2::new(x + 2.0 * font_scale, y);
+                                painter.galley(pos, galley, color);
+                                y += line_height;
+                            }
                         }
                     }
                 }

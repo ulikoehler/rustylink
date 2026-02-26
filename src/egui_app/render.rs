@@ -54,6 +54,117 @@ pub(crate) fn port_label_display_name(block: &Block, index: u32, is_input: bool)
         .unwrap_or_else(|| format!("{}{}", if is_input { "In" } else { "Out" }, index))
 }
 
+pub(crate) fn wrap_text_to_max_width(
+    painter: &egui::Painter,
+    text: &str,
+    font_id: egui::FontId,
+    max_width: f32,
+) -> Vec<String> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    if !max_width.is_finite() || max_width <= 1.0 {
+        return text.split('\n').map(|s| s.to_string()).collect();
+    }
+
+    fn measure_width(painter: &egui::Painter, s: &str, font_id: &egui::FontId) -> f32 {
+        painter
+            .layout_no_wrap(s.to_string(), font_id.clone(), Color32::TRANSPARENT)
+            .size()
+            .x
+    }
+
+    fn split_prefix_that_fits<'a>(
+        painter: &egui::Painter,
+        word: &'a str,
+        font_id: &egui::FontId,
+        max_width: f32,
+    ) -> (&'a str, &'a str) {
+        if word.is_empty() {
+            return ("", "");
+        }
+
+        let mut boundaries: Vec<usize> = word.char_indices().map(|(i, _)| i).collect();
+        boundaries.push(word.len());
+        if boundaries.len() <= 2 {
+            // One character (or empty) — must make progress.
+            return (word, "");
+        }
+
+        let mut best = 1usize; // at least one char
+        let mut lo = 1usize;
+        let mut hi = boundaries.len();
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            let idx = boundaries[mid];
+            let prefix = &word[..idx];
+            if measure_width(painter, prefix, font_id) <= max_width {
+                best = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+
+        let split_idx = boundaries[best];
+        (&word[..split_idx], &word[split_idx..])
+    }
+
+    let mut out: Vec<String> = Vec::new();
+    for para in text.split('\n') {
+        // Preserve explicit newlines.
+        if para.trim().is_empty() {
+            out.push(String::new());
+            continue;
+        }
+
+        let mut current = String::new();
+        for word in para.split_whitespace() {
+            if current.is_empty() {
+                if measure_width(painter, word, &font_id) <= max_width {
+                    current.push_str(word);
+                } else {
+                    // Extremely long word: split by character to guarantee progress.
+                    let mut rest = word;
+                    while !rest.is_empty() {
+                        let (prefix, new_rest) =
+                            split_prefix_that_fits(painter, rest, &font_id, max_width);
+                        out.push(prefix.to_string());
+                        rest = new_rest;
+                    }
+                }
+                continue;
+            }
+
+            let candidate = format!("{} {}", current, word);
+            if measure_width(painter, &candidate, &font_id) <= max_width {
+                current = candidate;
+            } else {
+                out.push(current);
+                current = String::new();
+
+                if measure_width(painter, word, &font_id) <= max_width {
+                    current.push_str(word);
+                } else {
+                    let mut rest = word;
+                    while !rest.is_empty() {
+                        let (prefix, new_rest) =
+                            split_prefix_that_fits(painter, rest, &font_id, max_width);
+                        out.push(prefix.to_string());
+                        rest = new_rest;
+                    }
+                }
+            }
+        }
+
+        if !current.is_empty() {
+            out.push(current);
+        }
+    }
+
+    out
+}
+
 fn compute_icon_available_rect(
     rect: &Rect,
     font_scale: f32,

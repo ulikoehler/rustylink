@@ -25,6 +25,7 @@ use crate::model::EndpointRef;
 use crate::egui_app::{
     endpoint_pos_maybe_mirrored, endpoint_pos_with_target_maybe_mirrored, parse_block_rect,
     parse_rect_str, get_block_type_cfg, render_block_icon,
+    wrap_text_to_max_width,
     highlight_query_job,
     BlockDialog, SignalDialog,
 };
@@ -208,6 +209,15 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             // Grid toggle
             ui.checkbox(&mut state.show_grid, "Grid");
             ui.checkbox(&mut state.snap_to_grid, "Snap");
+
+            ui.separator();
+            ui.checkbox(&mut state.app.show_block_names_default, "Block names");
+            ui.label("Name size");
+            ui.add(
+                egui::DragValue::new(&mut state.app.block_name_font_factor)
+                    .speed(0.05)
+                    .range(0.2..=2.0),
+            );
 
             // Modified indicator
             if state.dirty {
@@ -434,15 +444,95 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
                 );
             }
 
-            // Block label
-            let label_font = egui::FontId::proportional(12.0 * font_scale);
-            let label_text = b.name.replace('\n', " ");
-            let fg = if b.commented { Color32::GRAY } else { contrast_color(bg) };
-            let label_pos = Pos2::new(
-                r_screen.center().x,
-                r_screen.max.y + 4.0 * font_scale,
-            );
-            ui.painter().text(label_pos, Align2::CENTER_TOP, &label_text, label_font, fg);
+            // Block label (global default + per-block override).
+            let show_name = b.show_name.unwrap_or(state.app.show_block_names_default);
+            if show_name {
+                let scale = font_scale.max(0.2);
+                let chevron_h = (8.0 * scale * 4.0).max(3.0 * 4.0);
+                let chevron_w = (6.0 * scale * 4.0).max(2.0 * 4.0);
+
+                let in_count = b.port_counts.as_ref().and_then(|p| p.ins).unwrap_or(0);
+                let out_count = b.port_counts.as_ref().and_then(|p| p.outs).unwrap_or(0);
+                let mirrored = b.block_mirror.unwrap_or(false);
+                let ins_left_side = !mirrored;
+                let outs_left_side = mirrored;
+                let has_left = (in_count > 0 && ins_left_side) || (out_count > 0 && outs_left_side);
+                let has_right = (in_count > 0 && !ins_left_side)
+                    || (out_count > 0 && !outs_left_side);
+                let left_extra = if has_left { chevron_w } else { 0.0 };
+                let right_extra = if has_right { chevron_w } else { 0.0 };
+                let overall_w = r_screen.width() + left_extra + right_extra;
+                let max_label_w = overall_w * 0.95;
+
+                let font_px = (chevron_h * state.app.block_name_font_factor).max(1.0);
+                let label_font = egui::FontId::proportional(font_px);
+                let line_height = (font_px * 1.2).max(1.0);
+                let fg = if b.commented { Color32::GRAY } else { contrast_color(bg) };
+
+                let lines =
+                    wrap_text_to_max_width(ui.painter(), &b.name, label_font.clone(), max_label_w);
+                if !lines.is_empty() {
+                    let left = r_screen.left() - left_extra;
+                    let right = r_screen.right() + right_extra;
+                    let center_x = (left + right) * 0.5;
+
+                    match b.name_location {
+                        crate::model::NameLocation::Bottom => {
+                            let mut y = r_screen.bottom() + 4.0 * font_scale;
+                            for line in &lines {
+                                let pos = Pos2::new(center_x, y);
+                                ui.painter().text(
+                                    pos,
+                                    Align2::CENTER_TOP,
+                                    line,
+                                    label_font.clone(),
+                                    fg,
+                                );
+                                y += line_height;
+                            }
+                        }
+                        crate::model::NameLocation::Top => {
+                            let mut y = r_screen.top() - 4.0 * font_scale;
+                            for line in &lines {
+                                let pos = Pos2::new(center_x, y);
+                                ui.painter().text(
+                                    pos,
+                                    Align2::CENTER_BOTTOM,
+                                    line,
+                                    label_font.clone(),
+                                    fg,
+                                );
+                                y -= line_height;
+                            }
+                        }
+                        crate::model::NameLocation::Left => {
+                            let total_h = (lines.len() as f32) * line_height;
+                            let mut y = r_screen.center().y - total_h * 0.5;
+                            let gap = 2.0 * font_scale;
+                            let x_right = r_screen.left() - gap;
+                            for line in &lines {
+                                let galley =
+                                    ui.painter().layout_no_wrap(line.to_string(), label_font.clone(), fg);
+                                let pos = Pos2::new(x_right - galley.size().x, y);
+                                ui.painter().galley(pos, galley, fg);
+                                y += line_height;
+                            }
+                        }
+                        crate::model::NameLocation::Right => {
+                            let total_h = (lines.len() as f32) * line_height;
+                            let mut y = r_screen.center().y - total_h * 0.5;
+                            let x = r_screen.right() + 2.0 * font_scale;
+                            for line in &lines {
+                                let galley =
+                                    ui.painter().layout_no_wrap(line.to_string(), label_font.clone(), fg);
+                                let pos = Pos2::new(x + 2.0 * font_scale, y);
+                                ui.painter().galley(pos, galley, fg);
+                                y += line_height;
+                            }
+                        }
+                    }
+                }
+            }
 
             // Port indicators
             draw_port_indicators(ui, b, &r_screen, font_scale);
@@ -1186,7 +1276,8 @@ fn draw_port_indicators(
     ) {
         let scale = font_scale.max(0.2);
         // enlarge chevrons by factor of 4 relative to prior dot markers
-        let stroke_w = (2.0 * scale).max(1.0);
+        // thicker stroke for chevron edges
+        let stroke_w = (4.0 * scale).max(1.0);
         let h = (8.0 * scale * 4.0).max(3.0 * 4.0);
         let w = (6.0 * scale * 4.0).max(2.0 * 4.0);
 
