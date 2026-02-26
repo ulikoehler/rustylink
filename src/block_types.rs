@@ -175,9 +175,18 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
         },
     );
 
+    // add explicit icon for cross product so it no longer uses the generic eye
+    m.insert(
+        "CrossProduct".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Svg("matrix/cross_product.svg")),
+            ..Default::default()
+        },
+    );
+
     // The remaining matrix-library virtual blocks currently share a generic placeholder.
     for name in [
-        "CrossProduct",
+        // "CrossProduct",  // handled above
         "MatrixMultiply",
         "Submatrix",
         "Transpose",
@@ -234,5 +243,23 @@ where
             .entry(block_type.to_string())
             .or_insert_with(BlockTypeConfig::default);
         f(entry);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cross_product_has_custom_icon() {
+        let map = get_block_type_config_map();
+        let cfg = map.read().unwrap();
+        let cp = cfg.get("CrossProduct").expect("CrossProduct config missing");
+        match cp.icon {
+            Some(IconSpec::Svg(path)) => {
+                assert_eq!(path, "matrix/cross_product.svg");
+            }
+            other => panic!("unexpected icon spec for CrossProduct: {:?}", other),
+        }
     }
 }
