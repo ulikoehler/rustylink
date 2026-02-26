@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 240" width="200" height="240">
+
+  <!-- Matrix left bracket -->
+  <path d="M 30 20 L 20 20 L 20 160 L 30 160" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Matrix right bracket -->
+  <path d="M 170 20 L 180 20 L 180 160 L 170 160" fill="none" stroke="#333" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Row 1 -->
+  <!-- Cell (0,0) - filled dark -->
+  <rect x="38" y="25" width="36" height="36" rx="6" ry="6" fill="#333" stroke="#333" stroke-width="1.5"/>
+  <!-- Cell (0,1) - filled dark -->
+  <rect x="82" y="25" width="36" height="36" rx="6" ry="6" fill="#333" stroke="#333" stroke-width="1.5"/>
+  <!-- Cell (0,2) - filled dark -->
+  <rect x="126" y="25" width="36" height="36" rx="6" ry="6" fill="#333" stroke="#333" stroke-width="1.5"/>
+
+  <!-- Row 2 -->
+  <!-- Cell (1,0) - empty (below diagonal) -->
+  <rect x="38" y="69" width="36" height="36" rx="6" ry="6" fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <!-- Cell (1,1) - filled dark -->
+  <rect x="82" y="69" width="36" height="36" rx="6" ry="6" fill="#333" stroke="#333" stroke-width="1.5"/>
+  <!-- Cell (1,2) - filled dark -->
+  <rect x="126" y="69" width="36" height="36" rx="6" ry="6" fill="#333" stroke="#333" stroke-width="1.5"/>
+
+  <!-- Row 3 -->
+  <!-- Cell (2,0) - empty (below diagonal) -->
+  <rect x="38" y="113" width="36" height="36" rx="6" ry="6" fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <!-- Cell (2,1) - empty (below diagonal) -->
+  <rect x="82" y="113" width="36" height="36" rx="6" ry="6" fill="none" stroke="#999" stroke-width="1.5" stroke-dasharray="4,3"/>
+  <!-- Cell (2,2) - filled dark -->
+  <rect x="126" y="113" width="36" height="36" rx="6" ry="6" fill="#333" stroke="#333" stroke-width="1.5"/>
+
+  <!-- Triangle highlight overlay -->
+  <polygon points="38,25 162,25 162,149" fill="none" stroke="#555" stroke-width="2.5" stroke-dasharray="6,3" opacity="0.5"/>
+
+  <!-- Question mark below -->
+  <text x="100" y="222" font-family="Georgia, serif" font-size="48" font-weight="bold" fill="#333" text-anchor="middle" dominant-baseline="middle">?</text>
+
+</svg>
