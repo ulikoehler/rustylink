@@ -198,12 +198,11 @@ fn resolve_virtual_simulink_logic_and_bit() {
 
 #[test]
 fn resolve_virtual_matrix_library_blocks() {
-    use camino::Utf8PathBuf;
     use rustylink::parser::{FsSource, SimulinkParser};
     use rustylink::model::{System, Block};
     use indexmap::IndexMap;
 
-    // two different matrix blocks
+    // three different matrix blocks
     let mut sys = System {
         properties: IndexMap::new(),
         blocks: vec![
@@ -293,6 +292,49 @@ fn resolve_virtual_matrix_library_blocks() {
                 library_block_path: None,
                 child_order: vec![],
             },
+            Block {
+                block_type: "Baz".to_string(),
+                name: "C".to_string(),
+                sid: None,
+                tag_name: "Block".to_string(),
+                position: None,
+                zorder: None,
+                commented: false,
+                name_location: Default::default(),
+                is_matlab_function: false,
+                value: None,
+                value_kind: Default::default(),
+                value_rows: None,
+                value_cols: None,
+                properties: {
+                    let mut m = IndexMap::new();
+                    m.insert(
+                        "SourceBlock".to_string(),
+                        "matrix_library/PermuteColumns".to_string(),
+                    );
+                    m
+                },
+                ref_properties: Default::default(),
+                port_counts: None,
+                ports: Vec::new(),
+                mask: None,
+                annotations: Vec::new(),
+                subsystem: None,
+                system_ref: None,
+                c_function: None,
+                instance_data: None,
+                link_data: None,
+                background_color: None,
+                show_name: None,
+                font_size: None,
+                font_weight: None,
+                mask_display_text: None,
+                current_setting: None,
+                block_mirror: None,
+                library_source: None,
+                library_block_path: None,
+                child_order: vec![],
+            },
         ],
         lines: Vec::new(),
         annotations: Vec::new(),
@@ -304,7 +346,19 @@ fn resolve_virtual_matrix_library_blocks() {
     assert_eq!(sys.blocks[0].library_source.as_deref(), Some("matrix_library"));
     assert_eq!(sys.blocks[0].library_block_path.as_deref(), Some("matrix_library/IsTriangular"));
     assert_eq!(sys.blocks[0].port_counts.as_ref().and_then(|p| p.ins), Some(1));
+    // port labels should exist but be empty strings
+    assert_eq!(sys.blocks[0].ports[0].properties.get("Name").map(|s| s.as_str()), Some(""));
     assert_eq!(sys.blocks[1].library_source.as_deref(), Some("matrix_library"));
     assert_eq!(sys.blocks[1].library_block_path.as_deref(), Some("matrix_library/IdentityMatrix"));
     assert_eq!(sys.blocks[1].port_counts.as_ref().and_then(|p| p.ins), Some(0));
+    // IdentityMatrix has a single output port index 1
+    assert_eq!(sys.blocks[1].ports[0].properties.get("Name").map(|s| s.as_str()), Some(""));
+
+    assert_eq!(sys.blocks[2].library_source.as_deref(), Some("matrix_library"));
+    assert_eq!(sys.blocks[2].library_block_path.as_deref(), Some("matrix_library/PermuteColumns"));
+    assert_eq!(sys.blocks[2].port_counts.as_ref().and_then(|p| p.ins), Some(2));
+    assert_eq!(sys.blocks[2].port_counts.as_ref().and_then(|p| p.outs), Some(1));
+    // port labels should exist but be empty strings
+    assert_eq!(sys.blocks[2].ports.len(), 3);
+    assert_eq!(sys.blocks[2].ports[0].properties.get("Name").map(|s| s.as_str()), Some(""));
 }

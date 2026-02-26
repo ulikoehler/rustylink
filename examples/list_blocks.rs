@@ -47,15 +47,15 @@ fn main() -> Result<()> {
         parser.parse_system_file(&path)?
     };
 
-    // Resolve library references
+    // Resolve library references (including virtual libraries like `matrix_library`)
     if !lib_paths.is_empty() {
         println!("Resolving library references using paths:");
         for p in &lib_paths {
             println!("  - {}", p);
         }
-        SimulinkParser::<FsSource>::resolve_library_references(&mut root_system, &lib_paths)
-            .with_context(|| "Failed to resolve library references")?;
     }
+    SimulinkParser::<FsSource>::resolve_library_references(&mut root_system, &lib_paths)
+        .with_context(|| "Failed to resolve library references")?;
 
     println!("\nBlocks in {}:", args.file);
     println!("================");

@@ -1562,6 +1562,28 @@ fn update_internal(
                 Color32::from_rgb(border_rgb.0, border_rgb.1, border_rgb.2),
             );
             painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
+
+            // Draw port indicators derived from the block's own port counts.
+            // This is important for virtual-library blocks (e.g. matrix_library)
+            // and for unconnected blocks where no lines exist yet.
+            let in_count = b.port_counts.as_ref().and_then(|p| p.ins).unwrap_or(0);
+            let out_count = b.port_counts.as_ref().and_then(|p| p.outs).unwrap_or(0);
+            if in_count > 0 || out_count > 0 {
+                let mirrored = b.block_mirror.unwrap_or(false);
+                let (ins, outs) = super::geometry::port_indicator_positions(
+                    *r_screen,
+                    in_count,
+                    out_count,
+                    mirrored,
+                );
+                let port_radius = (3.0 * font_scale.max(0.2)).max(1.0);
+                for p in ins {
+                    painter.circle_filled(p, port_radius, Color32::from_rgb(60, 60, 200));
+                }
+                for p in outs {
+                    painter.circle_filled(p, port_radius, Color32::from_rgb(200, 60, 60));
+                }
+            }
             let fg = contrast_color(*bg);
             let display_signal_label = if b.block_type == "Display" {
                 let sid = b.sid.as_deref();

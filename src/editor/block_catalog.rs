@@ -411,7 +411,7 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
     c.push(entry("IsSymmetric", "Is Symmetric", cat, 1, 1, "Test if matrix is symmetric"));
     c.push(entry("Submatrix", "Submatrix", cat, 1, 1, "Extract a submatrix"));
     c.push(entry("MatrixSquare", "Matrix Square", cat, 1, 1, "Compute A'*A"));
-    c.push(entry("PermuteColumns", "Permute Columns", cat, 1, 1, "Permute matrix columns"));
+    c.push(entry("PermuteColumns", "Permute Columns", cat, 2, 1, "Permute matrix columns"));
     c.push(entry("ExpandScalar", "Expand Scalar", cat, 1, 1, "Turn scalar into matrix"));
     c.push(entry("IsHermitian", "Is Hermitian", cat, 1, 1, "Test if matrix is Hermitian"));
     c.push(entry("DiagonalMatrix", "Create Diagonal Matrix", cat, 1, 1, "Create diagonal from vector"));

@@ -122,4 +122,31 @@ pub fn endpoint_pos_with_target_maybe_mirrored(
     p
 }
 
+/// Compute the positions of port indicators to draw for a block.
+///
+/// These indicators are purely visual (useful even when the model has no
+/// connected lines) and are derived from the block's port counts.
+pub fn port_indicator_positions(
+    r: Rect,
+    in_count: u32,
+    out_count: u32,
+    mirrored: bool,
+) -> (Vec<Pos2>, Vec<Pos2>) {
+    let (in_side, out_side) = if mirrored {
+        (PortSide::Out, PortSide::In)
+    } else {
+        (PortSide::In, PortSide::Out)
+    };
+
+    let mut ins = Vec::new();
+    for i in 1..=in_count {
+        ins.push(port_anchor_pos(r, in_side, i, Some(in_count.max(1))));
+    }
+    let mut outs = Vec::new();
+    for i in 1..=out_count {
+        outs.push(port_anchor_pos(r, out_side, i, Some(out_count.max(1))));
+    }
+    (ins, outs)
+}
+
 // tests moved to tests/ module

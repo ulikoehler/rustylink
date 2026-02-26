@@ -60,11 +60,9 @@ fn main() -> Result<()> {
         let root = Utf8PathBuf::from("simulink/systems/system_root.xml");
         let mut sys = parser.parse_system_file(&root)?;
 
-        // Resolve library references (using previously-built search paths)
-        if !lib_paths.is_empty() {
-            SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &lib_paths)
-                .with_context(|| "Failed to resolve library references")?;
-        }
+        // Resolve library references (including virtual libraries like `matrix_library`)
+        SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &lib_paths)
+            .with_context(|| "Failed to resolve library references")?;
 
         // Collect library names referenced from the system (SourceBlock) recursively
         fn collect_sys_libs(sys: &rustylink::model::System, acc: &mut std::collections::HashSet<String>) {
@@ -106,11 +104,9 @@ fn main() -> Result<()> {
             .parse_system_file(&path)
             .with_context(|| format!("Failed to parse {}", path))?;
 
-        // Resolve library references (using previously-built search paths)
-        if !lib_paths.is_empty() {
-            SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &lib_paths)
-                .with_context(|| "Failed to resolve library references")?;
-        }
+        // Resolve library references (including virtual libraries like `matrix_library`)
+        SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &lib_paths)
+            .with_context(|| "Failed to resolve library references")?;
 
         // Collect library names referenced from the system (SourceBlock) recursively
         fn collect_sys_libs(sys: &rustylink::model::System, acc: &mut std::collections::HashSet<String>) {

@@ -123,7 +123,14 @@ impl<S: ContentSource> SimulinkParser<S> {
         use std::collections::HashMap;
         let mut library_cache: HashMap<String, System> = HashMap::new();
         let resolver = LibraryResolver::new(lib_paths.iter());
-        Self::resolve_library_references_recursive(system, "", &resolver, &mut library_cache)?;
+        let suppress_missing_external_warnings = lib_paths.is_empty();
+        Self::resolve_library_references_recursive(
+            system,
+            "",
+            &resolver,
+            &mut library_cache,
+            suppress_missing_external_warnings,
+        )?;
         Ok(())
     }
 
@@ -132,6 +139,7 @@ impl<S: ContentSource> SimulinkParser<S> {
         system_path: &str,
         resolver: &LibraryResolver,
         cache: &mut std::collections::HashMap<String, System>,
+        suppress_missing_external_warnings: bool,
     ) -> Result<()> {
         fn warn_yellow(msg: impl AsRef<str>) {
             // ANSI yellow; printed to stderr.
@@ -213,7 +221,7 @@ impl<S: ContentSource> SimulinkParser<S> {
                     "transpose" | "at" => (1, 1),
                     "hermitiantranspose" | "ah" => (1, 1),
                     "matrixsquare" => (1, 1),
-                    "permutecolumns" | "permutematrix" | "permute" => (1, 1),
+                    "permutecolumns" | "permutematrix" | "permute" => (2, 1),
                     "extractdiagonal" => (1, 1),
                     "creatediagonalmatrix" | "diagonalmatrix" => (1, 1),
                     "expandscalar" => (1, 1),
@@ -226,18 +234,23 @@ impl<S: ContentSource> SimulinkParser<S> {
             // build ports vector
             let mut ports = Vec::new();
             for i in 1..=ins {
-                ports.push(crate::model::Port {
+                let mut p = crate::model::Port {
                     port_type: "in".to_string(),
                     index: Some(i),
                     properties: indexmap::IndexMap::new(),
-                });
+                };
+                // matrix library ports should support labels, but they are empty by default
+                p.properties.insert("Name".to_string(), String::new());
+                ports.push(p);
             }
             for i in 1..=outs {
-                ports.push(crate::model::Port {
+                let mut p = crate::model::Port {
                     port_type: "out".to_string(),
                     index: Some(i),
                     properties: indexmap::IndexMap::new(),
-                });
+                };
+                p.properties.insert("Name".to_string(), String::new());
+                ports.push(p);
             }
             let port_counts = if ins > 0 || outs > 0 {
                 Some(crate::model::PortCounts {
@@ -342,10 +355,12 @@ impl<S: ContentSource> SimulinkParser<S> {
                                     }
                                 }
                             } else {
-                                warn_yellow(format!(
-                                    "library '{}' not found (requested by '{}')",
-                                    lib_name, block_host_path
-                                ));
+                                if !suppress_missing_external_warnings {
+                                    warn_yellow(format!(
+                                        "library '{}' not found (requested by '{}')",
+                                        lib_name, block_host_path
+                                    ));
+                                }
                                 continue;
                             }
                         }
@@ -389,6 +404,7 @@ impl<S: ContentSource> SimulinkParser<S> {
                     &block_host_path,
                     resolver,
                     cache,
+                    suppress_missing_external_warnings,
                 )?;
             }
         }
@@ -556,7 +572,6 @@ impl<S: ContentSource> SimulinkParser<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Block, ValueKind};
     use crate::parser::{LibraryResolver, SimulinkParser, FsSource};
     use camino::Utf8PathBuf;
     use indexmap::IndexMap;
@@ -594,6 +609,7 @@ mod tests {
             "",
             &resolver,
             &mut cache,
+            true,
         )
         .unwrap();
         // library name is just the first segment ("simulink")

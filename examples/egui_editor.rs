@@ -56,11 +56,9 @@ fn main() -> Result<()> {
         let root = Utf8PathBuf::from("simulink/systems/system_root.xml");
         let mut sys = parser.parse_system_file(&root)?;
 
-        // Resolve library references
-        if !lib_paths.is_empty() {
-            SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &lib_paths)
-                .with_context(|| "Failed to resolve library references")?;
-        }
+        // Resolve library references (including virtual libraries like `matrix_library`)
+        SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &lib_paths)
+            .with_context(|| "Failed to resolve library references")?;
 
         let charts = parser.get_charts().clone();
         let mut chart_map: std::collections::BTreeMap<String, u32> = parser
@@ -79,10 +77,8 @@ fn main() -> Result<()> {
             .parse_system_file(&path)
             .with_context(|| format!("Failed to parse {}", path))?;
 
-        if !lib_paths.is_empty() {
-            SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &lib_paths)
-                .with_context(|| "Failed to resolve library references")?;
-        }
+        SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &lib_paths)
+            .with_context(|| "Failed to resolve library references")?;
 
         let charts = parser.get_charts().clone();
         let mut chart_map: std::collections::BTreeMap<String, u32> = parser
