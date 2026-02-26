@@ -10,6 +10,9 @@ pub mod label_place;
 pub mod model;
 pub mod parser;
 
+/// Definitions for built-in virtual libraries used by the parser and UI.
+pub mod builtin_libraries;
+
 /// SLX archive generator – regenerates `.slx` files from the parsed model.
 pub mod generator;
 

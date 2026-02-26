@@ -23,6 +23,7 @@ pub use library::*;
 pub use source::*;
 
 use crate::model::*;
+use crate::builtin_libraries::matrix_library;
 use anyhow::{Context, Result, anyhow};
 use camino::{Utf8Path, Utf8PathBuf};
 use rayon::prelude::*;
@@ -156,159 +157,6 @@ impl<S: ContentSource> SimulinkParser<S> {
             }
         }
 
-        /// Determine if the given library name refers to the matrix virtual library.
-        fn is_matrix_library_name(name: &str) -> bool {
-            // the parser's `is_virtual_library` already normalizes case and strips
-            // ".slx"; we merely check for the prefix here.
-            let norm = name.trim().to_ascii_lowercase();
-            norm == "matrix_library" || norm.starts_with("matrix_library/")
-        }
-
-        /// Create a `System` pre-populated with a handful of stub blocks that
-        /// correspond to the known members of the matrix library.  The blocks
-        /// include port counts so that clients (egui viewer, etc.) can render a
-        /// reasonable placeholder.
-        fn matrix_library_system() -> System {
-            let mut sys = empty_library_system();
-            // We'll lazily create specific blocks later, but initialize with a few
-            // of the common names so that tests can exercise the mapping without
-            // triggering the dynamic branch.
-            let initial: &[&str] = &[
-                "IdentityMatrix",
-                "IsTriangular",
-                "IsSymmetric",
-                "CrossProduct",
-                "MatrixMultiply",
-                "Submatrix",
-                "Transpose",
-                "HermitianTranspose",
-                "MatrixSquare",
-                "PermuteColumns",
-                "ExtractDiagonal",
-                "CreateDiagonalMatrix",
-                "ExpandScalar",
-                "IsHermitian",
-                "MatrixConcatenate",
-            ];
-            for &name in initial {
-                sys.blocks.push(create_matrix_block_stub(name));
-            }
-            sys
-        }
-
-        /// Ensure that a stub block with the given name exists in `sys`.  If it
-        /// is missing we append a new stub with a best-effort port count.
-        fn ensure_matrix_block(sys: &mut System, name: &str) {
-            if sys.blocks.iter().any(|b| b.name == name) {
-                return;
-            }
-            sys.blocks.push(create_matrix_block_stub(name));
-        }
-
-        /// Helper to construct a minimal block stub for matrix library blocks.
-        fn create_matrix_block_stub(name: &str) -> Block {
-            // heuristic port count based on canonicalized name
-            let (ins, outs) = {
-                let mut key = name.to_ascii_lowercase();
-                key.retain(|c| !c.is_whitespace());
-                match key.as_str() {
-                    "identitymatrix" | "eyematrix" => (0, 1),
-                    "istriangular" => (1, 1),
-                    "issymmetric" => (1, 1),
-                    "crossproduct" | "cross" => (2, 1),
-                    "matrixmultiply" | "multiply" => (2, 1),
-                    "submatrix" => (1, 1),
-                    "transpose" | "at" => (1, 1),
-                    "hermitiantranspose" | "ah" => (1, 1),
-                    "matrixsquare" => (1, 1),
-                    "permutecolumns" | "permutematrix" | "permute" => (2, 1),
-                    "extractdiagonal" => (1, 1),
-                    "creatediagonalmatrix" | "diagonalmatrix" => (1, 1),
-                    "expandscalar" => (1, 1),
-                    "ishermitian" => (1, 1),
-                    "matrixconcatenate" => (2, 1),
-                    _ => (1, 1),
-                }
-            };
-
-            // build ports vector
-            let mut ports = Vec::new();
-            for i in 1..=ins {
-                let mut p = crate::model::Port {
-                    port_type: "in".to_string(),
-                    index: Some(i),
-                    properties: indexmap::IndexMap::new(),
-                };
-                // matrix library ports should support labels, but they are empty by default
-                p.properties.insert("Name".to_string(), String::new());
-                ports.push(p);
-            }
-            for i in 1..=outs {
-                let mut p = crate::model::Port {
-                    port_type: "out".to_string(),
-                    index: Some(i),
-                    properties: indexmap::IndexMap::new(),
-                };
-                p.properties.insert("Name".to_string(), String::new());
-                ports.push(p);
-            }
-            let port_counts = if ins > 0 || outs > 0 {
-                Some(crate::model::PortCounts {
-                    // Preserve explicit 0 counts (tests and downstream renderers rely on it).
-                    ins: Some(ins),
-                    outs: Some(outs),
-                })
-            } else {
-                None
-            };
-
-            let mut child_order = Vec::new();
-            if port_counts.is_some() {
-                child_order.push(crate::model::BlockChildKind::PortCounts);
-            }
-            child_order.push(crate::model::BlockChildKind::P("BlockType".to_string()));
-            if port_counts.is_some() {
-                child_order.push(crate::model::BlockChildKind::PortProperties);
-            }
-
-            crate::model::Block {
-                block_type: name.to_string(),
-                name: name.to_string(),
-                sid: None,
-                tag_name: "Block".to_string(),
-                position: None,
-                zorder: None,
-                commented: false,
-                name_location: Default::default(),
-                is_matlab_function: false,
-                value: None,
-                value_kind: Default::default(),
-                value_rows: None,
-                value_cols: None,
-                properties: indexmap::IndexMap::new(),
-                ref_properties: Default::default(),
-                port_counts,
-                ports,
-                subsystem: None,
-                system_ref: None,
-                c_function: None,
-                instance_data: None,
-                link_data: None,
-                mask: None,
-                annotations: Vec::new(),
-                background_color: None,
-                show_name: None,
-                font_size: None,
-                font_weight: None,
-                mask_display_text: None,
-                current_setting: None,
-                block_mirror: None,
-                library_source: None,
-                library_block_path: None,
-                child_order,
-            }
-        }
-
         for block in &mut system.blocks {
             let block_host_path = if system_path.is_empty() {
                 format!("/{}", block.name)
@@ -334,8 +182,8 @@ impl<S: ContentSource> SimulinkParser<S> {
                             // allows resolution to succeed without emitting warnings and
                             // gives the UI enough information (port counts, etc.) to show
                             // a reasonable placeholder.
-                            if is_matrix_library_name(lib_name) {
-                                cache.insert(lib_name.to_string(), matrix_library_system());
+                            if matrix_library::is_matrix_library_name(lib_name) {
+                                cache.insert(lib_name.to_string(), matrix_library::initial_system());
                             } else {
                                 cache.insert(lib_name.to_string(), empty_library_system());
                             }
@@ -367,9 +215,12 @@ impl<S: ContentSource> SimulinkParser<S> {
                     }
                     // after ensuring the library system is cached, we may need to
                     // add a matrix-specific stub block for an unknown name.
-                    if is_matrix_library_name(lib_name) {
+                    if matrix_library::is_matrix_library_name(lib_name) {
                         if let Some(lib_system) = cache.get_mut(lib_name) {
-                            ensure_matrix_block(lib_system, block_path);
+                            // add missing stub if necessary
+                            if !lib_system.blocks.iter().any(|b| b.name == block_path) {
+                                lib_system.blocks.push(matrix_library::create_stub(block_path));
+                            }
                         }
                     }
                     if let Some(lib_system) = cache.get(lib_name) {
@@ -615,5 +466,34 @@ mod tests {
         // library name is just the first segment ("simulink")
         assert!(cache.contains_key("simulink"));
         assert!(cache.get("simulink").unwrap().blocks.is_empty());
+    }
+
+    #[test]
+    fn matrix_library_helpers_work() {
+        // name recognition
+        assert!(matrix_library::is_matrix_library_name("matrix_library"));
+        assert!(matrix_library::is_matrix_library_name("Matrix_Library/Thing"));
+        assert!(!matrix_library::is_matrix_library_name("other"));
+
+        // port counts for known and unknown names
+        assert_eq!(matrix_library::port_counts_for("IdentityMatrix"), (0, 1));
+        assert_eq!(matrix_library::port_counts_for("crossproduct"), (2, 1));
+        assert_eq!(matrix_library::port_counts_for("unknown"), (1, 1));
+
+        // whitespace collapse: multiple spaces are treated the same as a single
+        // space, but spaces are not removed entirely.
+        let a = matrix_library::port_counts_for("Cross   Product");
+        let b = matrix_library::port_counts_for("Cross Product");
+        assert_eq!(a, b);
+        // however "CrossProduct" (no space) no longer matches "Cross Product".
+        assert_ne!(matrix_library::port_counts_for("CrossProduct"), b);
+
+        // block list contains a particular entry
+        assert!(matrix_library::BLOCKS.iter().any(|b| b.name == "IdentityMatrix"));
+
+        // stub creation produces a block with the expected fields
+        let stub = matrix_library::create_stub("Foo");
+        assert_eq!(stub.block_type, "Foo");
+        assert_eq!(stub.ports.len(), 2); // default 1 in + 1 out
     }
 }
