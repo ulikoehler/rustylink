@@ -17,6 +17,35 @@ pub struct LibraryResolver {
     search_paths: Vec<Utf8PathBuf>,
 }
 
+/// Libraries that are treated specially when resolving library blocks.
+///
+/// For these, rustylink creates a "virtual" in-memory library instead of
+/// requiring the `.slx` file to be present on disk.
+///
+/// Initial set:
+/// - `simulink.slx`
+/// - `matrix_library.slx`
+pub const SPECIAL_VIRTUAL_LIBRARIES: [&str; 2] = ["simulink.slx", "matrix_library.slx"];
+
+/// Return true if the given library name should be treated as a virtual library.
+///
+/// Accepts both with and without a `.slx` suffix and matches case-insensitively.
+pub fn is_virtual_library(name: &str) -> bool {
+    let name = name.trim();
+    if name.is_empty() {
+        return false;
+    }
+    let normalized = name
+        .strip_suffix(".slx")
+        .unwrap_or(name)
+        .to_ascii_lowercase();
+
+    SPECIAL_VIRTUAL_LIBRARIES.iter().any(|s| {
+        let s_norm = s.strip_suffix(".slx").unwrap_or(s).to_ascii_lowercase();
+        s_norm == normalized
+    })
+}
+
 impl LibraryResolver {
     /// Create a resolver that will search the provided directories in order.
     pub fn new<P: AsRef<Utf8Path>>(paths: impl IntoIterator<Item = P>) -> Self {

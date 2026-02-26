@@ -106,6 +106,15 @@ impl<S: ContentSource> SimulinkParser<S> {
         Ok(gi.library_names())
     }
 
+    /// Return `LIBRARY_BLOCK` references from `graphicalInterface.json`, grouped by library name.
+    pub fn graphical_interface_library_block_references_by_library(
+        &mut self,
+        path: impl AsRef<Utf8Path>,
+    ) -> Result<std::collections::BTreeMap<String, Vec<ExternalFileReference>>> {
+        let gi = self.parse_graphical_interface_file(path)?;
+        Ok(gi.library_block_references_by_library())
+    }
+
     /// Resolve library references in a parsed system.
     pub fn resolve_library_references(
         system: &mut System,
@@ -114,41 +123,67 @@ impl<S: ContentSource> SimulinkParser<S> {
         use std::collections::HashMap;
         let mut library_cache: HashMap<String, System> = HashMap::new();
         let resolver = LibraryResolver::new(lib_paths.iter());
-        Self::resolve_library_references_recursive(system, &resolver, &mut library_cache)?;
+        Self::resolve_library_references_recursive(system, "", &resolver, &mut library_cache)?;
         Ok(())
     }
 
     fn resolve_library_references_recursive(
         system: &mut System,
+        system_path: &str,
         resolver: &LibraryResolver,
         cache: &mut std::collections::HashMap<String, System>,
     ) -> Result<()> {
+        fn warn_yellow(msg: impl AsRef<str>) {
+            // ANSI yellow; printed to stderr.
+            eprintln!("\x1b[33m[rustylink] Warning: {}\x1b[0m", msg.as_ref());
+        }
+
+        fn empty_library_system() -> System {
+            System {
+                properties: indexmap::IndexMap::new(),
+                blocks: Vec::new(),
+                lines: Vec::new(),
+                annotations: Vec::new(),
+                chart: None,
+            }
+        }
+
         for block in &mut system.blocks {
+            let block_host_path = if system_path.is_empty() {
+                format!("/{}", block.name)
+            } else {
+                format!("{}/{}", system_path, block.name)
+            };
+
             if let Some(source_block) = block.properties.get("SourceBlock").cloned() {
                 if let Some((lib_name, block_path)) = source_block.split_once('/') {
                     let lib_name = lib_name.trim();
                     let block_path = block_path.trim();
                     if !cache.contains_key(lib_name) {
-                        let lookup = resolver.locate(std::iter::once(lib_name));
-                        if let Some((_, lib_file)) = lookup.found.first() {
-                            match Self::parse_library_file(lib_file) {
-                                Ok(lib_system) => {
-                                    cache.insert(lib_name.to_string(), lib_system);
-                                }
-                                Err(e) => {
-                                    eprintln!(
-                                        "[rustylink] Warning: failed to parse library {}: {}",
-                                        lib_name, e
-                                    );
-                                    continue;
-                                }
-                            }
+                        if crate::parser::library::is_virtual_library(lib_name) {
+                            cache.insert(lib_name.to_string(), empty_library_system());
                         } else {
-                            eprintln!(
-                                "[rustylink] Warning: library {} not found in search paths",
-                                lib_name
-                            );
-                            continue;
+                            let lookup = resolver.locate(std::iter::once(lib_name));
+                            if let Some((_, lib_file)) = lookup.found.first() {
+                                match Self::parse_library_file(lib_file) {
+                                    Ok(lib_system) => {
+                                        cache.insert(lib_name.to_string(), lib_system);
+                                    }
+                                    Err(e) => {
+                                        warn_yellow(format!(
+                                            "failed to parse library '{}' (requested by '{}'): {}",
+                                            lib_name, block_host_path, e
+                                        ));
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                warn_yellow(format!(
+                                    "library '{}' not found (requested by '{}')",
+                                    lib_name, block_host_path
+                                ));
+                                continue;
+                            }
                         }
                     }
                     if let Some(lib_system) = cache.get(lib_name) {
@@ -159,16 +194,26 @@ impl<S: ContentSource> SimulinkParser<S> {
                             block.library_source = Some(lib_name.to_string());
                             block.library_block_path = Some(source_block.clone());
                         } else {
-                            eprintln!(
-                                "[rustylink] Warning: block '{}' not found in library '{}'",
-                                block_path, lib_name
-                            );
+                            let extra = if crate::parser::library::is_virtual_library(lib_name) {
+                                " (virtual library)"
+                            } else {
+                                ""
+                            };
+                            warn_yellow(format!(
+                                "library block '{}' not found{} (requested by '{}')",
+                                source_block, extra, block_host_path
+                            ));
                         }
                     }
                 }
             }
             if let Some(ref mut subsystem) = block.subsystem {
-                Self::resolve_library_references_recursive(subsystem, resolver, cache)?;
+                Self::resolve_library_references_recursive(
+                    subsystem,
+                    &block_host_path,
+                    resolver,
+                    cache,
+                )?;
             }
         }
         Ok(())

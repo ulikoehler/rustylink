@@ -46,6 +46,51 @@ fn graphical_interface_library_names_collects_unique_libs() {
 }
 
 #[test]
+fn graphical_interface_library_block_references_by_library_groups_blocks() {
+    let refs = vec![
+        ExternalFileReference {
+            path: "$bdroot/whatever".to_string(),
+            reference: "Regler/Joint_Interpolator".to_string(),
+            sid: "1".to_string(),
+            r#type: ExternalFileReferenceType::LibraryBlock,
+        },
+        ExternalFileReference {
+            path: "$bdroot/other".to_string(),
+            reference: "simulink/Logic and Bit Operations/Compare To Constant".to_string(),
+            sid: "2".to_string(),
+            r#type: ExternalFileReferenceType::LibraryBlock,
+        },
+        ExternalFileReference {
+            path: "$bdroot/dup".to_string(),
+            reference: "Regler/AnotherBlock".to_string(),
+            sid: "3".to_string(),
+            r#type: ExternalFileReferenceType::LibraryBlock,
+        },
+        ExternalFileReference {
+            path: "$bdroot/notlib".to_string(),
+            reference: "Ignored/Thing".to_string(),
+            sid: "4".to_string(),
+            r#type: ExternalFileReferenceType::Other("SOMETHING_ELSE".to_string()),
+        },
+    ];
+
+    let gi = GraphicalInterface {
+        external_file_references: refs,
+        precomp_execution_domain_type: None,
+        simulink_sub_domain_type: None,
+        solver_name: None,
+    };
+
+    let grouped = gi.library_block_references_by_library();
+    assert_eq!(grouped.keys().cloned().collect::<Vec<_>>(), vec!["Regler".to_string(), "simulink".to_string()]);
+    assert_eq!(grouped["Regler"].len(), 2);
+    assert_eq!(grouped["Regler"][0].sid, "1");
+    assert_eq!(grouped["Regler"][1].sid, "3");
+    assert_eq!(grouped["simulink"].len(), 1);
+    assert_eq!(grouped["simulink"][0].sid, "2");
+}
+
+#[test]
 fn library_resolver_finds_and_reports_missing_libraries() {
     let tmp = tempdir().unwrap();
     let dir1 = tmp.path().join("p1");
