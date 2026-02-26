@@ -1177,7 +1177,39 @@ fn draw_port_indicators(
     r_screen: &Rect,
     font_scale: f32,
 ) {
-    let port_radius = 3.0 * font_scale.max(0.2);
+    fn paint_port_chevron(
+        painter: &egui::Painter,
+        outline: Pos2,
+        is_left_side: bool,
+        font_scale: f32,
+        color: Color32,
+    ) {
+        let scale = font_scale.max(0.2);
+        // enlarge chevrons by factor of 4 relative to prior dot markers
+        let stroke_w = (2.0 * scale).max(1.0);
+        let h = (8.0 * scale * 4.0).max(3.0 * 4.0);
+        let w = (6.0 * scale * 4.0).max(2.0 * 4.0);
+
+        let (base_x, tip_x) = if is_left_side {
+            let tip_x = outline.x - stroke_w / 2.0;
+            (tip_x - w, tip_x)
+        } else {
+            let base_x = outline.x + stroke_w / 2.0;
+            (base_x, base_x + w)
+        };
+
+        let points = vec![
+            Pos2::new(base_x, outline.y - h / 2.0),
+            Pos2::new(tip_x, outline.y),
+            Pos2::new(base_x, outline.y + h / 2.0),
+        ];
+
+        painter.add(egui::Shape::Path(egui::epaint::PathShape::line(
+            points,
+            Stroke::new(stroke_w, color),
+        )));
+    }
+
     let in_count = block.port_counts.as_ref().and_then(|p| p.ins).unwrap_or(0);
     let out_count = block.port_counts.as_ref().and_then(|p| p.outs).unwrap_or(0);
     let mirrored = block.block_mirror.unwrap_or(false);
@@ -1188,13 +1220,18 @@ fn draw_port_indicators(
         (r_screen.left(), r_screen.right())
     };
 
+    let ins_left_side = !mirrored;
+    let outs_left_side = mirrored;
+
     // Input ports
     for i in 0..in_count {
         let n = in_count.max(1);
         let y = r_screen.top() + r_screen.height() * ((i as f32 + 1.0) / (n as f32 + 1.0));
-        ui.painter().circle_filled(
+        paint_port_chevron(
+            ui.painter(),
             Pos2::new(in_x, y),
-            port_radius,
+            ins_left_side,
+            font_scale,
             Color32::from_rgb(60, 60, 200),
         );
     }
@@ -1203,9 +1240,11 @@ fn draw_port_indicators(
     for i in 0..out_count {
         let n = out_count.max(1);
         let y = r_screen.top() + r_screen.height() * ((i as f32 + 1.0) / (n as f32 + 1.0));
-        ui.painter().circle_filled(
+        paint_port_chevron(
+            ui.painter(),
             Pos2::new(out_x, y),
-            port_radius,
+            outs_left_side,
+            font_scale,
             Color32::from_rgb(200, 60, 60),
         );
     }

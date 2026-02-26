@@ -1563,6 +1563,44 @@ fn update_internal(
             );
             painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
 
+            fn paint_port_chevron(
+                painter: &egui::Painter,
+                outline: Pos2,
+                is_left_side: bool,
+                font_scale: f32,
+                color: Color32,
+            ) {
+                let scale = font_scale.max(0.2);
+                // make chevron much larger than previous circle markers
+                let stroke_w = (2.0 * scale).max(1.0);
+                // height/width before scaling were 8x6; multiply by 4
+                let h = (8.0 * scale * 4.0).max(3.0 * 4.0);
+                let w = (6.0 * scale * 4.0).max(2.0 * 4.0);
+
+                // Always draw a right-facing chevron.
+                // If the port is on the left side, the chevron's right-most border (incl. stroke rounding)
+                // must touch the block outline. If the port is on the right side, the left-most border
+                // must touch the block outline.
+                let (base_x, tip_x) = if is_left_side {
+                    let tip_x = outline.x - stroke_w / 2.0;
+                    (tip_x - w, tip_x)
+                } else {
+                    let base_x = outline.x + stroke_w / 2.0;
+                    (base_x, base_x + w)
+                };
+
+                let points = vec![
+                    Pos2::new(base_x, outline.y - h / 2.0),
+                    Pos2::new(tip_x, outline.y),
+                    Pos2::new(base_x, outline.y + h / 2.0),
+                ];
+
+                painter.add(egui::Shape::Path(egui::epaint::PathShape::line(
+                    points,
+                    Stroke::new(stroke_w, color),
+                )));
+            }
+
             // Draw port indicators derived from the block's own port counts.
             // This is important for virtual-library blocks (e.g. matrix_library)
             // and for unconnected blocks where no lines exist yet.
@@ -1576,12 +1614,25 @@ fn update_internal(
                     out_count,
                     mirrored,
                 );
-                let port_radius = (3.0 * font_scale.max(0.2)).max(1.0);
+                let ins_left_side = !mirrored;
+                let outs_left_side = mirrored;
                 for p in ins {
-                    painter.circle_filled(p, port_radius, Color32::from_rgb(60, 60, 200));
+                    paint_port_chevron(
+                        painter,
+                        p,
+                        ins_left_side,
+                        font_scale,
+                        Color32::from_rgb(60, 60, 200),
+                    );
                 }
                 for p in outs {
-                    painter.circle_filled(p, port_radius, Color32::from_rgb(200, 60, 60));
+                    paint_port_chevron(
+                        painter,
+                        p,
+                        outs_left_side,
+                        font_scale,
+                        Color32::from_rgb(200, 60, 60),
+                    );
                 }
             }
             let fg = contrast_color(*bg);

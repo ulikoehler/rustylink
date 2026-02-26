@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg
-   viewBox="0 0 166.61403 182.17308"
-   width="166.61403"
-   height="182.17308"
+   viewBox="0 0 164 144"
+   width="164"
+   height="144"
    version="1.1"
    id="svg46"
    sodipodi:docname="identity_matrix.svg"
@@ -25,7 +25,7 @@
      showgrid="false"
      inkscape:zoom="2.6862753"
      inkscape:cx="71.102169"
-     inkscape:cy="74.452533"
+     inkscape:cy="60.306552"
      inkscape:window-width="1920"
      inkscape:window-height="1016"
      inkscape:window-x="0"
@@ -253,15 +253,4 @@
      id="text40">1</text>
   <!-- Removed the triangle highlight overlay -->
   <!-- Changed text to "Identity matrix" -->
-  <text
-     x="83.563477"
-     y="171.33577"
-     font-family="sans-serif"
-     font-size="18px"
-     font-weight="bold"
-     fill="#333333"
-     text-anchor="middle"
-     dominant-baseline="middle"
-     id="text42"
-     style="font-size:21.3333px">Identity matrix</text>
 </svg>

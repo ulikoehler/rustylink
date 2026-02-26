@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="UTF-8" standalone="no"?>
 <svg
-   viewBox="0 0 166.88002 204.92"
-   width="166.88002"
-   height="204.92"
+   viewBox="0 0 164 144"
+   width="164"
+   height="144"
    version="1.1"
    id="svg46"
    sodipodi:docname="is_symmetric.svg"
@@ -24,16 +24,16 @@
      inkscape:deskcolor="#d1d1d1"
      showgrid="false"
      inkscape:zoom="3.9944133"
-     inkscape:cx="92.128675"
-     inkscape:cy="132.68532"
+     inkscape:cx="87.62238"
+     inkscape:cy="49.569232"
      inkscape:window-width="1920"
-     inkscape:window-height="1052"
-     inkscape:window-x="1920"
+     inkscape:window-height="1016"
+     inkscape:window-x="0"
      inkscape:window-y="0"
      inkscape:window-maximized="1"
      inkscape:current-layer="svg46" />
   <path
-     d="M 13.790001,2 H 3.7900011 v 140 h 9.9999999"
+     d="M 12,2 H 2 v 140 h 10"
      fill="none"
      stroke="#333333"
      stroke-width="4"
@@ -41,7 +41,7 @@
      stroke-linejoin="round"
      id="path2" />
   <path
-     d="m 153.79,2 h 10 v 140 h -10"
+     d="m 152,2 h 10 v 140 h -10"
      fill="none"
      stroke="#333333"
      stroke-width="4"
@@ -50,7 +50,7 @@
      id="path4" />
   <!-- Row 1 -->
   <rect
-     x="21.790001"
+     x="20"
      y="7"
      width="36"
      height="36"
@@ -61,7 +61,7 @@
      stroke-width="1.5"
      id="rect6" />
   <rect
-     x="65.790001"
+     x="64"
      y="7"
      width="36"
      height="36"
@@ -72,7 +72,7 @@
      stroke-width="1.5"
      id="rect8" />
   <rect
-     x="109.79"
+     x="108"
      y="7"
      width="36"
      height="36"
@@ -84,7 +84,7 @@
      id="rect10" />
   <!-- Row 2 -->
   <rect
-     x="21.790001"
+     x="20"
      y="51"
      width="36"
      height="36"
@@ -95,7 +95,7 @@
      stroke-width="1.5"
      id="rect12" />
   <rect
-     x="65.790001"
+     x="64"
      y="51"
      width="36"
      height="36"
@@ -106,7 +106,7 @@
      stroke-width="1.5"
      id="rect14" />
   <rect
-     x="109.79"
+     x="108"
      y="51"
      width="36"
      height="36"
@@ -118,7 +118,7 @@
      id="rect16" />
   <!-- Row 3 -->
   <rect
-     x="21.790001"
+     x="20"
      y="95"
      width="36"
      height="36"
@@ -129,7 +129,7 @@
      stroke-width="1.5"
      id="rect18" />
   <rect
-     x="65.790001"
+     x="64"
      y="95"
      width="36"
      height="36"
@@ -140,7 +140,7 @@
      stroke-width="1.5"
      id="rect20" />
   <rect
-     x="109.79"
+     x="108"
      y="95"
      width="36"
      height="36"
@@ -154,9 +154,9 @@
   <!-- White outline for contrast, then colored line on top -->
   <!-- #555 pair: (0,1) center=(100,43) <-> (1,0) center=(56,87) — CYAN -->
   <line
-     x1="83.790001"
+     x1="82"
      y1="25"
-     x2="39.790001"
+     x2="38"
      y2="69"
      stroke="#ffffff"
      stroke-width="5"
@@ -164,9 +164,9 @@
      opacity="0.8"
      id="line24" />
   <line
-     x1="83.790001"
+     x1="82"
      y1="25"
-     x2="39.790001"
+     x2="38"
      y2="69"
      stroke="#00cfff"
      stroke-width="2.5"
@@ -174,9 +174,9 @@
      id="line26" />
   <!-- #999 pair: (0,2) center=(144,43) <-> (2,0) center=(56,131) — ORANGE -->
   <line
-     x1="127.79"
+     x1="126"
      y1="25"
-     x2="39.790001"
+     x2="38"
      y2="113"
      stroke="#ffffff"
      stroke-width="5"
@@ -184,9 +184,9 @@
      opacity="0.8"
      id="line28" />
   <line
-     x1="127.79"
+     x1="126"
      y1="25"
-     x2="39.790001"
+     x2="38"
      y2="113"
      stroke="#ff8c00"
      stroke-width="2.5"
@@ -194,9 +194,9 @@
      id="line30" />
   <!-- #777 pair: (1,2) center=(144,87) <-> (2,1) center=(100,131) — LIME -->
   <line
-     x1="127.79"
+     x1="126"
      y1="69"
-     x2="83.790001"
+     x2="82"
      y2="113"
      stroke="#ffffff"
      stroke-width="5"
@@ -204,9 +204,9 @@
      opacity="0.8"
      id="line32" />
   <line
-     x1="127.79"
+     x1="126"
      y1="69"
-     x2="83.790001"
+     x2="82"
      y2="113"
      stroke="#39ff14"
      stroke-width="2.5"
@@ -214,49 +214,30 @@
      id="line34" />
   <!-- Diagonal stripe accents on main diagonal cells -->
   <line
-     x1="25.790001"
+     x1="24"
      y1="11"
-     x2="57.790001"
+     x2="56"
      y2="43"
      stroke="#ffffff"
      stroke-width="2"
      stroke-linecap="round"
      id="line36" />
   <line
-     x1="69.790001"
+     x1="68"
      y1="55"
-     x2="101.79"
+     x2="100"
      y2="87"
      stroke="#ffffff"
      stroke-width="2"
      stroke-linecap="round"
      id="line38" />
   <line
-     x1="113.79"
+     x1="112"
      y1="99"
-     x2="145.79001"
+     x2="144"
      y2="131"
      stroke="#ffffff"
      stroke-width="2"
      stroke-linecap="round"
      id="line40" />
-  <text
-     x="83.790001"
-     y="167"
-   font-family="sans-serif"
-     font-size="28px"
-     font-weight="bold"
-     fill="#333333"
-     text-anchor="middle"
-     dominant-baseline="middle"
-     id="text42">Symmetric?</text>
-  <text
-     x="83.790001"
-     y="197"
-   font-family="sans-serif"
-     font-size="20px"
-     fill="#666666"
-     text-anchor="middle"
-     dominant-baseline="middle"
-       id="text44">(A = A<tspan dy="-6" font-size="14px">T</tspan><tspan dy="6" font-size="20px">)</tspan></text>
 </svg>
