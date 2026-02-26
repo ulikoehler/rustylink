@@ -6,8 +6,6 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
-use eframe::egui::epaint::Shape;
-
 use crate::model::EndpointRef;
 
 use super::geometry::{
@@ -15,7 +13,8 @@ use super::geometry::{
     parse_rect_str,
 };
 use super::render::{
-    ComputedPortYCoordinates, get_block_type_cfg, render_block_icon, render_manual_switch,
+    ComputedPortYCoordinates, PortLabelMaxWidths, get_block_type_cfg, port_label_display_name,
+    render_block_icon, render_center_glyph_maximized, render_manual_switch,
 };
 use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
 use super::navigation::resolve_subsystem_by_vec;
@@ -514,24 +513,6 @@ fn update_internal(
                 let commented_bg = Color32::from_rgb(230, 230, 230);
                 effective_bg = commented_bg;
                 ui.painter().rect_filled(r_screen, 0.0, commented_bg);
-                // Icon in dark gray
-                let icon_size = 24.0 * font_scale.max(0.01);
-                let icon_center = r_screen.center();
-                let font = egui::FontId::proportional(icon_size);
-                let dark_icon = Color32::from_rgb(80, 80, 80);
-                if let Some(icon) = cfg.icon {
-                    match icon {
-                        crate::block_types::IconSpec::Utf8(glyph) => {
-                            ui.painter().text(
-                                icon_center,
-                                Align2::CENTER_CENTER,
-                                glyph,
-                                font,
-                                dark_icon,
-                            );
-                        }
-                    }
-                }
             } else {
                 // Normal block rendering
                 ui.painter().rect_filled(r_screen, 6.0, bg);
@@ -1515,6 +1496,63 @@ fn update_internal(
             }
         }
 
+        // Pre-compute max inside-block port label widths per block (left/right).
+        // The icon renderer uses this to maximize the center icon without overlapping
+        // port labels, while still enforcing ≥10% outer margins.
+        let mut port_label_max_widths: HashMap<String, PortLabelMaxWidths> = HashMap::new();
+        {
+            let mut seen: std::collections::HashSet<(String, u32, bool, i32)> = Default::default();
+            let font_id = egui::FontId::proportional(12.0 * font_scale);
+            for (sid, index, is_input, y) in &port_label_requests {
+                let key = (sid.clone(), *index, *is_input, y.round() as i32);
+                if !seen.insert(key) {
+                    continue;
+                }
+
+                let Some(brect) = sid_screen_map.get(sid).copied() else {
+                    continue;
+                };
+                let Some(block) = blocks.iter().find_map(|(b, _)| {
+                    if b.sid.as_ref() == Some(sid) {
+                        Some(*b)
+                    } else {
+                        None
+                    }
+                }) else {
+                    continue;
+                };
+                if block.mask.is_some() {
+                    continue;
+                }
+                let cfg = get_block_type_cfg(&block.block_type);
+                if (*is_input && !cfg.show_input_port_labels)
+                    || (!*is_input && !cfg.show_output_port_labels)
+                {
+                    continue;
+                }
+
+                let pname = port_label_display_name(block, *index, *is_input);
+                let galley = painter.layout_no_wrap(pname, font_id.clone(), Color32::TRANSPARENT);
+                let size = galley.size();
+
+                // Match the label drawing code: skip labels that won't be drawn due to width.
+                let avail_w = brect.width() - 8.0 * font_scale;
+                if size.x > avail_w {
+                    continue;
+                }
+
+                // Same side selection as the label drawing code.
+                let mirrored = block.block_mirror.unwrap_or(false);
+                let is_left = *is_input ^ mirrored;
+                let entry = port_label_max_widths.entry(sid.clone()).or_default();
+                if is_left {
+                    entry.left = entry.left.max(size.x);
+                } else {
+                    entry.right = entry.right.max(size.x);
+                }
+            }
+        }
+
         // Finish blocks (border, icon/value, labels) and click handling
         for (b, r_screen, _clicked, bg) in &block_views {
             let cfg = get_block_type_cfg(&b.block_type);
@@ -1548,10 +1586,22 @@ fn update_internal(
             } else {
                 None
             };
+
+            let icon_port_label_widths = b
+                .sid
+                .as_ref()
+                .and_then(|sid| port_label_max_widths.get(sid))
+                .copied();
             // Icon/value rendering with precedence: mask > value > custom/icon
             if b.block_type == "Constant" {
-                let icon_font = egui::FontId::proportional(18.0 * font_scale);
-                painter.text(r_screen.center(), Align2::CENTER_CENTER, "C", icon_font, fg);
+                render_center_glyph_maximized(
+                    &painter,
+                    r_screen,
+                    font_scale,
+                    "C",
+                    fg,
+                    icon_port_label_widths,
+                );
             } else if b.mask.is_some() {
                 if let Some(text) = b.mask_display_text.as_ref() {
                     let font_size = (b.font_size.unwrap_or(14) as f32) * font_scale;
@@ -1586,7 +1636,13 @@ fn update_internal(
                 let coords_ref = b.sid.as_ref().and_then(|sid| block_port_y_map.get(sid));
                 render_manual_switch(&painter, b, r_screen, font_scale, coords_ref);
             } else {
-                render_block_icon(&painter, b, r_screen, font_scale);
+                render_block_icon(
+                    &painter,
+                    b,
+                    r_screen,
+                    font_scale,
+                    icon_port_label_widths,
+                );
             }
             // Respect ShowName flag when drawing label near the block according to NameLocation.
             // If value is shown or mask display is used, do not draw the name label
@@ -1691,30 +1747,10 @@ fn update_internal(
             {
                 continue;
             }
-            // Swap label side if block is mirrored (inputs on right, outputs on left)
             let mirrored = block.block_mirror.unwrap_or(false);
-            let logical_is_input = if mirrored { !is_input } else { is_input };
-            let pname = block
-                .ports
-                .iter()
-                .filter(|p| {
-                    p.port_type == if logical_is_input { "in" } else { "out" }
-                        && p.index.unwrap_or(0) == index
-                })
-                .filter_map(|p| {
-                    p.properties
-                        .get("Name")
-                        .cloned()
-                        .or_else(|| p.properties.get("PropagatedSignals").cloned())
-                        .or_else(|| p.properties.get("name").cloned())
-                        .or_else(|| {
-                            Some(format!("{}{}", if is_input { "In" } else { "Out" }, index))
-                        })
-                })
-                .next()
-                .unwrap_or_else(|| format!("{}{}", if is_input { "In" } else { "Out" }, index));
+            let pname = port_label_display_name(block, index, is_input);
             let galley = ui.painter().layout_no_wrap(
-                pname.clone(),
+                pname,
                 font_id.clone(),
                 Color32::from_rgb(40, 40, 40),
             );

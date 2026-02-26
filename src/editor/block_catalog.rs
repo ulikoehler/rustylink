@@ -405,6 +405,15 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
     c.push(entry("PseudoInverse", "Pseudo Inverse", cat, 1, 1, "Moore-Penrose pseudoinverse"));
     c.push(entry("Kronecker", "Kronecker Product", cat, 2, 1, "Kronecker tensor product"));
     c.push(entry("EyeMatrix", "Identity Matrix", cat, 0, 1, "Generate identity matrix"));
+    // additional virtual matrix library blocks
+    c.push(entry("IdentityMatrix", "Identity Matrix (virtual)", cat, 0, 1, "Identity matrix (matrix library)"));
+    c.push(entry("IsTriangular", "Is Triangular", cat, 1, 1, "Test if matrix is triangular"));
+    c.push(entry("IsSymmetric", "Is Symmetric", cat, 1, 1, "Test if matrix is symmetric"));
+    c.push(entry("Submatrix", "Submatrix", cat, 1, 1, "Extract a submatrix"));
+    c.push(entry("MatrixSquare", "Matrix Square", cat, 1, 1, "Compute A'*A"));
+    c.push(entry("PermuteColumns", "Permute Columns", cat, 1, 1, "Permute matrix columns"));
+    c.push(entry("ExpandScalar", "Expand Scalar", cat, 1, 1, "Turn scalar into matrix"));
+    c.push(entry("IsHermitian", "Is Hermitian", cat, 1, 1, "Test if matrix is Hermitian"));
     c.push(entry("DiagonalMatrix", "Create Diagonal Matrix", cat, 1, 1, "Create diagonal from vector"));
     c.push(entry("ExtractDiag", "Extract Diagonal", cat, 1, 1, "Extract diagonal of matrix"));
     c.push(entry("ToeplitzMatrix", "Toeplitz Matrix", cat, 1, 1, "Generate Toeplitz matrix"));

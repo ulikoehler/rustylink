@@ -2,7 +2,9 @@
 
 use crate::block_types::{self, BlockTypeConfig, Rgb};
 use crate::model::Block;
-use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke};
+use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Vec2};
+
+use super::icon_assets;
 
 pub(crate) fn rgb_to_color32(c: Rgb) -> Color32 {
     Color32::from_rgb(c.0, c.1, c.2)
@@ -17,19 +19,267 @@ pub(crate) fn get_block_type_cfg(block_type: &str) -> BlockTypeConfig {
     }
 }
 
+/// Max measured width of port labels drawn *inside* the block on the left/right side.
+///
+/// This is used to keep the center icon from overlapping those labels.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PortLabelMaxWidths {
+    pub left: f32,
+    pub right: f32,
+}
+
+pub(crate) fn port_label_display_name(block: &Block, index: u32, is_input: bool) -> String {
+    // Note: The port-label drawing code treats mirroring as swapping the logical direction
+    // when looking up Port properties. Keep this logic in one place so icon sizing and
+    // label rendering stay consistent.
+    let mirrored = block.block_mirror.unwrap_or(false);
+    let logical_is_input = if mirrored { !is_input } else { is_input };
+    block
+        .ports
+        .iter()
+        .filter(|p| {
+            p.port_type == if logical_is_input { "in" } else { "out" }
+                && p.index.unwrap_or(0) == index
+        })
+        .filter_map(|p| {
+            p.properties
+                .get("Name")
+                .cloned()
+                .or_else(|| p.properties.get("PropagatedSignals").cloned())
+                .or_else(|| p.properties.get("name").cloned())
+                .or_else(|| Some(format!("{}{}", if is_input { "In" } else { "Out" }, index)))
+        })
+        .next()
+        .unwrap_or_else(|| format!("{}{}", if is_input { "In" } else { "Out" }, index))
+}
+
+fn compute_icon_available_rect(
+    rect: &Rect,
+    font_scale: f32,
+    port_label_widths: Option<PortLabelMaxWidths>,
+) -> Rect {
+    let margin_x = rect.width() * 0.10;
+    let margin_y = rect.height() * 0.10;
+
+    let mut left_inset = margin_x;
+    let mut right_inset = margin_x;
+
+    if let Some(w) = port_label_widths {
+        let label_pad = 4.0 * font_scale;
+        let label_gap = 2.0 * font_scale;
+        if w.left > 0.0 {
+            left_inset = left_inset.max(label_pad + w.left + label_gap);
+        }
+        if w.right > 0.0 {
+            right_inset = right_inset.max(label_pad + w.right + label_gap);
+        }
+    }
+
+    let mut min = Pos2::new(rect.left() + left_inset, rect.top() + margin_y);
+    let mut max = Pos2::new(rect.right() - right_inset, rect.bottom() - margin_y);
+    if min.x >= max.x {
+        let cx = rect.center().x;
+        min.x = cx;
+        max.x = cx;
+    }
+    if min.y >= max.y {
+        let cy = rect.center().y;
+        min.y = cy;
+        max.y = cy;
+    }
+    Rect::from_min_max(min, max)
+}
+
+fn maximize_glyph_font_px(painter: &egui::Painter, glyph: &str, avail: Vec2) -> f32 {
+    if avail.x <= 1.0 || avail.y <= 1.0 {
+        return 1.0;
+    }
+
+    // Measure once at a reference size and scale. This avoids per-block binary searches.
+    let ref_px = 100.0_f32;
+    let ref_galley = painter.layout_no_wrap(
+        glyph.to_string(),
+        egui::FontId::proportional(ref_px),
+        Color32::TRANSPARENT,
+    );
+    let ref_size = ref_galley.size();
+    if ref_size.x <= 1e-3 || ref_size.y <= 1e-3 {
+        return 1.0;
+    }
+
+    let mut font_px = (ref_px * (avail.x / ref_size.x).min(avail.y / ref_size.y)).max(1.0);
+
+    // Nudge up a tiny bit while still fitting, then nudge down if needed.
+    for _ in 0..6 {
+        let try_px = font_px * 1.02;
+        let g = painter.layout_no_wrap(
+            glyph.to_string(),
+            egui::FontId::proportional(try_px),
+            Color32::TRANSPARENT,
+        );
+        let s = g.size();
+        if s.x <= avail.x && s.y <= avail.y {
+            font_px = try_px;
+        } else {
+            break;
+        }
+    }
+    for _ in 0..8 {
+        let g = painter.layout_no_wrap(
+            glyph.to_string(),
+            egui::FontId::proportional(font_px),
+            Color32::TRANSPARENT,
+        );
+        let s = g.size();
+        if s.x <= avail.x && s.y <= avail.y {
+            break;
+        }
+        font_px *= 0.98;
+        if font_px <= 1.0 {
+            font_px = 1.0;
+            break;
+        }
+    }
+    font_px
+}
+
+pub fn render_center_glyph_maximized(
+    painter: &egui::Painter,
+    rect: &Rect,
+    font_scale: f32,
+    glyph: &str,
+    color: Color32,
+    port_label_widths: Option<PortLabelMaxWidths>,
+) {
+    let avail_rect = compute_icon_available_rect(rect, font_scale, port_label_widths);
+    let avail = avail_rect.size();
+    let font_px = maximize_glyph_font_px(painter, glyph, avail);
+    let font_id = egui::FontId::proportional(font_px);
+    painter.text(
+        avail_rect.center(),
+        Align2::CENTER_CENTER,
+        glyph,
+        font_id,
+        color,
+    );
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct SvgCacheKey {
+    path: &'static str,
+    request_w: usize,
+    request_h: usize,
+}
+
+#[derive(Clone)]
+struct SvgCachedTexture {
+    texture: egui::TextureHandle,
+    px_size: [usize; 2],
+}
+
+fn svg_dest_size_points(avail_points: Vec2, px_size: [usize; 2], pixels_per_point: f32) -> Vec2 {
+    if pixels_per_point <= 0.0 {
+        return Vec2::ZERO;
+    }
+
+    let w_points = px_size[0] as f32 / pixels_per_point;
+    let h_points = px_size[1] as f32 / pixels_per_point;
+    if w_points <= 0.0 || h_points <= 0.0 {
+        return Vec2::ZERO;
+    }
+
+    let scale = (avail_points.x / w_points)
+        .min(avail_points.y / h_points)
+        .min(1.0)
+        .max(0.0);
+    Vec2::new(w_points * scale, h_points * scale)
+}
+
+fn get_or_create_svg_texture(
+    ctx: &egui::Context,
+    path: &'static str,
+    request_px: [usize; 2],
+) -> Option<SvgCachedTexture> {
+    let cache_id = egui::Id::new("rustylink_svg_icon_cache");
+    let key = SvgCacheKey {
+        path,
+        request_w: request_px[0],
+        request_h: request_px[1],
+    };
+
+    // IMPORTANT: never call `ctx.load_texture` inside `ctx.data_mut`, since both
+    // take a write lock on the same internal context lock, which will deadlock.
+    let hit = ctx.data_mut(|d| {
+        let cache = d.get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
+            cache_id,
+        );
+        cache.get(&key).cloned()
+    });
+    if hit.is_some() {
+        return hit;
+    }
+
+    let bytes = icon_assets::get(path)?;
+    let options = resvg::usvg::Options::default();
+    let image = egui_extras::image::load_svg_bytes_with_size(
+        &bytes,
+        egui::SizeHint::Size {
+            width: request_px[0].min(u32::MAX as usize) as u32,
+            height: request_px[1].min(u32::MAX as usize) as u32,
+            maintain_aspect_ratio: true,
+        },
+        &options,
+    )
+    .ok()?;
+    let px_size = image.size;
+
+    let texture = ctx.load_texture(
+        format!("rustylink_svg:{path}:{}x{}", request_px[0], request_px[1]),
+        image,
+        egui::TextureOptions::LINEAR,
+    );
+    let value = SvgCachedTexture {
+        texture,
+        px_size,
+    };
+
+    ctx.data_mut(|d| {
+        let cache = d.get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
+            cache_id,
+        );
+        cache.entry(key).or_insert_with(|| value.clone());
+        cache.get(&key).cloned()
+    })
+}
+
 /// Render an icon in the center of the block according to its type.
 ///
-/// The `font_scale` parameter scales the icon size relative to the baseline size
-/// (baseline is 24.0 at 400% zoom; caller should pass zoom/4.0).
-pub fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect, font_scale: f32) {
-    let icon_size = 24.0 * font_scale.max(0.01);
-    let icon_center = rect.center();
-    // Use default egui font (proportional) for UTF-8 icons
-    let font = egui::FontId::proportional(icon_size);
+/// The rendered glyph is maximized to fill the available center area while:
+/// - leaving at least 10% margin to the block border on all sides
+/// - avoiding overlap with optional inside-block port labels (left/right)
+pub fn render_block_icon(
+    painter: &egui::Painter,
+    block: &Block,
+    rect: &Rect,
+    font_scale: f32,
+    port_label_widths: Option<PortLabelMaxWidths>,
+) {
     let dark_icon = Color32::from_rgb(40, 40, 40); // dark color for icons
     // Lookup icon from centralized registry
+    // If this block originates from a library, prefer the library block
+    // name when looking up an icon.  The `block_type` of a referenced block
+    // is typically just "SubSystem" or "Reference", which would not match
+    // our virtual matrix library entries.  Using `library_block_path` lets us
+    // show the custom eye glyph for matrix library blocks.
     let effective_type = if block.is_matlab_function {
         "MATLAB Function"
+    } else if let Some(ref lib_path) = block.library_block_path {
+        // lib_path looks like "matrix_library/IsTriangular"; take the part
+        // after the last slash.
+        lib_path
+            .rsplit_once('/')
+            .map(|(_, name)| name)
+            .unwrap_or(lib_path.as_str())
     } else {
         &block.block_type
     };
@@ -37,9 +287,135 @@ pub fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect, fo
     if let Some(icon) = cfg.icon {
         match icon {
             block_types::IconSpec::Utf8(glyph) => {
-                painter.text(icon_center, Align2::CENTER_CENTER, glyph, font, dark_icon);
+                render_center_glyph_maximized(
+                    painter,
+                    rect,
+                    font_scale,
+                    glyph,
+                    dark_icon,
+                    port_label_widths,
+                );
+            }
+            block_types::IconSpec::Svg(path) => {
+                let avail_rect = compute_icon_available_rect(rect, font_scale, port_label_widths);
+                let avail_points = avail_rect.size();
+                if avail_points.x <= 1.0 || avail_points.y <= 1.0 {
+                    return;
+                }
+
+                let ctx = painter.ctx();
+                let pixels_per_point = ctx.pixels_per_point();
+                let request_px = [
+                    (avail_points.x * pixels_per_point).round().max(1.0) as usize,
+                    (avail_points.y * pixels_per_point).round().max(1.0) as usize,
+                ];
+
+                let Some(svg) = get_or_create_svg_texture(ctx, path, request_px) else {
+                    return;
+                };
+
+                let dest_size = svg_dest_size_points(avail_points, svg.px_size, pixels_per_point);
+                if dest_size.x <= 1.0 || dest_size.y <= 1.0 {
+                    return;
+                }
+
+                let dest_rect = Rect::from_center_size(avail_rect.center(), dest_size);
+                let uv = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
+                painter.image(svg.texture.id(), dest_rect, uv, Color32::WHITE);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn icon_available_rect_respects_10_percent_margin() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(100.0, 50.0));
+        let avail = compute_icon_available_rect(&rect, 1.0, None);
+        assert!((avail.left() - 10.0).abs() < 1e-6);
+        assert!((avail.right() - 90.0).abs() < 1e-6);
+        assert!((avail.top() - 5.0).abs() < 1e-6);
+        assert!((avail.bottom() - 45.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn icon_available_rect_accounts_for_inside_port_labels() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(100.0, 50.0));
+        let avail = compute_icon_available_rect(
+            &rect,
+            1.0,
+            Some(PortLabelMaxWidths {
+                left: 30.0,
+                right: 0.0,
+            }),
+        );
+        // margin is 10.0, but label inset should win:
+        // label_pad=4.0, left=30.0, gap=2.0 => 36.0.
+        assert!((avail.left() - 36.0).abs() < 1e-6);
+        assert!((avail.right() - 90.0).abs() < 1e-6);
+        assert!(avail.center().x > rect.center().x);
+    }
+
+    #[test]
+    fn icon_available_rect_degenerates_safely_when_insets_exceed_width() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(50.0, 20.0));
+        let avail = compute_icon_available_rect(
+            &rect,
+            1.0,
+            Some(PortLabelMaxWidths {
+                left: 1000.0,
+                right: 1000.0,
+            }),
+        );
+        assert!(avail.width() <= 0.0);
+        assert!((avail.center().x - rect.center().x).abs() < 1e-6);
+    }
+
+    #[test]
+    fn embedded_svg_assets_exist() {
+        let bytes = super::super::icon_assets::get("matrix/identity_matrix.svg");
+        assert!(bytes.is_some());
+    }
+
+    #[test]
+    fn svg_rasterization_preserves_aspect_ratio() {
+        let bytes = super::super::icon_assets::get("matrix/is_triangular.svg").unwrap();
+        let options = resvg::usvg::Options::default();
+
+        let tree = resvg::usvg::Tree::from_data(&bytes, &options).unwrap();
+        let src_w = tree.size().width();
+        let src_h = tree.size().height();
+        let src_ratio = src_w / src_h;
+
+        let image = egui_extras::image::load_svg_bytes_with_size(
+            &bytes,
+            egui::SizeHint::Size {
+                width: 128,
+                height: 64,
+                maintain_aspect_ratio: true,
+            },
+            &options,
+        )
+        .unwrap();
+
+        assert!(image.size[0] <= 128);
+        assert!(image.size[1] <= 64);
+        let out_ratio = image.size[0] as f32 / image.size[1] as f32;
+        assert!((out_ratio - src_ratio).abs() < 0.02);
+    }
+
+    #[test]
+    fn svg_dest_size_never_exceeds_available_rect() {
+        let avail = Vec2::new(80.0, 40.0);
+        let ppp = 2.0;
+        let px_size = [160, 80];
+        let dst = svg_dest_size_points(avail, px_size, ppp);
+        assert!(dst.x <= avail.x + 1e-6);
+        assert!(dst.y <= avail.y + 1e-6);
+        assert!((dst.x / dst.y - (px_size[0] as f32 / px_size[1] as f32)).abs() < 1e-6);
     }
 }
 

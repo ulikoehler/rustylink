@@ -6,6 +6,7 @@
 #![cfg(feature = "egui")]
 
 mod geometry;
+mod icon_assets;
 mod navigation;
 mod render;
 mod state;

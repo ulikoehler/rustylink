@@ -20,6 +20,7 @@ pub struct Rgb(pub u8, pub u8, pub u8);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IconSpec {
     Utf8(&'static str),
+    Svg(&'static str),
 }
 
 /// Configuration for a specific block type.
@@ -148,6 +149,57 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
             ..Default::default()
         },
     );
+
+    // matrix library virtual blocks
+    m.insert(
+        "IdentityMatrix".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Svg("matrix/identity_matrix.svg")),
+            // we generally want input/output labels visible so that the
+            // automatically-generated stub ports are readable
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "IsTriangular".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Svg("matrix/is_triangular.svg")),
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "IsSymmetric".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Svg("matrix/is_symmetric.svg")),
+            ..Default::default()
+        },
+    );
+
+    // The remaining matrix-library virtual blocks currently share a generic placeholder.
+    for name in [
+        "CrossProduct",
+        "MatrixMultiply",
+        "Submatrix",
+        "Transpose",
+        "HermitianTranspose",
+        "MatrixSquare",
+        "PermuteColumns",
+        "ExtractDiagonal",
+        "CreateDiagonalMatrix",
+        "ExpandScalar",
+        "IsHermitian",
+        "MatrixConcatenate",
+    ] {
+        m.insert(
+            name.to_string(),
+            BlockTypeConfig {
+                icon: Some(IconSpec::Utf8("👁")),
+                // we generally want input/output labels visible so that the
+                // automatically-generated stub ports are readable
+                ..Default::default()
+            },
+        );
+    }
 
     m
 }

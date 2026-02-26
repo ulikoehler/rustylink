@@ -417,19 +417,11 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             if b.commented {
                 let commented_bg = Color32::from_rgb(230, 230, 230);
                 ui.painter().rect_filled(r_screen, 0.0, commented_bg);
-                let icon_size = 24.0 * font_scale.max(0.01);
-                let font = egui::FontId::proportional(icon_size);
-                let dark_icon = Color32::from_rgb(80, 80, 80);
-                if let Some(icon) = cfg.icon {
-                    match icon {
-                        crate::block_types::IconSpec::Utf8(glyph) => {
-                            ui.painter().text(r_screen.center(), Align2::CENTER_CENTER, glyph, font, dark_icon);
-                        }
-                    }
-                }
+                // Use the shared icon layout algorithm (maximized with margins).
+                render_block_icon(ui.painter(), b, &r_screen, font_scale, None);
             } else {
                 ui.painter().rect_filled(r_screen, 6.0, bg);
-                render_block_icon(ui.painter(), b, &r_screen, font_scale);
+                render_block_icon(ui.painter(), b, &r_screen, font_scale, None);
             }
 
             // Selection highlight
