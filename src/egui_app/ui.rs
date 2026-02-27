@@ -536,7 +536,7 @@ fn update_internal(
             }
 
             let resp = ui.allocate_rect(r_screen, Sense::click());
-            let cfg = get_block_type_cfg(&b.block_type);
+            let cfg = get_block_type_cfg(b);
             let bg = block_base_color(b, &cfg);
             let mut effective_bg = bg;
 
@@ -1602,7 +1602,7 @@ fn update_internal(
                 if block.mask.is_some() {
                     continue;
                 }
-                let cfg = get_block_type_cfg(&block.block_type);
+                let cfg = get_block_type_cfg(block);
                 if (*is_input && !cfg.show_input_port_labels)
                     || (!*is_input && !cfg.show_output_port_labels)
                 {
@@ -1633,7 +1633,7 @@ fn update_internal(
 
         // Finish blocks (border, icon/value, labels) and click handling
         for (b, r_screen, _clicked, bg) in &block_views {
-            let cfg = get_block_type_cfg(&b.block_type);
+            let cfg = get_block_type_cfg(b);
             let border_rgb = cfg.border.unwrap_or(crate::block_types::Rgb(180, 180, 200));
             let stroke = Stroke::new(
                 2.0,
@@ -1901,7 +1901,7 @@ fn update_internal(
             if block.mask.is_some() {
                 continue;
             }
-            let cfg = get_block_type_cfg(&block.block_type);
+            let cfg = get_block_type_cfg(block);
             if (is_input && !cfg.show_input_port_labels)
                 || (!is_input && !cfg.show_output_port_labels)
             {

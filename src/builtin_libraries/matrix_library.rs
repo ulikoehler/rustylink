@@ -48,9 +48,15 @@ pub const BLOCKS: &[VirtualBlock] = &[
 ///
 /// Accepts forms like "matrix_library" or "matrix_library/Foo" (prefix
 /// match) and is case-insensitive.
+///
+/// Note: some Simulink files refer to the library as "matrix_library.slx".
+/// We accept both with and without the `.slx` suffix.
 pub fn is_matrix_library_name(name: &str) -> bool {
-    let norm = name.trim().to_ascii_lowercase();
-    norm == "matrix_library" || norm.starts_with("matrix_library/")
+    let norm = name.trim().replace('\\', "/").to_ascii_lowercase();
+    norm == "matrix_library"
+        || norm == "matrix_library.slx"
+        || norm.starts_with("matrix_library/")
+        || norm.starts_with("matrix_library.slx/")
 }
 
 /// Normalize a library block name for matching purposes.

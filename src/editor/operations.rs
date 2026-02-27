@@ -97,6 +97,12 @@ pub enum EditorCommand {
         line_index: usize,
         branch: Branch,
     },
+    /// Resize a block to a new position rect.
+    ResizeBlock {
+        block_index: usize,
+        old_position: String,
+        new_position: String,
+    },
     /// Reassign all SIDs in the system.
     ReassignSids {
         /// (block_index, old_sid) pairs for reversal.
@@ -496,6 +502,23 @@ fn apply_inverse(system: &mut System, cmd: &EditorCommand) -> EditorCommand {
                 line.branches.pop();
             }
             cmd.clone()
+        }
+        EditorCommand::ResizeBlock {
+            block_index,
+            old_position,
+            new_position,
+        } => {
+            if let Some(block) = system.blocks.get_mut(*block_index) {
+                block.position = Some(old_position.clone());
+                if let Some(v) = block.properties.get_mut("Position") {
+                    *v = old_position.clone();
+                }
+            }
+            EditorCommand::ResizeBlock {
+                block_index: *block_index,
+                old_position: new_position.clone(),
+                new_position: old_position.clone(),
+            }
         }
         EditorCommand::ReassignSids { old_sids } => {
             let mut current_sids = Vec::new();
@@ -1235,6 +1258,38 @@ pub fn create_subsystem_from_selection(
         subsystem_block_index,
         subsystem_block: Box::new(subsystem_block),
         added_lines: new_external_lines,
+    }
+}
+
+/// Resize a block to a new absolute position rect, returning the command for undo.
+///
+/// # Arguments
+///
+/// * `system` - The system containing the block
+/// * `block_index` - Index of the block in `system.blocks`
+/// * `new_l` - New left edge
+/// * `new_t` - New top edge
+/// * `new_r` - New right edge
+/// * `new_b` - New bottom edge
+pub fn resize_block(system: &mut System, block_index: usize, new_l: i32, new_t: i32, new_r: i32, new_b: i32) -> EditorCommand {
+    let block = &system.blocks[block_index];
+    let old_position = block
+        .position
+        .clone()
+        .unwrap_or_else(|| "[0, 0, 30, 30]".to_string());
+
+    let new_position = format_position(new_l, new_t, new_r, new_b);
+
+    let block = &mut system.blocks[block_index];
+    block.position = Some(new_position.clone());
+    block
+        .properties
+        .insert("Position".to_string(), new_position.clone());
+
+    EditorCommand::ResizeBlock {
+        block_index,
+        old_position,
+        new_position,
     }
 }
 

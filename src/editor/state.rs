@@ -45,6 +45,21 @@ pub enum DragMode {
     },
     /// Drawing the selection rectangle.
     SelectionRect,
+    /// Resizing a block via a handle.
+    Resize {
+        /// Index of the block being resized.
+        block_index: usize,
+        /// Which resize handle: 0=TL, 1=T, 2=TR, 3=R, 4=BR, 5=B, 6=BL, 7=L
+        handle: u8,
+        /// Original block position before resize started.
+        original_l: i32,
+        original_t: i32,
+        original_r: i32,
+        original_b: i32,
+        /// Accumulated drag delta in model coordinates.
+        dx: f32,
+        dy: f32,
+    },
     /// Panning the canvas (same as viewer).
     Pan,
 }

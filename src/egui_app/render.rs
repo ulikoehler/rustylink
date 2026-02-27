@@ -11,13 +11,71 @@ pub(crate) fn rgb_to_color32(c: Rgb) -> Color32 {
     Color32::from_rgb(c.0, c.1, c.2)
 }
 
-pub(crate) fn get_block_type_cfg(block_type: &str) -> BlockTypeConfig {
-    let map = block_types::get_block_type_config_map();
-    if let Ok(g) = map.read() {
-        g.get(block_type).cloned().unwrap_or_default()
-    } else {
-        BlockTypeConfig::default()
+fn normalize_library_block_path(path: &str) -> Option<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return None;
     }
+
+    let path = path.replace('\\', "/");
+    let Some((lib, rest)) = path.split_once('/') else {
+        return Some(path);
+    };
+    // Some models use `Something.slx/BlockName` while our registry keys are
+    // typically stored without the `.slx` suffix.
+    let lib_norm = lib
+        .strip_suffix(".slx")
+        .or_else(|| lib.strip_suffix(".SLX"))
+        .unwrap_or(lib);
+    Some(format!("{lib_norm}/{rest}"))
+}
+
+
+pub(crate) fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
+    let map = block_types::get_block_type_config_map();
+    let Ok(g) = map.read() else {
+        return BlockTypeConfig::default();
+    };
+
+    if block.is_matlab_function {
+        return g.get("MATLAB Function").cloned().unwrap_or_default();
+    }
+
+    let mut candidates: Vec<String> = Vec::new();
+
+    if let Some(ref lib_path) = block.library_block_path {
+        candidates.push(lib_path.clone());
+        if let Some(n) = normalize_library_block_path(lib_path) {
+            if n != *lib_path {
+                candidates.push(n);
+            }
+        }
+    } else if let Some(source_block) = block.properties.get("SourceBlock") {
+        candidates.push(source_block.clone());
+        if let Some(n) = normalize_library_block_path(source_block) {
+            if n != *source_block {
+                candidates.push(n);
+            }
+        }
+    }
+
+    if let Some(last) = candidates
+        .iter()
+        .filter_map(|p| p.rsplit_once('/').map(|(_, name)| name.to_string()))
+        .next()
+    {
+        candidates.push(last);
+    }
+
+    candidates.push(block.block_type.clone());
+
+    for key in candidates {
+        if let Some(cfg) = g.get(key.as_str()) {
+            return cfg.clone();
+        }
+    }
+
+    BlockTypeConfig::default()
 }
 
 /// Max measured width of port labels drawn *inside* the block on the left/right side.
@@ -411,32 +469,9 @@ pub fn render_block_icon(
     port_label_widths: Option<PortLabelMaxWidths>,
 ) {
     let dark_icon = Color32::from_rgb(40, 40, 40); // dark color for icons
-    // Lookup icon from centralized registry.  If the block originates from a
-    // library, first try the full library path (e.g. "matrix_library/IsTriangular").
-    // Only if that is missing do we fall back to the last path segment or the
-    // generic `block_type`.
-    let cfg = {
-        let map = block_types::get_block_type_config_map();
-        if let Ok(g) = map.read() {
-            if block.is_matlab_function {
-                g.get("MATLAB Function")
-                    .cloned()
-                    .unwrap_or_default()
-            } else if let Some(ref lib_path) = block.library_block_path {
-                if let Some(cfg) = g.get(lib_path.as_str()) {
-                    cfg.clone()
-                } else if let Some((_, name)) = lib_path.rsplit_once('/') {
-                    g.get(name).cloned().unwrap_or_default()
-                } else {
-                    g.get(&block.block_type).cloned().unwrap_or_default()
-                }
-            } else {
-                g.get(&block.block_type).cloned().unwrap_or_default()
-            }
-        } else {
-            BlockTypeConfig::default()
-        }
-    };
+    // Always prefer library-specific identifiers (library path / SourceBlock)
+    // over generic `block_type` mappings.
+    let cfg = get_block_type_cfg(block);
     if let Some(icon) = cfg.icon {
         match icon {
             block_types::IconSpec::Utf8(glyph) => {
@@ -477,6 +512,50 @@ pub fn render_block_icon(
                 painter.image(svg.texture.id(), dest_rect, uv, Color32::WHITE);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::block_types::IconSpec;
+
+    #[test]
+    fn icon_lookup_prefers_sourceblock_over_block_type() {
+        // Simulate a matrix-library block that is internally a generic Product
+        // but has a library origin that should override the generic icon.
+        let mut b = crate::editor::operations::create_default_block(
+            "Product",
+            "Matrix Multiply",
+            0,
+            0,
+            2,
+            1,
+        );
+        b.properties.insert(
+            "SourceBlock".to_string(),
+            "matrix_library.slx/Matrix Multiply".to_string(),
+        );
+        b.library_block_path = None;
+
+        let cfg = get_block_type_cfg(&b);
+        assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/matrix_product.svg")));
+    }
+
+    #[test]
+    fn icon_lookup_accepts_normalized_slx_library_path() {
+        let mut b = crate::editor::operations::create_default_block(
+            "Product",
+            "MatrixMultiply",
+            0,
+            0,
+            2,
+            1,
+        );
+        b.library_block_path = Some("matrix_library.slx/MatrixMultiply".to_string());
+
+        let cfg = get_block_type_cfg(&b);
+        assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/matrix_product.svg")));
     }
 }
 /// Screen-space Y coordinates computed for a block's ports (as used by the UI when placing

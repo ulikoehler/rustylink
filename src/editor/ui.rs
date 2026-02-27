@@ -209,6 +209,12 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             // Grid toggle
             ui.checkbox(&mut state.show_grid, "Grid");
             ui.checkbox(&mut state.snap_to_grid, "Snap");
+            ui.add(
+                egui::DragValue::new(&mut state.grid_size)
+                    .prefix("Grid: ")
+                    .speed(1)
+                    .range(1..=50),
+            );
 
             ui.separator();
             ui.checkbox(&mut state.app.show_block_names_default, "Block names");
@@ -409,16 +415,52 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
         let mut sid_map: HashMap<String, Rect> = HashMap::new();
         let mut sid_screen_map: HashMap<String, Rect> = HashMap::new();
 
+        // Compute drag offset for live preview
+        let drag_offset_model = if let DragMode::Blocks { dx, dy } = &state.drag_mode {
+            Some((*dx, *dy))
+        } else {
+            None
+        };
+
         // Draw blocks
         for (block_idx, (b, r)) in blocks.iter().enumerate() {
+            // Compute effective model rect (offset if this block is being dragged)
+            let is_selected = state.selection.is_block_selected(block_idx);
+            let effective_r = if is_selected {
+                if let Some((dx, dy)) = drag_offset_model {
+                    Rect::from_min_max(
+                        Pos2::new(r.min.x + dx, r.min.y + dy),
+                        Pos2::new(r.max.x + dx, r.max.y + dy),
+                    )
+                } else if let DragMode::Resize { block_index, handle, original_l, original_t, original_r, original_b, dx, dy } = &state.drag_mode {
+                    if *block_index == block_idx {
+                        let new_rect = compute_resized_rect(
+                            *original_l as f32, *original_t as f32,
+                            *original_r as f32, *original_b as f32,
+                            *handle, *dx, *dy, state.grid_size, state.snap_to_grid,
+                        );
+                        Rect::from_min_max(
+                            Pos2::new(new_rect.0, new_rect.1),
+                            Pos2::new(new_rect.2, new_rect.3),
+                        )
+                    } else {
+                        *r
+                    }
+                } else {
+                    *r
+                }
+            } else {
+                *r
+            };
+
             if let Some(sid) = &b.sid {
-                sid_map.insert(sid.clone(), *r);
+                sid_map.insert(sid.clone(), effective_r);
             }
-            let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
+            let r_screen = Rect::from_min_max(to_screen(effective_r.min), to_screen(effective_r.max));
             if let Some(sid) = &b.sid {
                 sid_screen_map.insert(sid.clone(), r_screen);
             }
-            let cfg = get_block_type_cfg(&b.block_type);
+            let cfg = get_block_type_cfg(b);
             let bg = block_base_color(b, &cfg);
 
             let is_selected = state.selection.is_block_selected(block_idx);
@@ -534,8 +576,16 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
                 }
             }
 
-            // Port indicators
+            // Port indicators (with clickable areas for connection dragging)
             draw_port_indicators(ui, b, &r_screen, font_scale);
+
+            // Resize handles for selected blocks
+            if is_selected && !matches!(state.drag_mode, DragMode::Blocks { .. }) {
+                draw_resize_handles(ui, &r_screen, block_idx, state, &effective_r);
+            }
+
+            // Port interaction areas for connection dragging
+            draw_port_interaction_areas(ui, b, &r_screen, font_scale, block_idx, state);
 
             // Allocate interaction rect
             let resp = ui.allocate_rect(r_screen, Sense::click_and_drag());
@@ -553,7 +603,10 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
                     }
                     state.selection.toggle_block(block_idx);
                 }
-                state.drag_mode = DragMode::Blocks { dx: 0.0, dy: 0.0 };
+                // Only start block drag if not already resizing
+                if !matches!(state.drag_mode, DragMode::Resize { .. }) && !matches!(state.drag_mode, DragMode::Connection { .. }) {
+                    state.drag_mode = DragMode::Blocks { dx: 0.0, dy: 0.0 };
+                }
             }
             if resp.clicked() && !resp.dragged() {
                 if ui.input(|i| i.modifiers.ctrl) {
@@ -568,7 +621,7 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             }
         }
 
-        // Handle block dragging
+        // Handle block dragging (live preview via delta accumulation)
         if matches!(state.drag_mode, DragMode::Blocks { .. }) && canvas_resp.dragged() {
             let delta = canvas_resp.drag_delta();
             let s = base_scale * zoom;
@@ -576,6 +629,7 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
                 *dx += delta.x / s;
                 *dy += delta.y / s;
             }
+            ui.ctx().request_repaint(); // Repaint for live preview
         }
         if matches!(state.drag_mode, DragMode::Blocks { .. }) && canvas_resp.drag_stopped() {
             if let DragMode::Blocks { dx, dy } = state.drag_mode {
@@ -599,6 +653,101 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             }
             state.drag_mode = DragMode::None;
         }
+
+        // Handle resize dragging
+        if matches!(state.drag_mode, DragMode::Resize { .. }) && canvas_resp.dragged() {
+            let delta = canvas_resp.drag_delta();
+            let s = base_scale * zoom;
+            if let DragMode::Resize { ref mut dx, ref mut dy, .. } = state.drag_mode {
+                *dx += delta.x / s;
+                *dy += delta.y / s;
+            }
+            ui.ctx().request_repaint();
+        }
+        if matches!(state.drag_mode, DragMode::Resize { .. }) && canvas_resp.drag_stopped() {
+            if let DragMode::Resize { block_index, handle, original_l, original_t, original_r, original_b, dx, dy } = state.drag_mode {
+                let (nl, nt, nr, nb) = compute_resized_rect(
+                    original_l as f32, original_t as f32,
+                    original_r as f32, original_b as f32,
+                    handle, dx, dy, state.grid_size, state.snap_to_grid,
+                );
+                let nl = nl as i32;
+                let nt = nt as i32;
+                let nr = nr as i32;
+                let nb = nb as i32;
+                if nl != original_l || nt != original_t || nr != original_r || nb != original_b {
+                    if let Some(system) = super::state::resolve_subsystem_by_vec_mut(
+                        &mut state.app.root, &state.app.path,
+                    ) {
+                        let cmd = operations::resize_block(system, block_index, nl, nt, nr, nb);
+                        state.history.push(cmd);
+                        state.dirty = true;
+                    }
+                }
+            }
+            state.drag_mode = DragMode::None;
+        }
+
+        // Handle connection dragging
+        if matches!(state.drag_mode, DragMode::Connection { .. }) && canvas_resp.dragged() {
+            if let Some(pos) = canvas_resp.hover_pos() {
+                let model_pos = from_screen(pos);
+                if let DragMode::Connection { ref mut current_x, ref mut current_y, .. } = state.drag_mode {
+                    *current_x = model_pos.x;
+                    *current_y = model_pos.y;
+                }
+            }
+            ui.ctx().request_repaint();
+        }
+        if matches!(state.drag_mode, DragMode::Connection { .. }) && canvas_resp.drag_stopped() {
+            // Try to complete the connection
+            if let DragMode::Connection { ref src_sid, ref src_port_type, src_port_index, current_x, current_y } = state.drag_mode.clone() {
+                if let Some(system) = crate::egui_app::resolve_subsystem_by_vec(
+                    &state.app.root, &state.app.path,
+                ) {
+                    let snap_radius = 20.0;
+                    if let Some((dst_idx, dst_port_type, dst_port_index, _px, _py)) =
+                        operations::find_snap_port(system, current_x, current_y, snap_radius, None)
+                    {
+                        // Check we're connecting output -> input or input -> output
+                        let valid = (src_port_type == "out" && dst_port_type == "in")
+                            || (src_port_type == "in" && dst_port_type == "out");
+                        if valid {
+                            if let Some(dst_block) = system.blocks.get(dst_idx) {
+                                if let Some(dst_sid) = &dst_block.sid {
+                                    let (actual_src_sid, actual_src_port, actual_dst_sid, actual_dst_port) =
+                                        if src_port_type == "out" {
+                                            (src_sid.clone(), src_port_index, dst_sid.clone(), dst_port_index)
+                                        } else {
+                                            (dst_sid.clone(), dst_port_index, src_sid.clone(), src_port_index)
+                                        };
+                                    // Compute auto-routing
+                                    let src_pos = operations::find_snap_port(system, 0.0, 0.0, f32::MAX, None);
+                                    let _ = src_pos; // We'll use auto_route from port positions
+                                    if let Some(sys_mut) = super::state::resolve_subsystem_by_vec_mut(
+                                        &mut state.app.root, &state.app.path,
+                                    ) {
+                                        let cmd = operations::add_line(
+                                            sys_mut,
+                                            &actual_src_sid,
+                                            actual_src_port,
+                                            &actual_dst_sid,
+                                            actual_dst_port,
+                                            Vec::new(), // Empty points = direct connection
+                                        );
+                                        state.history.push(cmd);
+                                        state.dirty = true;
+                                        state.app.show_notification("Connection created", 1500);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            state.drag_mode = DragMode::None;
+        }
+        // Cancel connection on Escape (handled in keyboard shortcuts)
 
         // Draw annotations
         for (a, r_model) in &annotations {
@@ -734,16 +883,66 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
         }
 
         // Draw the connection being drawn
-        if let DragMode::Connection { ref src_sid, current_x, current_y, .. } = state.drag_mode {
-            if let Some(sr) = sid_screen_map.get(src_sid) {
-                let start = Pos2::new(sr.right(), sr.center().y);
-                let end = Pos2::new(current_x, current_y);
-                ui.painter().line_segment(
-                    [start, end],
-                    Stroke::new(2.0, Color32::from_rgb(100, 200, 100)),
-                );
-                // Snap indicator
-                ui.painter().circle_filled(end, 4.0, Color32::from_rgb(100, 200, 100));
+        if let DragMode::Connection { ref src_sid, ref src_port_type, src_port_index, current_x, current_y } = state.drag_mode {
+            // Find start position from the actual port
+            let start_screen = if let Some(sr) = sid_map.get(src_sid) {
+                let mirrored = sid_mirrored.get(src_sid).copied().unwrap_or(false);
+                let ep = EndpointRef {
+                    sid: src_sid.clone(),
+                    port_type: src_port_type.clone(),
+                    port_index: src_port_index,
+                };
+                let num_ports = port_counts.get(&(src_sid.clone(), if src_port_type == "out" { 1 } else { 0 })).copied();
+                let model_pos = endpoint_pos_maybe_mirrored(*sr, &ep, num_ports, mirrored);
+                Some(to_screen(model_pos))
+            } else {
+                sid_screen_map.get(src_sid).map(|sr| {
+                    if src_port_type == "out" {
+                        Pos2::new(sr.right(), sr.center().y)
+                    } else {
+                        Pos2::new(sr.left(), sr.center().y)
+                    }
+                })
+            };
+
+            if let Some(start) = start_screen {
+                let end = to_screen(Pos2::new(current_x, current_y));
+                let conn_color = Color32::from_rgb(80, 200, 80);
+                let conn_stroke = Stroke::new(2.5, conn_color);
+
+                // Draw orthogonal routing preview
+                let mid_x = (start.x + end.x) / 2.0;
+                let corner1 = Pos2::new(mid_x, start.y);
+                let corner2 = Pos2::new(mid_x, end.y);
+                ui.painter().line_segment([start, corner1], conn_stroke);
+                ui.painter().line_segment([corner1, corner2], conn_stroke);
+                ui.painter().line_segment([corner2, end], conn_stroke);
+
+                // Start circle
+                ui.painter().circle_filled(start, 4.0, conn_color);
+
+                // Check for snap target and draw snap indicator
+                if let Some(system) = crate::egui_app::resolve_subsystem_by_vec(
+                    &state.app.root, &state.app.path,
+                ) {
+                    let snap_radius = 20.0;
+                    if let Some((_dst_idx, _dst_pt, _dst_pi, px, py)) =
+                        operations::find_snap_port(system, current_x, current_y, snap_radius, None)
+                    {
+                        let snap_screen = to_screen(Pos2::new(px, py));
+                        // Draw snap indicator ring
+                        ui.painter().circle_stroke(
+                            snap_screen, 8.0,
+                            Stroke::new(2.0, Color32::from_rgb(50, 255, 50)),
+                        );
+                        ui.painter().circle_filled(snap_screen, 4.0, Color32::from_rgb(50, 255, 50));
+                    } else {
+                        // Normal endpoint
+                        ui.painter().circle_filled(end, 4.0, conn_color);
+                    }
+                } else {
+                    ui.painter().circle_filled(end, 4.0, conn_color);
+                }
             }
         }
 
@@ -1524,4 +1723,223 @@ pub fn compute_line_colors(
         let default_h = i as f32 / n.max(1) as f32;
         hue_to_color(h.unwrap_or(default_h))
     }).collect()
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Resize handles
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Compute the 8 resize handle positions for a screen-space rectangle.
+/// Returns [(center_pos, handle_index)] for TL, T, TR, R, BR, B, BL, L.
+fn resize_handle_positions(r: &Rect) -> [(Pos2, u8); 8] {
+    let cx = r.center().x;
+    let cy = r.center().y;
+    [
+        (r.left_top(), 0),          // TL
+        (Pos2::new(cx, r.top()), 1),    // T
+        (r.right_top(), 2),         // TR
+        (Pos2::new(r.right(), cy), 3),   // R
+        (r.right_bottom(), 4),      // BR
+        (Pos2::new(cx, r.bottom()), 5),  // B
+        (r.left_bottom(), 6),       // BL
+        (Pos2::new(r.left(), cy), 7),    // L
+    ]
+}
+
+/// Draw resize handles on a selected block and handle interaction.
+fn draw_resize_handles(
+    ui: &mut egui::Ui,
+    r_screen: &Rect,
+    block_idx: usize,
+    state: &mut EditorState,
+    model_rect: &Rect,
+) {
+    let handle_size = 5.0;
+    let handle_color = Color32::from_rgb(0, 120, 255);
+    let handle_hover_color = Color32::from_rgb(80, 180, 255);
+
+    let handles = resize_handle_positions(r_screen);
+
+    for (pos, handle_id) in &handles {
+        let handle_rect = Rect::from_center_size(*pos, Vec2::splat(handle_size * 2.0));
+        let resp = ui.allocate_rect(handle_rect, Sense::click_and_drag());
+
+        let color = if resp.hovered() || resp.dragged() {
+            handle_hover_color
+        } else {
+            handle_color
+        };
+
+        // Draw handle square
+        ui.painter().rect_filled(
+            Rect::from_center_size(*pos, Vec2::splat(handle_size)),
+            0.0,
+            color,
+        );
+        ui.painter().rect_stroke(
+            Rect::from_center_size(*pos, Vec2::splat(handle_size)),
+            0.0,
+            Stroke::new(1.0, Color32::WHITE),
+            egui::StrokeKind::Outside,
+        );
+
+        // Start resize drag
+        if resp.drag_started() {
+            let (l, t, r, b) = (
+                model_rect.left() as i32,
+                model_rect.top() as i32,
+                model_rect.right() as i32,
+                model_rect.bottom() as i32,
+            );
+            state.drag_mode = DragMode::Resize {
+                block_index: block_idx,
+                handle: *handle_id,
+                original_l: l,
+                original_t: t,
+                original_r: r,
+                original_b: b,
+                dx: 0.0,
+                dy: 0.0,
+            };
+        }
+    }
+}
+
+/// Compute the new rect after applying a resize delta from a specific handle.
+/// Returns (new_l, new_t, new_r, new_b) with minimum size enforcement and grid snapping.
+fn compute_resized_rect(
+    l: f32, t: f32, r: f32, b: f32,
+    handle: u8, dx: f32, dy: f32,
+    grid_size: i32, snap_to_grid: bool,
+) -> (f32, f32, f32, f32) {
+    let min_size = 10.0;
+    let snap = |v: f32| -> f32 {
+        if snap_to_grid && grid_size > 0 {
+            ((v / grid_size as f32).round()) * grid_size as f32
+        } else {
+            v
+        }
+    };
+
+    let (mut nl, mut nt, mut nr, mut nb) = (l, t, r, b);
+
+    match handle {
+        0 => { // TL
+            nl = snap(l + dx);
+            nt = snap(t + dy);
+        }
+        1 => { // T
+            nt = snap(t + dy);
+        }
+        2 => { // TR
+            nr = snap(r + dx);
+            nt = snap(t + dy);
+        }
+        3 => { // R
+            nr = snap(r + dx);
+        }
+        4 => { // BR
+            nr = snap(r + dx);
+            nb = snap(b + dy);
+        }
+        5 => { // B
+            nb = snap(b + dy);
+        }
+        6 => { // BL
+            nl = snap(l + dx);
+            nb = snap(b + dy);
+        }
+        7 => { // L
+            nl = snap(l + dx);
+        }
+        _ => {}
+    }
+
+    // Enforce minimum size
+    if nr - nl < min_size {
+        if handle == 0 || handle == 6 || handle == 7 {
+            nl = nr - min_size;
+        } else {
+            nr = nl + min_size;
+        }
+    }
+    if nb - nt < min_size {
+        if handle == 0 || handle == 1 || handle == 2 {
+            nt = nb - min_size;
+        } else {
+            nb = nt + min_size;
+        }
+    }
+
+    (nl, nt, nr, nb)
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Port interaction areas (for initiating connection drag)
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Draw invisible interaction areas over port chevrons to initiate connection dragging.
+fn draw_port_interaction_areas(
+    ui: &mut egui::Ui,
+    block: &crate::model::Block,
+    r_screen: &Rect,
+    font_scale: f32,
+    _block_idx: usize,
+    state: &mut EditorState,
+) {
+    let in_count = block.port_counts.as_ref().and_then(|p| p.ins).unwrap_or(0);
+    let out_count = block.port_counts.as_ref().and_then(|p| p.outs).unwrap_or(0);
+    let mirrored = block.block_mirror.unwrap_or(false);
+
+    let (in_x, out_x) = if mirrored {
+        (r_screen.right(), r_screen.left())
+    } else {
+        (r_screen.left(), r_screen.right())
+    };
+
+    let scale = font_scale.max(0.2);
+    let hit_size = (12.0 * scale * 4.0).max(8.0);
+
+    let sid = match &block.sid {
+        Some(s) => s.clone(),
+        None => return,
+    };
+
+    // Input ports
+    for i in 0..in_count {
+        let n = in_count.max(1);
+        let y = r_screen.top() + r_screen.height() * ((i as f32 + 1.0) / (n as f32 + 1.0));
+        let port_center = Pos2::new(in_x, y);
+        let hit_rect = Rect::from_center_size(port_center, Vec2::splat(hit_size));
+        let resp = ui.allocate_rect(hit_rect, Sense::click_and_drag());
+
+        if resp.drag_started() {
+            state.drag_mode = DragMode::Connection {
+                src_sid: sid.clone(),
+                src_port_type: "in".to_string(),
+                src_port_index: i + 1,
+                current_x: port_center.x,
+                current_y: port_center.y,
+            };
+        }
+    }
+
+    // Output ports
+    for i in 0..out_count {
+        let n = out_count.max(1);
+        let y = r_screen.top() + r_screen.height() * ((i as f32 + 1.0) / (n as f32 + 1.0));
+        let port_center = Pos2::new(out_x, y);
+        let hit_rect = Rect::from_center_size(port_center, Vec2::splat(hit_size));
+        let resp = ui.allocate_rect(hit_rect, Sense::click_and_drag());
+
+        if resp.drag_started() {
+            state.drag_mode = DragMode::Connection {
+                src_sid: sid.clone(),
+                src_port_type: "out".to_string(),
+                src_port_index: i + 1,
+                current_x: port_center.x,
+                current_y: port_center.y,
+            };
+        }
+    }
 }
