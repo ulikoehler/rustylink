@@ -645,13 +645,18 @@ fn update_internal(
                     } else if !handled && b.block_type == "Reference" && b.subsystem.is_none() {
                         // Inform user when a Reference block can't be opened because the
                         // referenced library/subsystem was not resolved.
+                        // Trim/crunch whitespace in the block name before logging.
+                        let clean_name = crate::parser::helpers::clean_whitespace(&b.name);
                         let hint = match b.system_ref.as_deref() {
-                            Some(r) => format!(" (System Ref=\"{}\")", r),
+                            Some(r) => {
+                                let r = crate::parser::helpers::clean_whitespace(r);
+                                format!(" (System Ref=\"{}\")", r)
+                            }
                             None => String::new(),
                         };
                         let msg = format!(
                             "Cannot open reference block '{}'{}: referenced subsystem not resolved. Try adding the library path with -L or placing the library next to the .slx file.",
-                            b.name, hint
+                            clean_name, hint
                         );
                         println!("{}", msg);
                         // show transient in-GUI notification for 5s

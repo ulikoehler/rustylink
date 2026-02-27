@@ -13,6 +13,9 @@ use crate::model::{Block, System};
 use super::virtual_library;
 use super::virtual_library::VirtualBlock;
 
+/// Canonical name of the matrix virtual library.
+pub const LIB_NAME: &str = "matrix_library";
+
 // Note: `VirtualBlock` is provided by `builtin_libraries::virtual_library`.
 
 /// The initial set of blocks that the matrix library exposes by default.
@@ -25,90 +28,105 @@ pub const BLOCKS: &[VirtualBlock] = &[
         ins: 0,
         outs: 1,
         icon: Some("matrix/identity_matrix.svg"),
+        aliases: &[],
     },
     VirtualBlock {
         name: "IsTriangular",
         ins: 1,
         outs: 1,
         icon: Some("matrix/is_triangular.svg"),
+        aliases: &[],
     },
     VirtualBlock {
         name: "IsSymmetric",
         ins: 1,
         outs: 1,
         icon: Some("matrix/is_symmetric.svg"),
+        aliases: &[],
     },
     VirtualBlock {
         name: "CrossProduct",
         ins: 2,
         outs: 1,
         icon: Some("matrix/cross_product.svg"),
+        aliases: &[],
     },
     VirtualBlock {
         name: "MatrixMultiply",
         ins: 2,
         outs: 1,
         icon: Some("matrix/matrix_product.svg"),
+        aliases: &[],
     },
     VirtualBlock {
         name: "Submatrix",
         ins: 1,
         outs: 1,
         icon: Some("matrix/submatrix.svg"),
+        aliases: &[],
     },
     VirtualBlock {
         name: "Transpose",
         ins: 1,
         outs: 1,
         icon: Some("matrix/matrix_transpose.svg"),
+        aliases: &[],
     },
     VirtualBlock {
         name: "HermitianTranspose",
         ins: 1,
         outs: 1,
         icon: Some("matrix/hermitian_transpose.svg"),
+        aliases: &[],
     },
     VirtualBlock {
         name: "MatrixSquare",
         ins: 1,
         outs: 1,
         icon: Some("matrix/matrix_square.svg"),
+        aliases: &["Square"],
     },
     VirtualBlock {
         name: "PermuteColumns",
         ins: 2,
         outs: 1,
         icon: None,
+        aliases: &[],
     },
     VirtualBlock {
         name: "ExtractDiagonal",
         ins: 1,
         outs: 1,
         icon: None,
+        aliases: &[],
     },
     VirtualBlock {
         name: "CreateDiagonalMatrix",
         ins: 1,
         outs: 1,
         icon: Some("matrix/create_diagonal_matrix.svg"),
+        aliases: &[],
     },
     VirtualBlock {
         name: "ExpandScalar",
         ins: 1,
         outs: 1,
         icon: None,
+        aliases: &[],
     },
     VirtualBlock {
         name: "IsHermitian",
         ins: 1,
         outs: 1,
         icon: None,
+        aliases: &[],
     },
     VirtualBlock {
         name: "MatrixConcatenate",
         ins: 2,
         outs: 1,
         icon: None,
+        aliases: &[],
     },
 ];
 
@@ -148,6 +166,11 @@ pub fn port_counts_for(name: &str) -> (u32, u32) {
         if normalize_name(b.name) == norm {
             return (b.ins, b.outs);
         }
+        for &alias in b.aliases {
+            if normalize_name(alias) == norm {
+                return (b.ins, b.outs);
+            }
+        }
     }
     (1, 1)
 }
@@ -164,6 +187,11 @@ pub fn port_counts_if_known(name: &str) -> Option<(u32, u32)> {
     for b in BLOCKS {
         if normalize_name(b.name) == norm {
             return Some((b.ins, b.outs));
+        }
+        for &alias in b.aliases {
+            if normalize_name(alias) == norm {
+                return Some((b.ins, b.outs));
+            }
         }
     }
     None

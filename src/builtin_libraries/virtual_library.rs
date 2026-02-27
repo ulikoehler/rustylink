@@ -11,6 +11,11 @@ use crate::model::{Block, Port, PortCounts, System};
 pub struct VirtualBlock {
     /// Canonical name appearing in the library (case preserved).
     pub name: &'static str,
+    /// Additional names that may appear in SLX files for the same block.
+    ///
+    /// This is used to bridge naming differences between Simulink versions,
+    /// localized names, or shortened internal identifiers.
+    pub aliases: &'static [&'static str],
     /// Number of input ports the block should have when rendered as a stub.
     pub ins: u32,
     /// Number of output ports the block should have when rendered as a stub.
@@ -18,6 +23,23 @@ pub struct VirtualBlock {
     /// Optional icon to show for this block in the viewer. Paths are relative
     /// to the `icons/` folder embedded by `egui_app::icon_assets`.
     pub icon: Option<&'static str>,
+}
+
+/// Descriptor for a built-in virtual library.
+///
+/// This allows generic code (e.g. icon registry population, stub creation,
+/// etc.) to iterate over all known virtual libraries without hard-coding
+/// per-library details.
+#[derive(Clone, Copy)]
+pub struct VirtualLibrarySpec {
+    /// Canonical library name as used in SourceBlock paths (e.g. "matrix_library").
+    pub name: &'static str,
+    /// All virtual blocks this library exposes.
+    pub blocks: &'static [VirtualBlock],
+    /// Returns true if the provided library reference belongs to this library.
+    pub matches_name: fn(&str) -> bool,
+    /// Construct the initial virtual system for this library.
+    pub initial_system: fn() -> System,
 }
 
 /// Normalize a library block name for matching purposes.

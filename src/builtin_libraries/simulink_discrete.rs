@@ -9,6 +9,7 @@ pub const LIB_NAME: &str = "simulink/Discrete";
 pub const BLOCKS: &[VirtualBlock] = &[
     VirtualBlock {
         name: "Discrete Derivative",
+        aliases: &[],
         ins: 1,
         outs: 1,
         icon: Some("discrete/discrete_derivative.svg"),

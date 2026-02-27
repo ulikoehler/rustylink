@@ -675,6 +675,40 @@ mod tests {
             Some(IconSpec::Svg("discrete/discrete_derivative.svg"))
         );
     }
+
+    #[test]
+    fn svg_parse_matrix_square_embedded() {
+        let bytes = crate::egui_app::icon_assets::get("matrix/matrix_square.svg")
+            .expect("matrix_square.svg must be embedded");
+
+        let mut options = resvg::usvg::Options::default();
+        // Keep consistent with runtime behavior: populate the font DB if possible.
+        if let Some(db) = embedded_egui_sans_fontdb() {
+            options.fontdb = db;
+            options.font_family = "sans-serif".to_owned();
+        }
+
+        let image = egui_extras::image::load_svg_bytes_with_size(
+            &bytes,
+            egui::SizeHint::Size {
+                width: 256,
+                height: 256,
+                maintain_aspect_ratio: true,
+            },
+            &options,
+        )
+        .expect("matrix_square.svg must parse");
+        assert!(image.size[0] > 0 && image.size[1] > 0);
+    }
+
+    #[test]
+    fn icon_lookup_matrix_square_alias_square() {
+        let mut b = crate::editor::operations::create_default_block("SubSystem", "Square", 0, 0, 1, 1);
+        b.library_block_path = Some("matrix_library/Square".to_string());
+
+        let cfg = get_block_type_cfg(&b);
+        assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/matrix_square.svg")));
+    }
 }
 /// Screen-space Y coordinates computed for a block's ports (as used by the UI when placing
 /// port labels and clamped within the block rect). Keys are 1-based port indices.

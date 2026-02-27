@@ -150,97 +150,66 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
         },
     );
 
-    // NOTE: earlier versions manually registered icons for a handful of
-    // matrix-library blocks.  We now embed those paths directly in the
-    // library definitions and populate the registry by iterating
-    // `matrix_library::BLOCKS` later below.  That keeps the icon knowledge
-    // colocated with the library data and avoids drift when other icons are
-    // added.
+    // Register icons advertised by built-in virtual libraries.
+    //
+    // For each virtual block we register:
+    // - its canonical name and a humanized spelling (CamelCase -> "Camel Case")
+    // - any library-provided aliases (and their humanized spellings)
+    // - prefixed forms like "<lib>/<name>" to match SourceBlock paths
+    fn register_virtual_keys(
+        m: &mut HashMap<String, BlockTypeConfig>,
+        lib_name: &str,
+        raw_name: &str,
+        cfg: BlockTypeConfig,
+    ) {
+        let human = crate::builtin_libraries::virtual_library::humanize_camel_case(raw_name);
+        let mut keys: Vec<String> = vec![
+            raw_name.to_string(),
+            human.clone(),
+            format!("{lib_name}/{raw_name}"),
+            format!("{lib_name}/{human}"),
+        ];
 
-    // (explicit cases removed; see library-driven registration further down)
+        // De-duplicate while preserving insertion order.
+        let mut seen = std::collections::HashSet::new();
+        keys.retain(|k| seen.insert(k.clone()));
 
-    // Register any icons that the matrix virtual library itself advertises.
-    // The library names are CamelCase, but Simulink often writes them with a
-    // space between words ("Matrix Multiply", "Cross product", etc).  To
-    // ensure the viewer resolves the icon regardless of which variant appears
-    // in `SourceBlock` or `library_block_path`, we register both the raw name
-    // and a space-separated version.  We also register prefixed forms to
-    // handle `matrix_library/...` keys.
-    fn humanize(name: &str) -> String {
-        let mut out = String::new();
-        for (i, ch) in name.chars().enumerate() {
-            if i > 0 && ch.is_uppercase() && !name.chars().nth(i - 1).unwrap().is_uppercase() {
-                out.push(' ');
-            }
-            out.push(ch);
-        }
-        out
-    }
-
-    let mut matrix_icon_names = std::collections::HashSet::new();
-    for b in crate::builtin_libraries::matrix_library::BLOCKS {
-        if let Some(icon) = b.icon {
-            matrix_icon_names.insert(b.name);
-            let human = humanize(b.name);
-            for key in &[
-                b.name.to_string(),
-                human.clone(),
-                format!("matrix_library/{}", b.name),
-                format!("matrix_library/{}", human),
-            ] {
-                m.insert(
-                    key.clone(),
-                    BlockTypeConfig {
-                        icon: Some(IconSpec::Svg(icon)),
-                        ..Default::default()
-                    },
-                );
-            }
+        for k in keys {
+            m.insert(k, cfg.clone());
         }
     }
 
-    // The remaining matrix-library virtual blocks currently share a generic placeholder.
-    for name in [
-        "Transpose",
-        "HermitianTranspose",
-        "MatrixSquare",
-        "PermuteColumns",
-        "ExtractDiagonal",
-        "CreateDiagonalMatrix",
-        "ExpandScalar",
-        "IsHermitian",
-        "MatrixConcatenate",
-    ] {
-        if matrix_icon_names.contains(name) {
-            continue; // the library provided its own icon
-        }
-        for key in &[name.to_string(), format!("matrix_library/{}", name)] {
-            m.insert(
-                key.clone(),
-                BlockTypeConfig {
-                    icon: Some(IconSpec::Utf8("👁")),
-                    // we generally want input/output labels visible so that the
-                    // automatically-generated stub ports are readable
-                    ..Default::default()
-                },
-            );
-        }
-    }
+    for lib in crate::builtin_libraries::VIRTUAL_LIBRARIES {
+        for b in lib.blocks {
+            // Register canonical name and any aliases.
+            let mut names: Vec<&'static str> = Vec::with_capacity(1 + b.aliases.len());
+            names.push(b.name);
+            names.extend_from_slice(b.aliases);
 
-    // Register icons advertised by the `simulink/Discrete` virtual library.
-    for b in crate::builtin_libraries::simulink_discrete::BLOCKS {
-        if let Some(icon) = b.icon {
-            for key in &[
-                b.name.to_string(),
-                format!("{}/{}", crate::builtin_libraries::simulink_discrete::LIB_NAME, b.name),
-            ] {
-                m.insert(
-                    key.clone(),
-                    BlockTypeConfig {
-                        icon: Some(IconSpec::Svg(icon)),
-                        ..Default::default()
-                    },
-                );
+            for &n in &names {
+                if let Some(icon) = b.icon {
+                    register_virtual_keys(
+                        &mut m,
+                        lib.name,
+                        n,
+                        BlockTypeConfig {
+                            icon: Some(IconSpec::Svg(icon)),
+                            ..Default::default()
+                        },
+                    );
+                } else {
+                    // Generic placeholder for virtual-library blocks that
+                    // don't yet advertise a dedicated icon.
+                    register_virtual_keys(
+                        &mut m,
+                        lib.name,
+                        n,
+                        BlockTypeConfig {
+                            icon: Some(IconSpec::Utf8("👁")),
+                            ..Default::default()
+                        },
+                    );
+                }
             }
         }
     }

@@ -195,18 +195,24 @@ impl<S: ContentSource> SimulinkParser<S> {
                                         cache.insert(lib_name.to_string(), lib_system);
                                     }
                                     Err(e) => {
+                                        // sanitize each piece so stray whitespace doesn't
+                                        // create confusing log lines
+                                        let lib_name_clean = crate::parser::helpers::clean_whitespace(lib_name);
+                                        let host_clean = crate::parser::helpers::clean_whitespace(&block_host_path);
                                         warn_yellow(format!(
                                             "failed to parse library '{}' (requested by '{}'): {}",
-                                            lib_name, block_host_path, e
+                                            lib_name_clean, host_clean, e
                                         ));
                                         continue;
                                     }
                                 }
                             } else {
                                 if !suppress_missing_external_warnings {
+                                    let lib_name_clean = crate::parser::helpers::clean_whitespace(lib_name);
+                                    let host_clean = crate::parser::helpers::clean_whitespace(&block_host_path);
                                     warn_yellow(format!(
                                         "library '{}' not found (requested by '{}')",
-                                        lib_name, block_host_path
+                                        lib_name_clean, host_clean
                                     ));
                                 }
                                 continue;
@@ -243,9 +249,11 @@ impl<S: ContentSource> SimulinkParser<S> {
                             } else {
                                 ""
                             };
+                            let source_clean = crate::parser::helpers::clean_whitespace(&source_block);
+                            let host_clean = crate::parser::helpers::clean_whitespace(&block_host_path);
                             warn_yellow(format!(
                                 "library block '{}' not found{} (requested by '{}')",
-                                source_block, extra, block_host_path
+                                source_clean, extra, host_clean
                             ));
                         }
                     }

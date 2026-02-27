@@ -569,20 +569,26 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                     mask = Some(m);
                     child_order.push(BlockChildKind::Mask);
                 }
-                Err(err) => eprintln!(
-                    "[rustylink] Error parsing <Mask> in block '{}': {}",
-                    name, err
-                ),
+                Err(err) => {
+                    let name_clean = crate::parser::helpers::clean_whitespace(&name);
+                    eprintln!(
+                        "[rustylink] Error parsing <Mask> in block '{}': {}",
+                        name_clean, err
+                    );
+                },
             },
             "InstanceData" => match parse_instance_data_node(child) {
                 Ok(id) => {
                     instance_data = Some(id);
                     child_order.push(BlockChildKind::InstanceData);
                 }
-                Err(err) => eprintln!(
-                    "[rustylink] Warning: failed to parse <InstanceData> in block '{}': {}",
-                    name, err
-                ),
+                Err(err) => {
+                    let name_clean = crate::parser::helpers::clean_whitespace(&name);
+                    eprintln!(
+                        "[rustylink] Warning: failed to parse <InstanceData> in block '{}': {}",
+                        name_clean, err
+                    );
+                },
             },
             "Annotation" => match parse_annotation_node(child) {
                 Ok(a) => {
@@ -590,10 +596,13 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                     annotations.push(a);
                     child_order.push(BlockChildKind::Annotation(idx));
                 }
-                Err(err) => eprintln!(
-                    "[rustylink] Warning: failed to parse <Annotation> in block '{}': {}",
-                    name, err
-                ),
+                Err(err) => {
+                    let name_clean = crate::parser::helpers::clean_whitespace(&name);
+                    eprintln!(
+                        "[rustylink] Warning: failed to parse <Annotation> in block '{}': {}",
+                        name_clean, err
+                    );
+                },
             },
             _ => {}
         }
