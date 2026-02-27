@@ -19,6 +19,14 @@ pub struct VirtualBlock {
     pub ins: u32,
     /// Number of output ports the block should have when rendered as a stub.
     pub outs: u32,
+    /// Optional icon to show for this block in the viewer.  Paths are relative
+    /// to the `icons/` folder embedded by `egui_app::icon_assets`.
+    ///
+    /// Only a handful of matrix-library blocks currently have their own SVG
+    /// assets; others should fall back to a generic placeholder.  This field
+    /// makes it easy to keep the knowledge with the library rather than
+    /// scattering special-cases across `block_types`.
+    pub icon: Option<&'static str>,
 }
 
 /// The initial set of blocks that the matrix library exposes by default.
@@ -30,76 +38,91 @@ pub const BLOCKS: &[VirtualBlock] = &[
         name: "IdentityMatrix",
         ins: 0,
         outs: 1,
+        icon: Some("matrix/identity_matrix.svg"),
     },
     VirtualBlock {
         name: "IsTriangular",
         ins: 1,
         outs: 1,
+        icon: Some("matrix/is_triangular.svg"),
     },
     VirtualBlock {
         name: "IsSymmetric",
         ins: 1,
         outs: 1,
+        icon: Some("matrix/is_symmetric.svg"),
     },
     VirtualBlock {
         name: "CrossProduct",
         ins: 2,
         outs: 1,
+        icon: Some("matrix/cross_product.svg"),
     },
     VirtualBlock {
         name: "MatrixMultiply",
         ins: 2,
         outs: 1,
+        icon: Some("matrix/matrix_product.svg"),
     },
     VirtualBlock {
         name: "Submatrix",
         ins: 1,
         outs: 1,
+        icon: Some("matrix/submatrix.svg"),
     },
     VirtualBlock {
         name: "Transpose",
         ins: 1,
         outs: 1,
+        icon: None,
     },
     VirtualBlock {
         name: "HermitianTranspose",
         ins: 1,
         outs: 1,
+        icon: None,
     },
     VirtualBlock {
         name: "MatrixSquare",
         ins: 1,
         outs: 1,
+        icon: None,
     },
     VirtualBlock {
         name: "PermuteColumns",
         ins: 2,
         outs: 1,
+        icon: None,
     },
     VirtualBlock {
         name: "ExtractDiagonal",
         ins: 1,
         outs: 1,
+        icon: None,
     },
     VirtualBlock {
         name: "CreateDiagonalMatrix",
         ins: 1,
         outs: 1,
+        icon: Some("matrix/create_diagonal_matrix.svg"),
     },
     VirtualBlock {
         name: "ExpandScalar",
         ins: 1,
         outs: 1,
+        icon: None,
     },
     VirtualBlock {
         name: "IsHermitian",
         ins: 1,
         outs: 1,
+        icon: None,
     },
     VirtualBlock {
         name: "MatrixConcatenate",
         ins: 2,
         outs: 1,
+        icon: None,
     },
 ];
 

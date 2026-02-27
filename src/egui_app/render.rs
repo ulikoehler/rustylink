@@ -614,15 +614,27 @@ mod tests {
         assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/cross_product.svg")));
     }
 
-    /// "Submatrix" must resolve to its dedicated SVG icon, not the old "👁" placeholder.
+    /// Every block that advertises an icon in the matrix library should
+    /// resolve to that SVG path.  This loop covers all of them (including the
+    /// previously-special-cased Submatrix/CreateDiagonalMatrix cases) and
+    /// prevents manual duplication whenever a new asset is added.
     #[test]
-    fn icon_lookup_submatrix_uses_svg() {
-        let mut b =
-            crate::editor::operations::create_default_block("SubSystem", "Submatrix", 0, 0, 1, 1);
-        b.library_block_path = Some("matrix_library/Submatrix".to_string());
-
-        let cfg = get_block_type_cfg(&b);
-        assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/submatrix.svg")));
+    fn icon_lookup_matrix_library_icons() {
+        for b in crate::builtin_libraries::matrix_library::BLOCKS {
+            if let Some(icon) = b.icon {
+                let mut blk = crate::editor::operations::create_default_block(
+                    "SubSystem",
+                    b.name,
+                    0,
+                    0,
+                    1,
+                    1,
+                );
+                blk.library_block_path = Some(format!("matrix_library/{}", b.name));
+                let cfg = get_block_type_cfg(&blk);
+                assert_eq!(cfg.icon, Some(IconSpec::Svg(icon)), "block {}", b.name);
+            }
+        }
     }
 
     /// A plain Simulink Product block with Multiplication="Matrix(*)" should use

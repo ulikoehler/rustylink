@@ -6,3 +6,4 @@ _rels
 simulink
 *.code-workspace
 .vscode
+*.log

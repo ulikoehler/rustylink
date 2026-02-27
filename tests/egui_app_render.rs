@@ -1,5 +1,6 @@
 use eframe::egui::{Pos2, Rect, Vec2};
 use rustylink::egui_app::{PortLabelMaxWidths, compute_icon_available_rect, icon_assets};
+use rustylink::block_types;
 
 #[test]
 fn icon_available_rect_respects_10_percent_margin() {
@@ -53,9 +54,27 @@ fn embedded_svg_assets_exist() {
         "matrix/matrix_product.svg",
         "matrix/cross_product.svg",
         "matrix/submatrix.svg",
+        "matrix/create_diagonal_matrix.svg",
     ] {
         let bytes = icon_assets::get(path);
         assert!(bytes.is_some(), "missing asset {}", path);
+    }
+}
+
+#[test]
+fn block_type_registry_contains_matrix_library_icons() {
+    use rustylink::block_types::IconSpec;
+    let map = crate::block_types::get_block_type_config_map();
+    let r = map.read().unwrap();
+    for b in rustylink::builtin_libraries::matrix_library::BLOCKS {
+        if let Some(icon) = b.icon {
+            assert_eq!(
+                r.get(b.name).and_then(|c| c.icon),
+                Some(IconSpec::Svg(icon)),
+                "registry entry for {}",
+                b.name,
+            );
+        }
     }
 }
 

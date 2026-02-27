@@ -150,60 +150,53 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
         },
     );
 
-    // matrix library virtual blocks
-    for &(name, icon) in &[
-        ("IdentityMatrix", "matrix/identity_matrix.svg"),
-        ("IsTriangular", "matrix/is_triangular.svg"),
-        ("IsSymmetric", "matrix/is_symmetric.svg"),
-        ("Submatrix", "matrix/submatrix.svg"),
-    ] {
-        for key in &[name.to_string(), format!("matrix_library/{}", name)] {
-            m.insert(
-                key.clone(),
-                BlockTypeConfig {
-                    icon: Some(IconSpec::Svg(icon)),
-                    // we generally want input/output labels visible so that the
-                    // automatically-generated stub ports are readable
-                    ..Default::default()
-                },
-            );
+    // NOTE: earlier versions manually registered icons for a handful of
+    // matrix-library blocks.  We now embed those paths directly in the
+    // library definitions and populate the registry by iterating
+    // `matrix_library::BLOCKS` later below.  That keeps the icon knowledge
+    // colocated with the library data and avoids drift when other icons are
+    // added.
+
+    // (explicit cases removed; see library-driven registration further down)
+
+    // Register any icons that the matrix virtual library itself advertises.
+    // The library names are CamelCase, but Simulink often writes them with a
+    // space between words ("Matrix Multiply", "Cross product", etc).  To
+    // ensure the viewer resolves the icon regardless of which variant appears
+    // in `SourceBlock` or `library_block_path`, we register both the raw name
+    // and a space-separated version.  We also register prefixed forms to
+    // handle `matrix_library/...` keys.
+    fn humanize(name: &str) -> String {
+        let mut out = String::new();
+        for (i, ch) in name.chars().enumerate() {
+            if i > 0 && ch.is_uppercase() && !name.chars().nth(i - 1).unwrap().is_uppercase() {
+                out.push(' ');
+            }
+            out.push(ch);
         }
+        out
     }
 
-    // add explicit icon for cross product so it no longer uses the generic eye
-    for key in &["CrossProduct", "Cross Product"] {
-        m.insert(
-            key.to_string(),
-            BlockTypeConfig {
-                icon: Some(IconSpec::Svg("matrix/cross_product.svg")),
-                ..Default::default()
-            },
-        );
-        m.insert(
-            format!("matrix_library/{}", key),
-            BlockTypeConfig {
-                icon: Some(IconSpec::Svg("matrix/cross_product.svg")),
-                ..Default::default()
-            },
-        );
-    }
-
-    // explicit icon for matrix multiply (product) block
-    for key in &["MatrixMultiply", "Matrix Multiply"] {
-        m.insert(
-            key.to_string(),
-            BlockTypeConfig {
-                icon: Some(IconSpec::Svg("matrix/matrix_product.svg")),
-                ..Default::default()
-            },
-        );
-        m.insert(
-            format!("matrix_library/{}", key),
-            BlockTypeConfig {
-                icon: Some(IconSpec::Svg("matrix/matrix_product.svg")),
-                ..Default::default()
-            },
-        );
+    let mut matrix_icon_names = std::collections::HashSet::new();
+    for b in crate::builtin_libraries::matrix_library::BLOCKS {
+        if let Some(icon) = b.icon {
+            matrix_icon_names.insert(b.name);
+            let human = humanize(b.name);
+            for key in &[
+                b.name.to_string(),
+                human.clone(),
+                format!("matrix_library/{}", b.name),
+                format!("matrix_library/{}", human),
+            ] {
+                m.insert(
+                    key.clone(),
+                    BlockTypeConfig {
+                        icon: Some(IconSpec::Svg(icon)),
+                        ..Default::default()
+                    },
+                );
+            }
+        }
     }
 
     // The remaining matrix-library virtual blocks currently share a generic placeholder.
@@ -218,6 +211,9 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
         "IsHermitian",
         "MatrixConcatenate",
     ] {
+        if matrix_icon_names.contains(name) {
+            continue; // the library provided its own icon
+        }
         for key in &[name.to_string(), format!("matrix_library/{}", name)] {
             m.insert(
                 key.clone(),
