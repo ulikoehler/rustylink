@@ -123,6 +123,12 @@ pub struct SubsystemApp {
     /// A value of ~1.0 makes the text approximately the same height as the chevrons.
     pub block_name_font_factor: f32,
 
+    /// Color used to draw block name labels.
+    ///
+    /// Defaults to dark gray (`Color32::from_rgb(40, 40, 40)`).
+    /// Can be overridden at runtime, e.g. `app.block_name_color = Color32::BLACK;`.
+    pub block_name_color: egui::Color32,
+
     /// Selected block SIDs in the current view (supports multi-selection).
     pub selected_block_sids: BTreeSet<String>,
 }
@@ -160,6 +166,7 @@ impl SubsystemApp {
             block_click_handler: None,
             show_block_names_default: true,
             block_name_font_factor: 0.85,
+            block_name_color: egui::Color32::from_rgb(40, 40, 40),
             selected_block_sids: BTreeSet::new(),
         }
     }

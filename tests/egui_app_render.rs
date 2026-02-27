@@ -56,10 +56,20 @@ fn embedded_svg_assets_exist() {
         "matrix/submatrix.svg",
         "matrix/create_diagonal_matrix.svg",
         "matrix/expand_scalar_to_matrix.svg",
+        "matrix/extract_diagonal.svg",
     ] {
         let bytes = icon_assets::get(path);
         assert!(bytes.is_some(), "missing asset {}", path);
     }
+}
+
+#[test]
+fn svg_parse_extract_diagonal_embedded() {
+    // Ensure the new icon actually parses, catching any embedding or SVG errors.
+    let bytes = icon_assets::get("matrix/extract_diagonal.svg").unwrap();
+    let options = resvg::usvg::Options::default();
+    let tree = resvg::usvg::Tree::from_data(&bytes, &options).unwrap();
+    assert!(tree.size().width() > 0.0 && tree.size().height() > 0.0);
 }
 
 #[test]

@@ -97,7 +97,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         name: "ExtractDiagonal",
         ins: 1,
         outs: 1,
-        icon: None,
+        icon: Some("matrix/extract_diagonal.svg"),
         aliases: &[],
     },
     VirtualBlock {

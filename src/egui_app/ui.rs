@@ -1853,7 +1853,7 @@ fn update_internal(
                 let font_px = (chevron_h * app.block_name_font_factor).max(1.0);
                 let font = egui::FontId::proportional(font_px);
                 let line_height = (font_px * 1.2).max(1.0);
-                let color = Color32::WHITE;
+                let color = app.block_name_color;
 
                 let lines = wrap_text_to_max_width(painter, &b.name, font.clone(), max_label_w);
                 if !lines.is_empty() {
