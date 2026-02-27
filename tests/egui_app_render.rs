@@ -46,7 +46,10 @@ fn embedded_svg_assets_exist() {
     for path in &[
         "matrix/identity_matrix.svg",
         "matrix/is_triangular.svg",
+        "matrix/is_symmetric.svg",
         "matrix/matrix_product.svg",
+        "matrix/cross_product.svg",
+        "matrix/submatrix.svg",
     ] {
         let bytes = icon_assets::get(path);
         assert!(bytes.is_some(), "missing asset {}", path);

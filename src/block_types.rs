@@ -155,6 +155,7 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
         ("IdentityMatrix", "matrix/identity_matrix.svg"),
         ("IsTriangular", "matrix/is_triangular.svg"),
         ("IsSymmetric", "matrix/is_symmetric.svg"),
+        ("Submatrix", "matrix/submatrix.svg"),
     ] {
         for key in &[name.to_string(), format!("matrix_library/{}", name)] {
             m.insert(
@@ -207,7 +208,6 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
 
     // The remaining matrix-library virtual blocks currently share a generic placeholder.
     for name in [
-        "Submatrix",
         "Transpose",
         "HermitianTranspose",
         "MatrixSquare",

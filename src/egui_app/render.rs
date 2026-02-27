@@ -41,38 +41,70 @@ pub(crate) fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
         return g.get("MATLAB Function").cloned().unwrap_or_default();
     }
 
-    let mut candidates: Vec<String> = Vec::new();
+    // Build library-specific candidates (library path / SourceBlock).  These are
+    // kept separate from `block_type` so that virtual-library icons always take
+    // priority over the generic block-kind icon (e.g. a "Product"-typed cross-
+    // product block should show the cross-product SVG, not the generic "×").
+    let mut lib_candidates: Vec<String> = Vec::new();
 
     if let Some(ref lib_path) = block.library_block_path {
-        candidates.push(lib_path.clone());
+        lib_candidates.push(lib_path.clone());
         if let Some(n) = normalize_library_block_path(lib_path) {
             if n != *lib_path {
-                candidates.push(n);
+                lib_candidates.push(n);
             }
         }
-    } else if let Some(source_block) = block.properties.get("SourceBlock") {
-        candidates.push(source_block.clone());
+    }
+    // Always check SourceBlock as well (not only when library_block_path is absent),
+    // since library_block_path is derived from it and may carry the same casing issues.
+    if let Some(source_block) = block.properties.get("SourceBlock") {
+        if block.library_block_path.as_deref() != Some(source_block.as_str()) {
+            lib_candidates.push(source_block.clone());
+        }
         if let Some(n) = normalize_library_block_path(source_block) {
-            if n != *source_block {
-                candidates.push(n);
+            if !lib_candidates.contains(&n) {
+                lib_candidates.push(n);
             }
         }
     }
 
-    if let Some(last) = candidates
-        .iter()
-        .filter_map(|p| p.rsplit_once('/').map(|(_, name)| name.to_string()))
-        .next()
-    {
-        candidates.push(last);
+    // Collect all unique last-path-segments from the library candidates.
+    let mut last_segments: Vec<String> = Vec::new();
+    for c in &lib_candidates {
+        if let Some((_, name)) = c.rsplit_once('/') {
+            let s = name.to_string();
+            if !last_segments.contains(&s) {
+                last_segments.push(s);
+            }
+        }
     }
 
-    candidates.push(block.block_type.clone());
-
-    for key in candidates {
+    // Phase 1 – exact match against full library paths and their last segments.
+    // This intentionally runs BEFORE the block_type fallback so that virtual-
+    // library icons win over the generic kind icon.
+    for key in lib_candidates.iter().chain(last_segments.iter()) {
         if let Some(cfg) = g.get(key.as_str()) {
             return cfg.clone();
         }
+    }
+
+    // Phase 2 – case-insensitive fallback on the last segments.
+    // Handles blocks where the SLX uses different capitalisation than our
+    // registry (e.g. "Cross product" vs "Cross Product").
+    for seg in &last_segments {
+        let seg_lower = seg.to_ascii_lowercase();
+        if let Some(cfg) = g
+            .iter()
+            .find(|(k, _)| k.to_ascii_lowercase() == seg_lower)
+            .map(|(_, v)| v.clone())
+        {
+            return cfg.clone();
+        }
+    }
+
+    // Phase 3 – generic block-type fallback (lowest priority).
+    if let Some(cfg) = g.get(block.block_type.as_str()) {
+        return cfg.clone();
     }
 
     BlockTypeConfig::default()
@@ -556,6 +588,44 @@ mod tests {
 
         let cfg = get_block_type_cfg(&b);
         assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/matrix_product.svg")));
+    }
+
+    /// Blocks whose SLX name uses different capitalisation than the registry key
+    /// (e.g. "Cross product" with a lowercase 'p') must still resolve to the
+    /// correct SVG icon via the case-insensitive fallback, and must NOT fall
+    /// through to the generic block_type icon (the "×" Product icon).
+    #[test]
+    fn icon_lookup_cross_product_case_insensitive() {
+        let mut b = crate::editor::operations::create_default_block(
+            "Product",
+            "Cross product",
+            0,
+            0,
+            2,
+            1,
+        );
+        // Simulate what the parser sets: library_block_path from SourceBlock.
+        b.library_block_path = Some("matrix_library/Cross product".to_string());
+
+        let cfg = get_block_type_cfg(&b);
+        assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/cross_product.svg")));
+    }
+
+    /// "Submatrix" must resolve to its dedicated SVG icon, not the old "👁" placeholder.
+    #[test]
+    fn icon_lookup_submatrix_uses_svg() {
+        let mut b = crate::editor::operations::create_default_block(
+            "SubSystem",
+            "Submatrix",
+            0,
+            0,
+            1,
+            1,
+        );
+        b.library_block_path = Some("matrix_library/Submatrix".to_string());
+
+        let cfg = get_block_type_cfg(&b);
+        assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/submatrix.svg")));
     }
 }
 /// Screen-space Y coordinates computed for a block's ports (as used by the UI when placing
