@@ -162,7 +162,22 @@ impl LibraryResolver {
         let mut seen: HashSet<String> = HashSet::new();
         for lib in libs {
             let lib = lib.trim();
-            if lib.is_empty() || !seen.insert(lib.to_string()) {
+            if lib.is_empty() {
+                continue;
+            }
+
+            // virtual libraries are handled entirely in-memory and have no
+            // corresponding `.slx` file on disk.  Consumers often call
+            // `LibraryResolver::locate` simply to report which libraries are
+            // missing; including virtual libs in the results would be noisy and
+            // misleading.  Skip them here so that the returned `LibraryLookupResult`
+            // only contains non-virtual entries.  See also
+            // `is_virtual_library` which has the matching logic.
+            if is_virtual_library(lib) {
+                continue;
+            }
+
+            if !seen.insert(lib.to_string()) {
                 continue;
             }
             let file_name = format!("{}.slx", lib);

@@ -20,6 +20,29 @@ use super::render::{
 use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
 use super::text::{highlight_query_job, matlab_syntax_job};
 
+/// Normalize a user-facing string by collapsing all whitespace to a single
+/// space and trimming leading/trailing whitespace.  This is used by various
+/// UI components to avoid rendering stray newlines/tabs that may come from the
+/// parsed Simulink model.
+#[allow(dead_code)]
+pub(crate) fn clean_display_string(s: &str) -> String {
+    crate::parser::helpers::clean_whitespace(s)
+}
+
+/// Helper used when opening a block-info dialog to produce the window title.
+///
+/// Applies [`clean_display_string`] to both the block name and type and then
+/// formats them as "name (type)".  Having a dedicated function makes it easy to
+/// test.
+#[allow(dead_code)]
+pub(crate) fn block_dialog_title(block: &crate::model::Block) -> String {
+    format!(
+        "{} ({})",
+        clean_display_string(&block.name),
+        clean_display_string(&block.block_type)
+    )
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClickAction {
     Primary,
@@ -2017,18 +2040,19 @@ pub fn apply_update_response(app: &mut SubsystemApp, response: &UpdateResponse) 
             if is_block_subsystem(block) {
                 return;
             }
+            // build a cleaned title using our helper function
+            let title_cleaned = block_dialog_title(block);
+
             if let Some(cv) = build_chart_view_for_block(app, block) {
                 app.chart_view = Some(cv);
-                let title_b = format!("{} ({})", block.name, block.block_type);
                 app.block_view = Some(BlockDialog {
-                    title: title_b,
+                    title: title_cleaned.clone(),
                     block: block.clone(),
                     open: true,
                 });
             } else {
-                let title = format!("{} ({})", block.name, block.block_type);
                 app.block_view = Some(BlockDialog {
-                    title,
+                    title: title_cleaned.clone(),
                     block: block.clone(),
                     open: true,
                 });
@@ -2230,7 +2254,10 @@ fn show_block_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
     if let Some(bd) = &app.block_view {
         let mut open_flag = bd.open;
         let block = bd.block.clone();
-        egui::Window::new(format!("Block: {}", bd.title))
+        // the title was cleaned when the dialog was created; normalize again just
+        // in case the string was mutated by a custom button handler.
+        let win_title = crate::parser::helpers::clean_whitespace(&bd.title);
+        egui::Window::new(format!("Block: {}", win_title))
             .open(&mut open_flag)
             .resizable(true)
             .vscroll(true)
@@ -2239,8 +2266,14 @@ fn show_block_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
             .show(ui.ctx(), |ui| {
                 ui.label(RichText::new("General").strong());
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(format!("Name: {}", block.name));
-                    ui.label(format!("Type: {}", block.block_type));
+                    ui.label(format!(
+                        "Name: {}",
+                        crate::parser::helpers::clean_whitespace(&block.name)
+                    ));
+                    ui.label(format!(
+                        "Type: {}",
+                        crate::parser::helpers::clean_whitespace(&block.block_type)
+                    ));
                     if let Some(sid) = block.sid.as_ref() {
                         ui.label(format!("SID: {}", sid));
                     }
@@ -2260,8 +2293,11 @@ fn show_block_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
                         }
                         for (k, v) in &block.properties {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(k).strong());
-                                ui.label(v);
+                                ui.label(RichText::new(
+                                    crate::parser::helpers::clean_whitespace(k)
+                                )
+                                .strong());
+                                ui.label(crate::parser::helpers::clean_whitespace(v));
                             });
                         }
                     });
@@ -2399,3 +2435,40 @@ pub fn update_with_info(app: &mut SubsystemApp, ui: &mut egui::Ui) -> UpdateResp
     show_info_windows(app, ui);
     response
 }
+
+// ---------------------------------------------------------------------------
+// Unit tests for UI helpers
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::parser::helpers::clean_whitespace;
+    use crate::editor::operations::create_default_block;
+
+    #[test]
+    fn block_dialog_title_cleans_whitespace() {
+        let mut blk = create_default_block("SubSystem", "  Foo\n Bar  ", 0, 0, 0, 0);
+        // also exercise a messy block_type
+        blk.block_type = "  Baz\nqux   ".to_string();
+        let title = block_dialog_title(&blk);
+        assert_eq!(title, "Foo Bar (Baz qux)");
+    }
+
+    #[test]
+    fn property_values_are_cleaned() {
+        let mut blk = create_default_block("SubSystem", "X", 0, 0, 0, 0);
+        // remove the built-in properties so we can test our own
+        blk.properties.clear();
+        blk.properties.insert("  Key \nName  ".to_string(), "  value\n1  ".to_string());
+        let cleaned: Vec<(String, String)> = blk
+            .properties
+            .iter()
+            .map(|(k, v)| (clean_whitespace(k), clean_whitespace(v)))
+            .collect();
+        assert_eq!(cleaned,
+            vec![("Key Name".to_string(), "value 1".to_string())]
+        );
+    }
+}
+

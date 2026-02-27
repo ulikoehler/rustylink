@@ -17,6 +17,18 @@ fn normalize_library_block_path(path: &str) -> Option<String> {
         return None;
     }
 
+    // SLX XML stores long block/path names split across multiple lines.  Strip
+    // the embedded newlines (and carriage-returns) before any further processing
+    // so that e.g. "matrix_library/Matrix\nSquare" becomes
+    // "matrix_library/MatrixSquare", which then matches the registry key.
+    let no_newlines;
+    let path = if path.contains(['\n', '\r']) {
+        no_newlines = path.replace(['\n', '\r'], "");
+        no_newlines.as_str()
+    } else {
+        path
+    };
+
     let path = path.replace('\\', "/");
     let Some((lib, rest)) = path.split_once('/') else {
         return Some(path);
@@ -705,6 +717,31 @@ mod tests {
     fn icon_lookup_matrix_square_alias_square() {
         let mut b = crate::editor::operations::create_default_block("SubSystem", "Square", 0, 0, 1, 1);
         b.library_block_path = Some("matrix_library/Square".to_string());
+
+        let cfg = get_block_type_cfg(&b);
+        assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/matrix_square.svg")));
+    }
+
+    /// SLX XML can embed line-breaks inside long property values, e.g.
+    /// `SourceBlock` becomes `"matrix_library/Matrix\nSquare"`.
+    /// After stripping the newline the path normalises to
+    /// `"matrix_library/MatrixSquare"` whose last segment matches the registry.
+    #[test]
+    fn icon_lookup_matrix_square_newline_in_source_block() {
+        let mut b = crate::editor::operations::create_default_block(
+            "Reference",
+            "Matrix Square",
+            0,
+            0,
+            1,
+            1,
+        );
+        // This is what the parser reads verbatim from the SLX XML.
+        b.properties.insert(
+            "SourceBlock".to_string(),
+            "matrix_library/Matrix\nSquare".to_string(),
+        );
+        b.library_block_path = Some("matrix_library/Matrix\nSquare".to_string());
 
         let cfg = get_block_type_cfg(&b);
         assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/matrix_square.svg")));

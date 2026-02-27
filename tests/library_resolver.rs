@@ -141,6 +141,11 @@ fn library_resolver_finds_and_reports_missing_libraries() {
         Utf8PathBuf::from_path_buf(dir2.join("OtherLib.slx")).unwrap()
     );
 
+    // virtual libraries should not be reported as missing or found
+    let res_virtual = resolver.locate(vec!["simulink/Discrete", "SIMULINK", "matrix_library"].iter().map(|s| *s));
+    assert!(res_virtual.found.is_empty(), "virtual libs should not appear in found");
+    assert!(res_virtual.not_found.is_empty(), "virtual libs should not be listed as missing");
+
     assert_eq!(res.not_found, vec!["MissingLib".to_string()]);
 }
 

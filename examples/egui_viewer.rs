@@ -14,7 +14,7 @@ use eframe::egui;
 #[cfg(feature = "egui")]
 use rustylink::{
     egui_app,
-    parser::{FsSource, LibraryResolver, SimulinkParser, ZipSource},
+    parser::{FsSource, LibraryResolver, SimulinkParser, ZipSource, is_virtual_library, helpers::clean_whitespace},
 };
 
 #[cfg(feature = "egui")]
@@ -153,6 +153,11 @@ fn main() -> Result<()> {
         (sys, charts, chart_map)
     };
 
+    // drop any virtual libraries from the set of referenced library names; they
+    // don't correspond to actual `.slx` files and would otherwise trigger a
+    // misleading "not found" message later.
+    referenced_lib_names.retain(|l| !is_virtual_library(l));
+
     // Compute initial path vector relative to root_system
     let initial_path: Vec<String> = if let Some(p) = &args.system {
         let parts: Vec<String> = p
@@ -177,6 +182,8 @@ fn main() -> Result<()> {
     app.library_search_paths = lib_paths.clone();
 
     // Print any referenced libraries that could not be found in the provided search paths
+    // (virtual libraries were removed in the earlier `retain` call, but we also
+    // protect here just in case the set is mutated before reporting.)
     let mut lookup_opt = None;
     if !referenced_lib_names.is_empty() {
         let resolver = LibraryResolver::new(lib_paths.iter());
@@ -188,6 +195,11 @@ fn main() -> Result<()> {
                     "[rustylink] Libraries referenced by model but NOT found in search paths:"
                 );
                 for n in &lu.not_found {
+                    // extra sanity: don't report virtual libs even if the resolver
+                    // somehow returned them
+                    if is_virtual_library(n) {
+                        continue;
+                    }
                     eprintln!("  - {}", n);
                 }
             }
@@ -232,15 +244,19 @@ fn main() -> Result<()> {
             let lib_missing = lookup_opt
                 .as_ref()
                 .map_or(false, |lu| lu.not_found.iter().any(|n| n == lib));
+            // clean each component before printing to avoid newlines or tabs
+            let lib_c = clean_whitespace(lib);
+            let blk_c = clean_whitespace(blk);
+            let host_c = clean_whitespace(host);
             if lib_missing {
                 eprintln!(
                     "  - {}/{} referenced by {} (library not found)",
-                    lib, blk, host
+                    lib_c, blk_c, host_c
                 );
             } else {
                 eprintln!(
                     "  - {}/{} referenced by {} (library found but block missing)",
-                    lib, blk, host
+                    lib_c, blk_c, host_c
                 );
             }
         }
