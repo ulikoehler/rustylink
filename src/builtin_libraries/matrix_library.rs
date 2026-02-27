@@ -111,7 +111,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         name: "ExpandScalar",
         ins: 1,
         outs: 1,
-        icon: None,
+        icon: Some("matrix/expand_scalar_to_matrix.svg"),
         aliases: &[],
     },
     VirtualBlock {

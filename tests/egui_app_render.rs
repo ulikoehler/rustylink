@@ -55,6 +55,7 @@ fn embedded_svg_assets_exist() {
         "matrix/cross_product.svg",
         "matrix/submatrix.svg",
         "matrix/create_diagonal_matrix.svg",
+        "matrix/expand_scalar_to_matrix.svg",
     ] {
         let bytes = icon_assets::get(path);
         assert!(bytes.is_some(), "missing asset {}", path);

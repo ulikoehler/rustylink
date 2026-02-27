@@ -23,9 +23,9 @@
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#d1d1d1"
      showgrid="false"
-     inkscape:zoom="1.3913443"
-     inkscape:cx="97.747194"
-     inkscape:cy="-12.937129"
+     inkscape:zoom="2.991381"
+     inkscape:cx="18.051863"
+     inkscape:cy="68.53022"
      inkscape:window-width="1920"
      inkscape:window-height="1016"
      inkscape:window-x="0"
@@ -162,7 +162,8 @@
      stroke="#e63946"
      stroke-width="2.5"
      stroke-dasharray="8, 4"
-     id="rect500" />
+     id="rect500"
+     style="stroke-dasharray:none;stroke-width:5" />
   <!-- Corner brackets / highlight arrows indicating extracted submatrix -->
   <!-- Top-left label tab -->
 </svg>
