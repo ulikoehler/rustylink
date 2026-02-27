@@ -64,7 +64,7 @@ fn catalog_contains_virtual_library_blocks() {
     use rustylink::builtin_libraries::VIRTUAL_LIBRARIES;
     let catalog = get_block_catalog();
     for lib in VIRTUAL_LIBRARIES {
-        for b in lib.blocks {
+        for b in (lib.get_blocks)() {
             // canonical name should appear as a block_type entry
             assert!(catalog.iter().any(|e| e.block_type == b.name),
                 "catalog missing entry for virtual block {}", b.name);

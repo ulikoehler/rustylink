@@ -190,7 +190,7 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
 
     // Register icons advertised by built-in virtual libraries.
     for lib in crate::builtin_libraries::VIRTUAL_LIBRARIES {
-        for b in lib.blocks {
+        for b in (lib.get_blocks)() {
             // Register canonical name and any aliases.
             let mut names: Vec<&'static str> = Vec::with_capacity(1 + b.aliases.len());
             names.push(b.name);
@@ -207,19 +207,10 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
                             ..Default::default()
                         },
                     );
-                } else {
-                    // Generic placeholder for virtual-library blocks that
-                    // don't yet advertise a dedicated icon.
-                    register_virtual_keys(
-                        &mut m,
-                        lib.name,
-                        n,
-                        BlockTypeConfig {
-                            icon: Some(IconSpec::Utf8("👁")),
-                            ..Default::default()
-                        },
-                    );
                 }
+                // Blocks without a dedicated SVG icon are intentionally not
+                // registered here. render_block_icon will emit a warning and
+                // show "?" for any block whose icon resolves to None.
             }
         }
     }
@@ -263,27 +254,7 @@ where
 /// Register icon configurations for all currently-registered user virtual
 /// libraries.
 ///
-/// Call this after calling
-/// [`register_virtual_library`](crate::builtin_libraries::register_virtual_library)
-/// to make blocks from user libraries visible in the icon registry.  A default
-/// placeholder icon (`👁`) is used for each block.  You can later override
-/// individual entries with [`set_block_type_config`].
-///
-/// It is safe to call this function multiple times; already-present keys are
-/// simply overwritten with the same placeholder.
-pub fn register_user_library_block_types() {
-    let map = get_block_type_config_map();
-    if let Ok(mut m) = map.write() {
-        crate::builtin_libraries::virtual_library::for_each_user_library_block(|lib_name, block| {
-            let cfg = BlockTypeConfig {
-                icon: Some(IconSpec::Utf8("👁")),
-                ..Default::default()
-            };
-            let mut names: Vec<String> = vec![block.name.clone()];
-            names.extend(block.aliases.iter().cloned());
-            for name in names {
-                register_virtual_keys(&mut m, lib_name, &name, cfg.clone());
-            }
-        });
-    }
-}
+/// Currently a no-op: `OwnedVirtualBlock` carries no icon path, so all
+/// user-library blocks fall through to the `"?"` warning path in
+/// `render_block_icon`.  The function is kept for API compatibility.
+pub fn register_user_library_block_types() {}

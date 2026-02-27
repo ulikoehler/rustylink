@@ -29,6 +29,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/identity_matrix.svg"),
         aliases: &[],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Is Triangular",
@@ -36,6 +37,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/is_triangular.svg"),
         aliases: &[],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Is Symmetric",
@@ -43,6 +45,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/is_symmetric.svg"),
         aliases: &[],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Cross Product",
@@ -50,6 +53,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/cross_product.svg"),
         aliases: &[],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Matrix Multiply",
@@ -57,6 +61,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/matrix_product.svg"),
         aliases: &[],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Submatrix",
@@ -64,6 +69,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/submatrix.svg"),
         aliases: &[],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Transpose",
@@ -71,6 +77,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/matrix_transpose.svg"),
         aliases: &[],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Hermitian Transpose",
@@ -78,6 +85,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/hermitian_transpose.svg"),
         aliases: &[],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Matrix Square",
@@ -85,6 +93,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/matrix_square.svg"),
         aliases: &["Square"],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Permute Columns",
@@ -92,6 +101,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: None,
         aliases: &[],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Extract Diagonal",
@@ -102,6 +112,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         // shorthand "ExtractDiag"; treat it as an alias so lookup still
         // succeeds.
         aliases: &["ExtractDiag"],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Create Diagonal Matrix",
@@ -114,20 +125,23 @@ pub const BLOCKS: &[VirtualBlock] = &[
         // port-count lookup, icon registration and other logic still work
         // for models created with the old name.
         aliases: &["DiagonalMatrix"],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Expand Scalar",
         ins: 1,
         outs: 1,
         icon: Some("matrix/expand_scalar_to_matrix.svg"),
-        aliases: &[],
+        aliases: &["ExpandScalar"],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Is Hermitian",
         ins: 1,
         outs: 1,
         icon: None,
-        aliases: &[],
+        aliases: &["IsHermitian"],
+        compute_instance_label: None,
     },
     VirtualBlock {
         name: "Matrix Concatenate",
@@ -135,6 +149,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: None,
         aliases: &[],
+        compute_instance_label: None,
     },
 ];
 
@@ -225,4 +240,9 @@ pub fn create_stub(name: &str) -> Block {
 /// Construct the initial virtual matrix-library system.
 pub fn initial_system() -> System {
     virtual_library::initial_system(BLOCKS)
+}
+
+/// Returns all block definitions for the matrix library.
+pub fn get_blocks() -> &'static [VirtualBlock] {
+    BLOCKS
 }

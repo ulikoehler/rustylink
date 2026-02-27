@@ -5,7 +5,8 @@ use crate::model::Block;
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Vec2};
 
 use super::icon_assets;
-use std::sync::{Arc, OnceLock};
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub(crate) fn rgb_to_color32(c: Rgb) -> Color32 {
     Color32::from_rgb(c.0, c.1, c.2)
@@ -17,13 +18,14 @@ fn normalize_library_block_path(path: &str) -> Option<String> {
         return None;
     }
 
-    // SLX XML stores long block/path names split across multiple lines.  Strip
-    // the embedded newlines (and carriage-returns) before any further processing
-    // so that e.g. "matrix_library/Matrix\nSquare" becomes
-    // "matrix_library/MatrixSquare", which then matches the registry key.
+    // SLX XML stores long block/path names split across multiple lines.  Replace
+    // the embedded newlines (and carriage-returns) with a space before any further
+    // processing so that e.g. "matrix_library/Compare\nTo Constant" becomes
+    // "matrix_library/Compare To Constant", which then matches the registry key.
+    // Newlines act as word-wrap separators in the XML, not as characters to delete.
     let no_newlines;
     let path = if path.contains(['\n', '\r']) {
-        no_newlines = path.replace(['\n', '\r'], "");
+        no_newlines = path.replace(['\n', '\r'], " ");
         no_newlines.as_str()
     } else {
         path
@@ -517,6 +519,22 @@ fn get_or_create_svg_texture(
     }))
 }
 
+/// Emit a one-time-per-block-type warning when no icon can be resolved.
+static ICON_WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn warn_missing_icon(block_type: &str, block_path: &str) {
+    let warned = ICON_WARNED.get_or_init(|| Mutex::new(HashSet::new()));
+    if let Ok(mut set) = warned.lock() {
+        if set.insert(block_type.to_string()) {
+            eprintln!(
+                "\x1b[33m[rustylink] WARNING: {} at {} does not have a corresponding virtual library block\x1b[0m",
+                block_type,
+                block_path
+            );
+        }
+    }
+}
+
 /// Render an icon in the center of the block according to its type.
 ///
 /// The rendered glyph is maximized to fill the available center area while:
@@ -573,6 +591,19 @@ pub fn render_block_icon(
                 painter.image(svg.texture.id(), dest_rect, uv, Color32::WHITE);
             }
         }
+    } else {
+        // No icon registered for this block — emit a one-time warning and
+        // render a "?" placeholder so the block is at least visually distinct.
+        let raw_path = block
+            .library_block_path
+            .as_deref()
+            .or_else(|| block.properties.get("SourceBlock").map(|s| s.as_str()))
+            .unwrap_or("<unknown>");
+        // Normalize the path for display: replace newlines with spaces so the
+        // warning message is readable (SLX paths are word-wrapped with newlines).
+        let block_path_display = raw_path.replace(['\n', '\r'], " ").replace('\\', "/");
+        warn_missing_icon(&block.block_type, &block_path_display);
+        render_center_glyph_maximized(painter, rect, font_scale, "?", dark_icon, port_label_widths);
     }
 }
 
@@ -775,8 +806,8 @@ mod tests {
 
     /// SLX XML can embed line-breaks inside long property values, e.g.
     /// `SourceBlock` becomes `"matrix_library/Matrix\nSquare"`.
-    /// After stripping the newline the path normalises to
-    /// `"matrix_library/MatrixSquare"` whose last segment matches the registry.
+    /// After replacing the newline with a space the path normalises to
+    /// `"matrix_library/Matrix Square"` whose last segment matches the registry.
     #[test]
     fn icon_lookup_matrix_square_newline_in_source_block() {
         let mut b = crate::editor::operations::create_default_block(

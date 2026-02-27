@@ -102,12 +102,14 @@ fn make_test_library() -> UserVirtualLibrarySpec {
                 aliases: vec!["MyCustomBlock".to_string()],
                 ins: 2,
                 outs: 1,
+                compute_instance_label: None,
             },
             OwnedVirtualBlock {
                 name: "Another Block".to_string(),
                 aliases: vec![],
                 ins: 1,
                 outs: 1,
+                compute_instance_label: None,
             },
         ],
         matches_name: Arc::new(|name: &str| {
@@ -120,7 +122,6 @@ fn make_test_library() -> UserVirtualLibrarySpec {
             annotations: vec![],
             chart: None,
         }),
-        compute_instance_label: None,
     }
 }
 
@@ -146,6 +147,9 @@ fn register_user_library_with_instance_label() {
             aliases: vec![],
             ins: 1,
             outs: 1,
+            compute_instance_label: Some(Arc::new(|_block: &Block| {
+                Some("custom label".to_string())
+            })),
         }],
         matches_name: Arc::new(|name: &str| {
             name.to_ascii_lowercase().starts_with("test_label_lib")
@@ -157,9 +161,6 @@ fn register_user_library_with_instance_label() {
             annotations: vec![],
             chart: None,
         }),
-        compute_instance_label: Some(Arc::new(|_block: &Block| {
-            Some("custom label".to_string())
-        })),
     };
 
     register_virtual_library(lib);

@@ -12,7 +12,7 @@ use std::sync::RwLock;
 use crate::model::{Block, Port, PortCounts, System};
 
 /// Description of a single block type that exists in a virtual library.
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct VirtualBlock {
     /// Canonical name appearing in the library (case preserved).
     pub name: &'static str,
@@ -28,6 +28,28 @@ pub struct VirtualBlock {
     /// Optional icon to show for this block in the viewer. Paths are relative
     /// to the `icons/` folder embedded by `egui_app::icon_assets`.
     pub icon: Option<&'static str>,
+    /// Optional per-instance label generator for this specific block type.
+    ///
+    /// Called with the full parsed `Block` (including `instance_data`);
+    /// returns `Some(label)` when a label can be derived, or `None` to fall
+    /// through to the default icon / value rendering.
+    pub compute_instance_label: Option<fn(&Block) -> Option<String>>,
+}
+
+impl std::fmt::Debug for VirtualBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VirtualBlock")
+            .field("name", &self.name)
+            .field("aliases", &self.aliases)
+            .field("ins", &self.ins)
+            .field("outs", &self.outs)
+            .field("icon", &self.icon)
+            .field(
+                "compute_instance_label",
+                &self.compute_instance_label.map(|_| "<fn>"),
+            )
+            .finish()
+    }
 }
 
 /// Descriptor for a built-in virtual library.
@@ -35,24 +57,38 @@ pub struct VirtualBlock {
 /// This allows generic code (e.g. icon registry population, stub creation,
 /// etc.) to iterate over all known virtual libraries without hard-coding
 /// per-library details.
+///
+/// Per-instance label generation and icon selection are delegated to each
+/// individual [`VirtualBlock`] entry via its `compute_instance_label` and
+/// `icon` fields rather than being handled at the library level.
 #[derive(Clone, Copy)]
 pub struct VirtualLibrarySpec {
     /// Canonical library name as used in SourceBlock paths (e.g. "matrix_library").
     pub name: &'static str,
-    /// All virtual blocks this library exposes.
-    pub blocks: &'static [VirtualBlock],
     /// Returns true if the provided library reference belongs to this library.
     pub matches_name: fn(&str) -> bool,
-    /// Construct the initial virtual system for this library.
-    pub initial_system: fn() -> System,
-    /// Optional function to compute a per-instance inline label for a block
-    /// belonging to this library.  Called with the full parsed `Block`; returns
-    /// `Some(label_string)` when a label can be derived from the block's
-    /// `instance_data`, or `None` to fall through to the default icon/value
-    /// rendering.
+    /// Returns all virtual block definitions this library exposes.
     ///
-    /// Set to `None` for libraries that do not need special label rendering.
-    pub compute_instance_label: Option<fn(&Block) -> Option<String>>,
+    /// Typically this just returns a `&'static` slice constant, but the
+    /// function-pointer form allows libraries to build the list lazily if
+    /// needed.
+    pub get_blocks: fn() -> &'static [VirtualBlock],
+}
+
+impl VirtualBlock {
+    /// A default `VirtualBlock` value with all fields set to their zero/None values.
+    ///
+    /// Useful with struct-update syntax (`..VirtualBlock::DEFAULT`) in `const`
+    /// block list definitions to avoid repeating `compute_instance_label: None`
+    /// on every entry.
+    pub const DEFAULT: VirtualBlock = VirtualBlock {
+        name: "",
+        aliases: &[],
+        ins: 0,
+        outs: 0,
+        icon: None,
+        compute_instance_label: None,
+    };
 }
 
 /// Normalize a library block name for matching purposes.
@@ -187,7 +223,6 @@ pub fn initial_system(blocks: &[VirtualBlock]) -> System {
 ///
 /// Unlike [`VirtualBlock`], all fields are owned `String`s and there is no
 /// `'static` lifetime requirement.
-#[derive(Debug, Clone)]
 pub struct OwnedVirtualBlock {
     /// Canonical name of the block.  Prefer title-case with spaces over
     /// CamelCase – e.g. `"My Block"` rather than `"MyBlock"`.
@@ -198,6 +233,38 @@ pub struct OwnedVirtualBlock {
     pub ins: u32,
     /// Number of output ports the block should have when rendered as a stub.
     pub outs: u32,
+    /// Optional per-instance label generator for this specific block type.
+    ///
+    /// Mirrors [`VirtualBlock::compute_instance_label`] for the dynamic
+    /// (user-registered) library API.
+    pub compute_instance_label: Option<Arc<dyn Fn(&Block) -> Option<String> + Send + Sync>>,
+}
+
+impl std::fmt::Debug for OwnedVirtualBlock {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OwnedVirtualBlock")
+            .field("name", &self.name)
+            .field("aliases", &self.aliases)
+            .field("ins", &self.ins)
+            .field("outs", &self.outs)
+            .field(
+                "compute_instance_label",
+                &self.compute_instance_label.as_ref().map(|_| "<fn>"),
+            )
+            .finish()
+    }
+}
+
+impl Clone for OwnedVirtualBlock {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            aliases: self.aliases.clone(),
+            ins: self.ins,
+            outs: self.outs,
+            compute_instance_label: self.compute_instance_label.clone(),
+        }
+    }
 }
 
 /// Dynamic (runtime) virtual library specification.
@@ -221,6 +288,7 @@ pub struct OwnedVirtualBlock {
 ///         aliases: vec!["MyBlock".to_string()],
 ///         ins: 1,
 ///         outs: 1,
+///         compute_instance_label: None,
 ///     }],
 ///     matches_name: Arc::new(|name| {
 ///         name.to_ascii_lowercase().starts_with("my_lib")
@@ -234,7 +302,6 @@ pub struct OwnedVirtualBlock {
 ///             chart: None,
 ///         }
 ///     }),
-///     compute_instance_label: None,
 /// };
 /// register_virtual_library(spec);
 /// ```
@@ -242,16 +309,15 @@ pub struct UserVirtualLibrarySpec {
     /// Canonical name of this library (e.g. `"my_lib"`).
     pub name: String,
     /// All virtual blocks the library exposes.
+    ///
+    /// Per-block label generation is controlled by each entry's
+    /// `compute_instance_label` field.
     pub blocks: Vec<OwnedVirtualBlock>,
     /// Returns `true` when the provided name (library path or source-block
     /// path) refers to this library.
     pub matches_name: Arc<dyn Fn(&str) -> bool + Send + Sync>,
     /// Construct the initial virtual system for this library.
     pub initial_system: Arc<dyn Fn() -> System + Send + Sync>,
-    /// Optional per-instance label generator (e.g. for blocks that display a
-    /// configured value in their icon).  Receives the full parsed `Block` and
-    /// returns `Some(label)` when a label can be derived.
-    pub compute_instance_label: Option<Arc<dyn Fn(&Block) -> Option<String> + Send + Sync>>,
 }
 
 static USER_LIBRARIES: OnceCell<RwLock<Vec<UserVirtualLibrarySpec>>> = OnceCell::new();
