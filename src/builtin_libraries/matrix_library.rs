@@ -60,19 +60,19 @@ pub const BLOCKS: &[VirtualBlock] = &[
         name: "Transpose",
         ins: 1,
         outs: 1,
-        icon: None,
+        icon: Some("matrix/matrix_transpose.svg"),
     },
     VirtualBlock {
         name: "HermitianTranspose",
         ins: 1,
         outs: 1,
-        icon: None,
+        icon: Some("matrix/hermitian_transpose.svg"),
     },
     VirtualBlock {
         name: "MatrixSquare",
         ins: 1,
         outs: 1,
-        icon: None,
+        icon: Some("matrix/matrix_square.svg"),
     },
     VirtualBlock {
         name: "PermuteColumns",
