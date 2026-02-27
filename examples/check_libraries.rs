@@ -248,12 +248,22 @@ fn collect_virtual_unimplemented_blocks(
     out
 }
 
+fn collapse_whitespace(s: &str) -> String {
+    // Replace any whitespace character (including newline, tab, etc.) with a normal space.
+    // We intentionally do not collapse multiple spaces so the structure of the name remains
+    // largely intact; only the character class is unified.
+    s.chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .collect()
+}
+
 fn print_library_tree(
     lib: &str,
     blocks_opt: Option<&BTreeMap<String, BTreeSet<String>>>,
     show_usage: bool,
 ) {
-    println!("{}", lib);
+    // normalize library name as well, just in case it contains stray whitespace
+    println!("{}", collapse_whitespace(lib));
 
     let Some(blocks) = blocks_opt else {
         println!("|- <no library blocks found in model>");
@@ -270,7 +280,7 @@ fn print_library_tree(
         let count = hosts.len();
         println!(
             "|- {} ({} instance{})",
-            source_block,
+            collapse_whitespace(source_block),
             count,
             if count == 1 { "" } else { "s" }
         );
@@ -281,7 +291,7 @@ fn print_library_tree(
                 continue;
             }
             for host in hosts {
-                println!("|  |- {}", host);
+                println!("|  |- {}", collapse_whitespace(host));
             }
         }
     }
