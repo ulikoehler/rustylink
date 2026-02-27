@@ -1,7 +1,9 @@
 use camino::Utf8PathBuf;
-use rustylink::parser::{ExternalFileReference, ExternalFileReferenceType, GraphicalInterface, LibraryResolver};
-use tempfile::tempdir;
+use rustylink::parser::{
+    ExternalFileReference, ExternalFileReferenceType, GraphicalInterface, LibraryResolver,
+};
 use std::fs::{self, File};
+use tempfile::tempdir;
 
 #[test]
 fn graphical_interface_library_names_collects_unique_libs() {
@@ -82,7 +84,10 @@ fn graphical_interface_library_block_references_by_library_groups_blocks() {
     };
 
     let grouped = gi.library_block_references_by_library();
-    assert_eq!(grouped.keys().cloned().collect::<Vec<_>>(), vec!["Regler".to_string(), "simulink".to_string()]);
+    assert_eq!(
+        grouped.keys().cloned().collect::<Vec<_>>(),
+        vec!["Regler".to_string(), "simulink".to_string()]
+    );
     assert_eq!(grouped["Regler"].len(), 2);
     assert_eq!(grouped["Regler"][0].sid, "1");
     assert_eq!(grouped["Regler"][1].sid, "3");
@@ -113,7 +118,9 @@ fn library_resolver_finds_and_reports_missing_libraries() {
     let res = resolver.locate(names.iter().map(|s| *s));
 
     // verify virtual library helper recognizes the new simulink/Logic and Bit entry
-    assert!(rustylink::parser::is_virtual_library("simulink/Logic and Bit/Whatever"));
+    assert!(rustylink::parser::is_virtual_library(
+        "simulink/Logic and Bit/Whatever"
+    ));
     assert!(rustylink::parser::is_virtual_library("simulink.slx"));
     assert!(rustylink::parser::is_virtual_library("matrix_library"));
     assert!(!rustylink::parser::is_virtual_library("NormalLib"));
@@ -123,10 +130,16 @@ fn library_resolver_finds_and_reports_missing_libraries() {
     assert_eq!(res.not_found.len(), 1);
 
     let regler_entry = res.found.iter().find(|(n, _)| n == "Regler").unwrap();
-    assert_eq!(regler_entry.1, Utf8PathBuf::from_path_buf(dir1.join("Regler.slx")).unwrap());
+    assert_eq!(
+        regler_entry.1,
+        Utf8PathBuf::from_path_buf(dir1.join("Regler.slx")).unwrap()
+    );
 
     let other_entry = res.found.iter().find(|(n, _)| n == "OtherLib").unwrap();
-    assert_eq!(other_entry.1, Utf8PathBuf::from_path_buf(dir2.join("OtherLib.slx")).unwrap());
+    assert_eq!(
+        other_entry.1,
+        Utf8PathBuf::from_path_buf(dir2.join("OtherLib.slx")).unwrap()
+    );
 
     assert_eq!(res.not_found, vec!["MissingLib".to_string()]);
 }
@@ -134,9 +147,9 @@ fn library_resolver_finds_and_reports_missing_libraries() {
 #[test]
 fn resolve_virtual_simulink_logic_and_bit() {
     use camino::Utf8PathBuf;
-    use rustylink::parser::{FsSource, SimulinkParser};
-    use rustylink::model::{System, Block};
     use indexmap::IndexMap;
+    use rustylink::model::{Block, System};
+    use rustylink::parser::{FsSource, SimulinkParser};
 
     // build a minimal system referencing the special virtual library
     let mut sys = System {
@@ -198,9 +211,9 @@ fn resolve_virtual_simulink_logic_and_bit() {
 
 #[test]
 fn resolve_virtual_matrix_library_blocks() {
-    use rustylink::parser::{FsSource, SimulinkParser};
-    use rustylink::model::{System, Block};
     use indexmap::IndexMap;
+    use rustylink::model::{Block, System};
+    use rustylink::parser::{FsSource, SimulinkParser};
 
     // three different matrix blocks
     let mut sys = System {
@@ -343,22 +356,70 @@ fn resolve_virtual_matrix_library_blocks() {
 
     SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &[]).unwrap();
 
-    assert_eq!(sys.blocks[0].library_source.as_deref(), Some("matrix_library"));
-    assert_eq!(sys.blocks[0].library_block_path.as_deref(), Some("matrix_library/IsTriangular"));
-    assert_eq!(sys.blocks[0].port_counts.as_ref().and_then(|p| p.ins), Some(1));
+    assert_eq!(
+        sys.blocks[0].library_source.as_deref(),
+        Some("matrix_library")
+    );
+    assert_eq!(
+        sys.blocks[0].library_block_path.as_deref(),
+        Some("matrix_library/IsTriangular")
+    );
+    assert_eq!(
+        sys.blocks[0].port_counts.as_ref().and_then(|p| p.ins),
+        Some(1)
+    );
     // port labels should exist but be empty strings
-    assert_eq!(sys.blocks[0].ports[0].properties.get("Name").map(|s| s.as_str()), Some(""));
-    assert_eq!(sys.blocks[1].library_source.as_deref(), Some("matrix_library"));
-    assert_eq!(sys.blocks[1].library_block_path.as_deref(), Some("matrix_library/IdentityMatrix"));
-    assert_eq!(sys.blocks[1].port_counts.as_ref().and_then(|p| p.ins), Some(0));
+    assert_eq!(
+        sys.blocks[0].ports[0]
+            .properties
+            .get("Name")
+            .map(|s| s.as_str()),
+        Some("")
+    );
+    assert_eq!(
+        sys.blocks[1].library_source.as_deref(),
+        Some("matrix_library")
+    );
+    assert_eq!(
+        sys.blocks[1].library_block_path.as_deref(),
+        Some("matrix_library/IdentityMatrix")
+    );
+    assert_eq!(
+        sys.blocks[1].port_counts.as_ref().and_then(|p| p.ins),
+        Some(0)
+    );
     // IdentityMatrix has a single output port index 1
-    assert_eq!(sys.blocks[1].ports[0].properties.get("Name").map(|s| s.as_str()), Some(""));
+    assert_eq!(
+        sys.blocks[1].ports[0]
+            .properties
+            .get("Name")
+            .map(|s| s.as_str()),
+        Some("")
+    );
 
-    assert_eq!(sys.blocks[2].library_source.as_deref(), Some("matrix_library"));
-    assert_eq!(sys.blocks[2].library_block_path.as_deref(), Some("matrix_library/PermuteColumns"));
-    assert_eq!(sys.blocks[2].port_counts.as_ref().and_then(|p| p.ins), Some(2));
-    assert_eq!(sys.blocks[2].port_counts.as_ref().and_then(|p| p.outs), Some(1));
+    assert_eq!(
+        sys.blocks[2].library_source.as_deref(),
+        Some("matrix_library")
+    );
+    assert_eq!(
+        sys.blocks[2].library_block_path.as_deref(),
+        Some("matrix_library/PermuteColumns")
+    );
+    assert_eq!(
+        sys.blocks[2].port_counts.as_ref().and_then(|p| p.ins),
+        Some(2)
+    );
+    assert_eq!(
+        sys.blocks[2].port_counts.as_ref().and_then(|p| p.outs),
+        Some(1)
+    );
     // port labels should exist but be empty strings
     assert_eq!(sys.blocks[2].ports.len(), 3);
-    assert_eq!(sys.blocks[2].ports[0].properties.get("Name").map(|s| s.as_str()), Some(""));
+    assert_eq!(
+        sys.blocks[2].ports[0]
+            .properties
+            .get("Name")
+            .map(|s| s.as_str()),
+        Some("")
+    );
 }

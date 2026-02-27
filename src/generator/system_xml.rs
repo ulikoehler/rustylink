@@ -115,7 +115,10 @@ fn write_block(out: &mut String, block: &Block, level: usize) {
 
     // Attributes: BlockType (for Block tags), Name, SID
     if tag == "Block" {
-        out.push_str(&format!(" BlockType=\"{}\"", xml_escape_attr(&block.block_type)));
+        out.push_str(&format!(
+            " BlockType=\"{}\"",
+            xml_escape_attr(&block.block_type)
+        ));
     }
     out.push_str(&format!(" Name=\"{}\"", xml_escape_attr(&block.name)));
     if let Some(ref sid) = block.sid {
@@ -164,7 +167,10 @@ fn write_block(out: &mut String, block: &Block, level: usize) {
                 BlockChildKind::System => {
                     if let Some(ref ref_name) = block.system_ref {
                         indent(out, level + 1);
-                        out.push_str(&format!("<System Ref=\"{}\"/>\n", xml_escape_attr(ref_name)));
+                        out.push_str(&format!(
+                            "<System Ref=\"{}\"/>\n",
+                            xml_escape_attr(ref_name)
+                        ));
                     } else if let Some(ref sub) = block.subsystem {
                         write_system(out, sub, level + 1);
                     }
@@ -217,7 +223,10 @@ fn write_block_default_order(out: &mut String, block: &Block, level: usize) {
     }
     if let Some(ref ref_name) = block.system_ref {
         indent(out, level + 1);
-        out.push_str(&format!("<System Ref=\"{}\"/>\n", xml_escape_attr(ref_name)));
+        out.push_str(&format!(
+            "<System Ref=\"{}\"/>\n",
+            xml_escape_attr(ref_name)
+        ));
     } else if let Some(ref sub) = block.subsystem {
         write_system(out, sub, level + 1);
     }

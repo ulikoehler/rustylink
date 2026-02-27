@@ -1,6 +1,6 @@
-use rustylink::generator::system_xml::generate_system_xml;
-use rustylink::model::{System, Block, PortCounts, NameLocation, ValueKind};
 use indexmap::IndexMap;
+use rustylink::generator::system_xml::generate_system_xml;
+use rustylink::model::{Block, NameLocation, PortCounts, System, ValueKind};
 
 #[test]
 fn test_simple_system_roundtrip() {

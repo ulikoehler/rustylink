@@ -15,9 +15,9 @@ mod ui;
 
 // Re-export geometry items needed by the editor module
 pub use geometry::{
-    PortSide, endpoint_pos, endpoint_pos_maybe_mirrored,
-    endpoint_pos_with_target, endpoint_pos_with_target_maybe_mirrored,
-    parse_block_rect, parse_rect_str, port_anchor_pos, port_indicator_positions,
+    PortSide, endpoint_pos, endpoint_pos_maybe_mirrored, endpoint_pos_with_target,
+    endpoint_pos_with_target_maybe_mirrored, parse_block_rect, parse_rect_str, port_anchor_pos,
+    port_indicator_positions,
 };
 pub use navigation::{
     collect_subsystems_paths, resolve_subsystem_by_path, resolve_subsystem_by_vec,
@@ -25,7 +25,7 @@ pub use navigation::{
 pub(crate) use render::{get_block_type_cfg, render_block_icon, wrap_text_to_max_width};
 
 // Helpers which are useful for integration tests
-pub use render::{compute_icon_available_rect, PortLabelMaxWidths};
+pub use render::{PortLabelMaxWidths, compute_icon_available_rect};
 pub use state::{
     BlockContextMenuItem, BlockDialog, BlockDialogButton, ChartView, SignalContextMenuItem,
     SignalDialog, SignalDialogButton, SubsystemApp, SubsystemEntities,

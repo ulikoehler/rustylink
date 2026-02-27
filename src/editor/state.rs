@@ -414,9 +414,7 @@ impl EditorState {
         }
         let indices = self.selection.selected_blocks.clone();
         if let Some(system) = resolve_subsystem_by_vec_mut(&mut self.app.root, &self.app.path) {
-            let cmd = super::operations::create_subsystem_from_selection(
-                system, &indices, name,
-            );
+            let cmd = super::operations::create_subsystem_from_selection(system, &indices, name);
             self.history.push(cmd);
         }
         self.selection.clear();

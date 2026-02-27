@@ -5,19 +5,19 @@ use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use crate::model::EndpointRef;
+use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 
 use super::geometry::{
     endpoint_pos_maybe_mirrored, endpoint_pos_with_target_maybe_mirrored, parse_block_rect,
     parse_rect_str,
 };
+use super::navigation::resolve_subsystem_by_vec;
 use super::render::{
     ComputedPortYCoordinates, PortLabelMaxWidths, get_block_type_cfg, port_label_display_name,
     render_block_icon, render_center_glyph_maximized, render_manual_switch, wrap_text_to_max_width,
 };
 use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
-use super::navigation::resolve_subsystem_by_vec;
 use super::text::{highlight_query_job, matlab_syntax_job};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,11 +57,12 @@ fn record_interaction(current: &mut UpdateResponse, new: UpdateResponse) {
     }
     fn is_double(resp: &UpdateResponse) -> bool {
         match resp {
-            UpdateResponse::Block { action, .. }
-            | UpdateResponse::Signal { action, .. } => matches!(
-                action,
-                ClickAction::DoublePrimary | ClickAction::DoubleSecondary
-            ),
+            UpdateResponse::Block { action, .. } | UpdateResponse::Signal { action, .. } => {
+                matches!(
+                    action,
+                    ClickAction::DoublePrimary | ClickAction::DoubleSecondary
+                )
+            }
             UpdateResponse::None => false,
         }
     }
@@ -244,7 +245,9 @@ fn update_internal(
                     app.transient_notification = None;
                 } else {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let label = egui::Label::new(RichText::new(msg).color(Color32::from_rgb(255, 200, 80)));
+                        let label = egui::Label::new(
+                            RichText::new(msg).color(Color32::from_rgb(255, 200, 80)),
+                        );
                         ui.add(label);
                     });
                 }

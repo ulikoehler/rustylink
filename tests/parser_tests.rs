@@ -1,8 +1,8 @@
-use rustylink::parser::{LibraryResolver, SimulinkParser, FsSource, is_virtual_library};
-use rustylink::builtin_libraries::matrix_library;
-use rustylink::model::System;
 use camino::Utf8PathBuf;
 use indexmap::IndexMap;
+use rustylink::builtin_libraries::matrix_library;
+use rustylink::model::System;
+use rustylink::parser::{FsSource, LibraryResolver, SimulinkParser, is_virtual_library};
 
 #[test]
 fn virtual_library_detection() {
@@ -42,7 +42,9 @@ fn resolving_virtual_library_does_not_error() {
 fn matrix_library_helpers_work() {
     // name recognition
     assert!(matrix_library::is_matrix_library_name("matrix_library"));
-    assert!(matrix_library::is_matrix_library_name("Matrix_Library/Thing"));
+    assert!(matrix_library::is_matrix_library_name(
+        "Matrix_Library/Thing"
+    ));
     assert!(!matrix_library::is_matrix_library_name("other"));
 
     // port counts for known and unknown names
@@ -59,7 +61,11 @@ fn matrix_library_helpers_work() {
     assert_ne!(matrix_library::port_counts_for("CrossProduct"), b);
 
     // block list contains a particular entry
-    assert!(matrix_library::BLOCKS.iter().any(|b| b.name == "IdentityMatrix"));
+    assert!(
+        matrix_library::BLOCKS
+            .iter()
+            .any(|b| b.name == "IdentityMatrix")
+    );
 
     // stub creation produces a block with the expected fields
     let stub = matrix_library::create_stub("Foo");

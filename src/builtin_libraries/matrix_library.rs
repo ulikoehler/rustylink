@@ -26,21 +26,81 @@ pub struct VirtualBlock {
 /// The original code had a hard-coded `initial` slice with these names; we
 /// keep the same order here for compatibility with existing tests.
 pub const BLOCKS: &[VirtualBlock] = &[
-    VirtualBlock { name: "IdentityMatrix", ins: 0, outs: 1 },
-    VirtualBlock { name: "IsTriangular", ins: 1, outs: 1 },
-    VirtualBlock { name: "IsSymmetric", ins: 1, outs: 1 },
-    VirtualBlock { name: "CrossProduct", ins: 2, outs: 1 },
-    VirtualBlock { name: "MatrixMultiply", ins: 2, outs: 1 },
-    VirtualBlock { name: "Submatrix", ins: 1, outs: 1 },
-    VirtualBlock { name: "Transpose", ins: 1, outs: 1 },
-    VirtualBlock { name: "HermitianTranspose", ins: 1, outs: 1 },
-    VirtualBlock { name: "MatrixSquare", ins: 1, outs: 1 },
-    VirtualBlock { name: "PermuteColumns", ins: 2, outs: 1 },
-    VirtualBlock { name: "ExtractDiagonal", ins: 1, outs: 1 },
-    VirtualBlock { name: "CreateDiagonalMatrix", ins: 1, outs: 1 },
-    VirtualBlock { name: "ExpandScalar", ins: 1, outs: 1 },
-    VirtualBlock { name: "IsHermitian", ins: 1, outs: 1 },
-    VirtualBlock { name: "MatrixConcatenate", ins: 2, outs: 1 },
+    VirtualBlock {
+        name: "IdentityMatrix",
+        ins: 0,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "IsTriangular",
+        ins: 1,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "IsSymmetric",
+        ins: 1,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "CrossProduct",
+        ins: 2,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "MatrixMultiply",
+        ins: 2,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "Submatrix",
+        ins: 1,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "Transpose",
+        ins: 1,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "HermitianTranspose",
+        ins: 1,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "MatrixSquare",
+        ins: 1,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "PermuteColumns",
+        ins: 2,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "ExtractDiagonal",
+        ins: 1,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "CreateDiagonalMatrix",
+        ins: 1,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "ExpandScalar",
+        ins: 1,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "IsHermitian",
+        ins: 1,
+        outs: 1,
+    },
+    VirtualBlock {
+        name: "MatrixConcatenate",
+        ins: 2,
+        outs: 1,
+    },
 ];
 
 /// Determine if the given library name refers to the matrix virtual
@@ -65,8 +125,7 @@ pub fn is_matrix_library_name(name: &str) -> bool {
 /// result is lowercased.  This keeps "foo   bar" equivalent to "foo bar",
 /// while distinguishing "foobar" from "foo bar".
 fn normalize_name(name: &str) -> String {
-    name
-        .split_whitespace()
+    name.split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .to_ascii_lowercase()

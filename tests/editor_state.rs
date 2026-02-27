@@ -1,6 +1,8 @@
-use rustylink::editor::state::{EditorState, CodeEditorState, BlockBrowserState, DragMode, resolve_subsystem_by_vec_mut};
-use rustylink::model::System;
 use indexmap::IndexMap;
+use rustylink::editor::state::{
+    BlockBrowserState, CodeEditorState, DragMode, EditorState, resolve_subsystem_by_vec_mut,
+};
+use rustylink::model::System;
 use std::collections::BTreeMap;
 
 fn make_empty_system() -> System {
@@ -57,7 +59,8 @@ fn test_clipboard_copy_paste() {
     let mut state = EditorState::new(sys, vec![], BTreeMap::new(), BTreeMap::new());
     assert!(!state.clipboard.has_content());
 
-    let block = rustylink::editor::operations::create_default_block("Gain", "Gain1", 100, 100, 1, 1);
+    let block =
+        rustylink::editor::operations::create_default_block("Gain", "Gain1", 100, 100, 1, 1);
     state.clipboard.copy_blocks(vec![block]);
     assert!(state.clipboard.has_content());
 
@@ -95,7 +98,8 @@ fn test_block_browser_state() {
 fn test_resolve_subsystem_by_vec_mut() {
     let mut root = make_empty_system();
     let child = make_empty_system();
-    let mut block = rustylink::editor::operations::create_default_block("SubSystem", "Sub1", 100, 100, 1, 1);
+    let mut block =
+        rustylink::editor::operations::create_default_block("SubSystem", "Sub1", 100, 100, 1, 1);
     block.subsystem = Some(Box::new(child));
     root.blocks.push(block);
 
@@ -122,7 +126,8 @@ fn test_drag_mode_default() {
 #[test]
 fn test_editor_undo_redo() {
     let mut sys = make_empty_system();
-    let block = rustylink::editor::operations::create_default_block("Gain", "Gain1", 100, 100, 1, 1);
+    let block =
+        rustylink::editor::operations::create_default_block("Gain", "Gain1", 100, 100, 1, 1);
     sys.blocks.push(block);
     let mut state = EditorState::new(sys, vec![], BTreeMap::new(), BTreeMap::new());
 
@@ -136,21 +141,27 @@ fn test_editor_undo_redo() {
 
     // Verify the move happened
     assert_eq!(
-        state.current_system().unwrap().blocks[0].position.as_deref(),
+        state.current_system().unwrap().blocks[0]
+            .position
+            .as_deref(),
         Some("[200, 200, 230, 230]")
     );
 
     // Undo
     state.undo();
     assert_eq!(
-        state.current_system().unwrap().blocks[0].position.as_deref(),
+        state.current_system().unwrap().blocks[0]
+            .position
+            .as_deref(),
         Some("[100, 100, 130, 130]")
     );
 
     // Redo
     state.redo();
     assert_eq!(
-        state.current_system().unwrap().blocks[0].position.as_deref(),
+        state.current_system().unwrap().blocks[0]
+            .position
+            .as_deref(),
         Some("[200, 200, 230, 230]")
     );
 }
@@ -158,8 +169,14 @@ fn test_editor_undo_redo() {
 #[test]
 fn test_delete_selection() {
     let mut sys = make_empty_system();
-    sys.blocks.push(rustylink::editor::operations::create_default_block("Gain", "Gain1", 100, 100, 1, 1));
-    sys.blocks.push(rustylink::editor::operations::create_default_block("Sum", "Sum1", 200, 100, 2, 1));
+    sys.blocks
+        .push(rustylink::editor::operations::create_default_block(
+            "Gain", "Gain1", 100, 100, 1, 1,
+        ));
+    sys.blocks
+        .push(rustylink::editor::operations::create_default_block(
+            "Sum", "Sum1", 200, 100, 2, 1,
+        ));
     let mut state = EditorState::new(sys, vec![], BTreeMap::new(), BTreeMap::new());
 
     state.selection.select_block(0);
@@ -174,7 +191,8 @@ fn test_delete_selection() {
 #[test]
 fn test_comment_selection() {
     let mut sys = make_empty_system();
-    let block = rustylink::editor::operations::create_default_block("Gain", "Gain1", 100, 100, 1, 1);
+    let block =
+        rustylink::editor::operations::create_default_block("Gain", "Gain1", 100, 100, 1, 1);
     sys.blocks.push(block);
     let mut state = EditorState::new(sys, vec![], BTreeMap::new(), BTreeMap::new());
 
@@ -187,7 +205,10 @@ fn test_comment_selection() {
 #[test]
 fn test_copy_paste() {
     let mut sys = make_empty_system();
-    sys.blocks.push(rustylink::editor::operations::create_default_block("Gain", "Gain1", 100, 100, 1, 1));
+    sys.blocks
+        .push(rustylink::editor::operations::create_default_block(
+            "Gain", "Gain1", 100, 100, 1, 1,
+        ));
     let mut state = EditorState::new(sys, vec![], BTreeMap::new(), BTreeMap::new());
 
     state.selection.select_block(0);

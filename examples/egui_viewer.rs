@@ -14,7 +14,7 @@ use eframe::egui;
 #[cfg(feature = "egui")]
 use rustylink::{
     egui_app,
-    parser::{FsSource, SimulinkParser, ZipSource, LibraryResolver},
+    parser::{FsSource, LibraryResolver, SimulinkParser, ZipSource},
 };
 
 #[cfg(feature = "egui")]
@@ -50,7 +50,8 @@ fn main() -> Result<()> {
     lib_paths.extend(args.lib.iter().map(|s| Utf8PathBuf::from(s)));
 
     // Collect referenced library names (may be filled inside parser branches)
-    let mut referenced_lib_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut referenced_lib_names: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
 
     // Parse system and collect optional charts
     let (root_system, charts, chart_map) = if path.extension() == Some("slx") {
@@ -65,7 +66,10 @@ fn main() -> Result<()> {
             .with_context(|| "Failed to resolve library references")?;
 
         // Collect library names referenced from the system (SourceBlock) recursively
-        fn collect_sys_libs(sys: &rustylink::model::System, acc: &mut std::collections::HashSet<String>) {
+        fn collect_sys_libs(
+            sys: &rustylink::model::System,
+            acc: &mut std::collections::HashSet<String>,
+        ) {
             for b in &sys.blocks {
                 if let Some(src) = b.properties.get("SourceBlock") {
                     if let Some((lib, _)) = src.split_once('/') {
@@ -80,7 +84,9 @@ fn main() -> Result<()> {
         collect_sys_libs(&sys, &mut referenced_lib_names);
 
         // Also include library names from graphicalInterface.json where present
-        if let Ok(names) = parser.graphical_interface_library_names(Utf8PathBuf::from("simulink/graphicalInterface.json")) {
+        if let Ok(names) = parser.graphical_interface_library_names(Utf8PathBuf::from(
+            "simulink/graphicalInterface.json",
+        )) {
             for n in names {
                 referenced_lib_names.insert(n);
             }
@@ -109,7 +115,10 @@ fn main() -> Result<()> {
             .with_context(|| "Failed to resolve library references")?;
 
         // Collect library names referenced from the system (SourceBlock) recursively
-        fn collect_sys_libs(sys: &rustylink::model::System, acc: &mut std::collections::HashSet<String>) {
+        fn collect_sys_libs(
+            sys: &rustylink::model::System,
+            acc: &mut std::collections::HashSet<String>,
+        ) {
             for b in &sys.blocks {
                 if let Some(src) = b.properties.get("SourceBlock") {
                     if let Some((lib, _)) = src.split_once('/') {
@@ -124,7 +133,9 @@ fn main() -> Result<()> {
         collect_sys_libs(&sys, &mut referenced_lib_names);
 
         // Also include library names from graphicalInterface.json where present
-        if let Ok(names) = parser.graphical_interface_library_names(Utf8PathBuf::from("simulink/graphicalInterface.json")) {
+        if let Ok(names) = parser.graphical_interface_library_names(Utf8PathBuf::from(
+            "simulink/graphicalInterface.json",
+        )) {
             for n in names {
                 referenced_lib_names.insert(n);
             }
@@ -173,7 +184,9 @@ fn main() -> Result<()> {
         lookup_opt = Some(lookup);
         if let Some(lu) = &lookup_opt {
             if !lu.not_found.is_empty() {
-                eprintln!("[rustylink] Libraries referenced by model but NOT found in search paths:");
+                eprintln!(
+                    "[rustylink] Libraries referenced by model but NOT found in search paths:"
+                );
                 for n in &lu.not_found {
                     eprintln!("  - {}", n);
                 }
@@ -183,9 +196,17 @@ fn main() -> Result<()> {
 
     // Collect SourceBlock references that remain unresolved (library file missing or block not present)
     let mut unresolved_blocks: Vec<(String, String, String)> = Vec::new();
-    fn collect_unresolved_blocks(sys: &rustylink::model::System, prefix: &str, acc: &mut Vec<(String, String, String)>) {
+    fn collect_unresolved_blocks(
+        sys: &rustylink::model::System,
+        prefix: &str,
+        acc: &mut Vec<(String, String, String)>,
+    ) {
         for b in &sys.blocks {
-            let host_path = if prefix.is_empty() { format!("/{}", b.name) } else { format!("{}/{}", prefix, b.name) };
+            let host_path = if prefix.is_empty() {
+                format!("/{}", b.name)
+            } else {
+                format!("{}/{}", prefix, b.name)
+            };
             if let Some(src) = b.properties.get("SourceBlock") {
                 if let Some((lib, blk)) = src.split_once('/') {
                     if b.library_block_path.is_none() {
@@ -194,7 +215,11 @@ fn main() -> Result<()> {
                 }
             }
             if let Some(sub) = &b.subsystem {
-                let next_prefix = if prefix.is_empty() { b.name.clone() } else { format!("{}/{}", prefix, b.name) };
+                let next_prefix = if prefix.is_empty() {
+                    b.name.clone()
+                } else {
+                    format!("{}/{}", prefix, b.name)
+                };
                 collect_unresolved_blocks(sub, &next_prefix, acc);
             }
         }
@@ -208,9 +233,15 @@ fn main() -> Result<()> {
                 .as_ref()
                 .map_or(false, |lu| lu.not_found.iter().any(|n| n == lib));
             if lib_missing {
-                eprintln!("  - {}/{} referenced by {} (library not found)", lib, blk, host);
+                eprintln!(
+                    "  - {}/{} referenced by {} (library not found)",
+                    lib, blk, host
+                );
             } else {
-                eprintln!("  - {}/{} referenced by {} (library found but block missing)", lib, blk, host);
+                eprintln!(
+                    "  - {}/{} referenced by {} (library found but block missing)",
+                    lib, blk, host
+                );
             }
         }
     }

@@ -1,16 +1,11 @@
-use rustylink::editor::{
-    hash_color,
-    contrast_color,
-    is_code_block,
-    is_subsystem_block,
-    get_block_code,
-    set_block_code,
-    compute_line_colors,
-};
-use rustylink::model::{NameLocation, ValueKind, Block};
-use indexmap::IndexMap;
-use std::collections::HashMap;
 use eframe::egui::Color32;
+use indexmap::IndexMap;
+use rustylink::editor::{
+    compute_line_colors, contrast_color, get_block_code, hash_color, is_code_block,
+    is_subsystem_block, set_block_code,
+};
+use rustylink::model::{Block, NameLocation, ValueKind};
+use std::collections::HashMap;
 
 #[test]
 fn test_hash_color_deterministic() {
@@ -135,13 +130,20 @@ fn test_is_subsystem_block() {
 
 #[test]
 fn test_get_set_block_code() {
-    let mut block = rustylink::editor::operations::create_default_block("SubSystem", "Test", 0, 0, 1, 1);
-    block.properties.insert("Script".to_string(), "function y = f(x)\n  y = x;\nend".to_string());
+    let mut block =
+        rustylink::editor::operations::create_default_block("SubSystem", "Test", 0, 0, 1, 1);
+    block.properties.insert(
+        "Script".to_string(),
+        "function y = f(x)\n  y = x;\nend".to_string(),
+    );
 
     assert_eq!(get_block_code(&block), "function y = f(x)\n  y = x;\nend");
 
     set_block_code(&mut block, "function y = g(x)\n  y = 2*x;\nend");
-    assert_eq!(block.properties.get("Script").unwrap(), "function y = g(x)\n  y = 2*x;\nend");
+    assert_eq!(
+        block.properties.get("Script").unwrap(),
+        "function y = g(x)\n  y = 2*x;\nend"
+    );
 }
 
 #[test]
@@ -155,8 +157,16 @@ fn test_compute_line_colors_single() {
     let line = rustylink::model::Line {
         name: None,
         zorder: None,
-        src: Some(rustylink::model::EndpointRef { sid: "1".to_string(), port_type: "out".to_string(), port_index: 1 }),
-        dst: Some(rustylink::model::EndpointRef { sid: "2".to_string(), port_type: "in".to_string(), port_index: 1 }),
+        src: Some(rustylink::model::EndpointRef {
+            sid: "1".to_string(),
+            port_type: "out".to_string(),
+            port_index: 1,
+        }),
+        dst: Some(rustylink::model::EndpointRef {
+            sid: "2".to_string(),
+            port_type: "in".to_string(),
+            port_index: 1,
+        }),
         points: Vec::new(),
         labels: None,
         branches: Vec::new(),

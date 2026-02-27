@@ -3,14 +3,18 @@ use camino::{Utf8Path, Utf8PathBuf};
 use clap::Parser;
 use rustylink::model::System;
 use rustylink::parser::{
-    is_virtual_library, FsSource, GraphicalInterface, LibraryResolver, SimulinkParser, ZipSource,
+    FsSource, GraphicalInterface, LibraryResolver, SimulinkParser, ZipSource, is_virtual_library,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::File;
 use std::io::BufReader;
 
 #[derive(Parser, Debug)]
-#[command(author, version, about = "Check for missing Simulink libraries and list unimplemented virtual library blocks")]
+#[command(
+    author,
+    version,
+    about = "Check for missing Simulink libraries and list unimplemented virtual library blocks"
+)]
 struct Cli {
     /// Path to .slx (zip), an extracted simulink root directory, or a system XML file
     #[arg(value_name = "SIMULINK_FILE_OR_DIR")]
@@ -264,7 +268,12 @@ fn print_library_tree(
     for (source_block, hosts) in blocks {
         // Always report the number of instances, regardless of `show_usage`.
         let count = hosts.len();
-        println!("|- {} ({} instance{})", source_block, count, if count == 1 { "" } else { "s" });
+        println!(
+            "|- {} ({} instance{})",
+            source_block,
+            count,
+            if count == 1 { "" } else { "s" }
+        );
 
         if show_usage {
             if hosts.is_empty() {

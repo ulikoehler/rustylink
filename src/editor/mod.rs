@@ -25,21 +25,21 @@ pub mod ui;
 
 pub use block_catalog::{BlockCatalogCategory, BlockCatalogEntry, get_block_catalog};
 pub use operations::{
-    EditorCommand, EditorHistory, add_block, add_line, assign_sids, branch_line,
-    comment_blocks, create_subsystem_from_selection, delete_blocks, delete_lines,
-    mirror_blocks, move_block, move_blocks, rename_line, rotate_blocks,
+    EditorCommand, EditorHistory, add_block, add_line, assign_sids, branch_line, comment_blocks,
+    create_subsystem_from_selection, delete_blocks, delete_lines, mirror_blocks, move_block,
+    move_blocks, rename_line, rotate_blocks,
 };
 pub use selection::{EditorSelection, SelectionRect};
 pub use state::EditorState;
 pub use ui::{
+    compute_line_colors,
+    contrast_color,
     editor_update,
     editor_update_with_info,
+    get_block_code,
     // helper utilities needed by integration tests
     hash_color,
-    contrast_color,
     is_code_block,
     is_subsystem_block,
-    get_block_code,
     set_block_code,
-    compute_line_colors,
 };

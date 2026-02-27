@@ -69,10 +69,7 @@ pub fn parse_mask_node(node: Node) -> Result<Mask> {
                 display = child.text().map(|s| s.to_string());
                 // Capture all attributes on <Display>
                 for attr in child.attributes() {
-                    display_attrs.insert(
-                        attr.name().to_string(),
-                        attr.value().to_string(),
-                    );
+                    display_attrs.insert(attr.name().to_string(), attr.value().to_string());
                 }
             }
             "Description" => description = child.text().map(|s| s.to_string()),
@@ -478,14 +475,13 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                             font_weight = Some(value);
                         }
                         "NameLocation" => {
-                            name_location =
-                                match value.trim().to_ascii_lowercase().as_str() {
-                                    "top" => NameLocation::Top,
-                                    "bottom" => NameLocation::Bottom,
-                                    "left" => NameLocation::Left,
-                                    "right" => NameLocation::Right,
-                                    _ => NameLocation::Bottom,
-                                };
+                            name_location = match value.trim().to_ascii_lowercase().as_str() {
+                                "top" => NameLocation::Top,
+                                "bottom" => NameLocation::Bottom,
+                                "left" => NameLocation::Left,
+                                "right" => NameLocation::Right,
+                                _ => NameLocation::Bottom,
+                            };
                         }
                         "Value" => {
                             block_value = Some(value);
@@ -498,12 +494,8 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                 }
             }
             "PortCounts" => {
-                let ins = child
-                    .attribute("in")
-                    .and_then(|s| s.parse::<u32>().ok());
-                let outs = child
-                    .attribute("out")
-                    .and_then(|s| s.parse::<u32>().ok());
+                let ins = child.attribute("in").and_then(|s| s.parse::<u32>().ok());
+                let outs = child.attribute("out").and_then(|s| s.parse::<u32>().ok());
                 port_counts = Some(PortCounts { ins, outs });
                 child_order.push(BlockChildKind::PortCounts);
             }

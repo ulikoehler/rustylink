@@ -1,5 +1,5 @@
 use camino::Utf8PathBuf;
-use rustylink::parser::{FsSource, SimulinkParser, ExternalFileReferenceType, SolverName};
+use rustylink::parser::{ExternalFileReferenceType, FsSource, SimulinkParser, SolverName};
 use tempfile::tempdir;
 
 #[test]
@@ -8,10 +8,10 @@ fn parse_graphical_interface_json_from_fs() {
     let root_utf8 = Utf8PathBuf::from_path_buf(cwd).unwrap();
     let mut parser = SimulinkParser::new(&root_utf8, FsSource);
 
-        // Create a minimal, self-contained graphicalInterface.json.
-        let tmp = tempdir().expect("tempdir");
-        let path = Utf8PathBuf::from_path_buf(tmp.path().join("graphicalInterface.json")).unwrap();
-        let json = r#"{
+    // Create a minimal, self-contained graphicalInterface.json.
+    let tmp = tempdir().expect("tempdir");
+    let path = Utf8PathBuf::from_path_buf(tmp.path().join("graphicalInterface.json")).unwrap();
+    let json = r#"{
     "GraphicalInterface": {
         "ExternalFileReferences": [
             {"Path":"$bdroot/Blocks/Joint_Interpolator_Duatic","Reference":"Regler/Joint_Interpolator","SID":"245474","Type":"LIBRARY_BLOCK"},
@@ -31,13 +31,13 @@ fn parse_graphical_interface_json_from_fs() {
         "SolverName": "FixedStepDiscrete"
     }
 }"#;
-        std::fs::write(path.as_std_path(), json).expect("write graphicalInterface.json");
+    std::fs::write(path.as_std_path(), json).expect("write graphicalInterface.json");
     let gi = parser
         .parse_graphical_interface_file(&path)
         .expect("parse graphicalInterface.json");
 
     // Basic expectations from the provided sample
-        assert_eq!(gi.external_file_references.len(), 11);
+    assert_eq!(gi.external_file_references.len(), 11);
     assert_eq!(gi.solver_name, Some(SolverName::FixedStepDiscrete));
 
     // Find a known entry that exists in the sample file

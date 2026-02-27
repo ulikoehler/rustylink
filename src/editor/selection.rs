@@ -209,7 +209,15 @@ impl EditorSelection {
 
             // Check lines (by checking if any segment point falls within the rect)
             for (i, line) in system.lines.iter().enumerate() {
-                if line_intersects_rect(line, &rect, zoom, pan_x, pan_y, canvas_offset_x, canvas_offset_y) {
+                if line_intersects_rect(
+                    line,
+                    &rect,
+                    zoom,
+                    pan_x,
+                    pan_y,
+                    canvas_offset_x,
+                    canvas_offset_y,
+                ) {
                     self.selected_lines.push(i);
                 }
             }
@@ -270,10 +278,7 @@ fn line_intersects_rect(
 }
 
 /// Check if a line segment from (x1,y1) to (x2,y2) intersects the rect.
-fn segment_intersects_rect(
-    x1: f32, y1: f32, x2: f32, y2: f32,
-    rect: &SelectionRect,
-) -> bool {
+fn segment_intersects_rect(x1: f32, y1: f32, x2: f32, y2: f32, rect: &SelectionRect) -> bool {
     let (min_x, min_y, max_x, max_y) = rect.normalized();
 
     // Quick bounds check

@@ -14,9 +14,21 @@ fn catalog_has_at_least_750_entries() {
 fn catalog_entries_have_non_empty_fields() {
     for entry in get_block_catalog() {
         assert!(!entry.block_type.is_empty(), "Empty block_type");
-        assert!(!entry.display_name.is_empty(), "Empty display_name for {}", entry.block_type);
-        assert!(!entry.category.is_empty(), "Empty category for {}", entry.block_type);
-        assert!(!entry.description.is_empty(), "Empty description for {}", entry.block_type);
+        assert!(
+            !entry.display_name.is_empty(),
+            "Empty display_name for {}",
+            entry.block_type
+        );
+        assert!(
+            !entry.category.is_empty(),
+            "Empty category for {}",
+            entry.block_type
+        );
+        assert!(
+            !entry.description.is_empty(),
+            "Empty description for {}",
+            entry.block_type
+        );
     }
 }
 

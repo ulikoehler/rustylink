@@ -52,10 +52,7 @@ pub fn is_virtual_library(name: &str) -> bool {
 
     SPECIAL_VIRTUAL_LIBRARIES.iter().any(|s| {
         let mut s_norm = s.to_ascii_lowercase();
-        s_norm = s_norm
-            .strip_suffix(".slx")
-            .unwrap_or(&s_norm)
-            .to_string();
+        s_norm = s_norm.strip_suffix(".slx").unwrap_or(&s_norm).to_string();
         s_norm = s_norm.replace("\\\\", "/");
         // match if the names are equal, or if the candidate is a prefix of the
         // normalized name followed by a slash.  This lets entries like

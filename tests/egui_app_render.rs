@@ -1,5 +1,5 @@
-use rustylink::egui_app::{compute_icon_available_rect, PortLabelMaxWidths, icon_assets};
 use eframe::egui::{Pos2, Rect, Vec2};
+use rustylink::egui_app::{PortLabelMaxWidths, compute_icon_available_rect, icon_assets};
 
 #[test]
 fn icon_available_rect_respects_10_percent_margin() {
@@ -35,7 +35,10 @@ fn icon_available_rect_degenerates_safely_when_insets_exceed_width() {
     let avail = compute_icon_available_rect(
         &rect,
         1.0,
-        Some(PortLabelMaxWidths { left: 1000.0, right: 1000.0 }),
+        Some(PortLabelMaxWidths {
+            left: 1000.0,
+            right: 1000.0,
+        }),
     );
     assert!(avail.width() <= 0.0);
     assert!((avail.center().x - rect.center().x).abs() < 1e-6);

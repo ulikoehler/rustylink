@@ -6,9 +6,7 @@
 use anyhow::{Context, Result};
 use camino::Utf8PathBuf;
 use clap::Parser;
-use rustylink::{
-    parser::{FsSource, SimulinkParser, ZipSource},
-};
+use rustylink::parser::{FsSource, SimulinkParser, ZipSource};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "List all blocks in a Simulink model", long_about = None)]
@@ -71,7 +69,7 @@ fn list_blocks_recursive(sys: &rustylink::model::System, prefix: &str) {
         } else {
             format!("{}/{}", prefix, block.name)
         };
-        
+
         let mut block_info = if block.block_type == "Reference" {
             if let Some(src) = block.properties.get("SourceBlock") {
                 format!("Reference (SourceBlock: {})", src)
@@ -85,15 +83,15 @@ fn list_blocks_recursive(sys: &rustylink::model::System, prefix: &str) {
         if let Some(lib_src) = &block.library_source {
             block_info.push_str(&format!(" [resolved from: {}]", lib_src));
         }
-        
+
         let subsys_info = if block.subsystem.is_some() {
             " [has subsystem]"
         } else {
             ""
         };
-        
+
         println!("{:<40} {:<50} {}", path, block_info, subsys_info);
-        
+
         if let Some(sub) = &block.subsystem {
             let next_prefix = if prefix.is_empty() {
                 block.name.clone()

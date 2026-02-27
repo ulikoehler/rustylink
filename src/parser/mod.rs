@@ -22,8 +22,8 @@ pub use helpers::{parse_endpoint, parse_points, resolve_system_reference};
 pub use library::*;
 pub use source::*;
 
-use crate::model::*;
 use crate::builtin_libraries::matrix_library;
+use crate::model::*;
 use anyhow::{Context, Result, anyhow};
 use camino::{Utf8Path, Utf8PathBuf};
 use rayon::prelude::*;
@@ -88,8 +88,8 @@ impl<S: ContentSource> SimulinkParser<S> {
     ) -> Result<GraphicalInterface> {
         let path = path.as_ref();
         let text = self.source.read_to_string(path)?;
-        let v: serde_json::Value =
-            serde_json::from_str(&text).with_context(|| format!("Failed to parse JSON {}", path))?;
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .with_context(|| format!("Failed to parse JSON {}", path))?;
         let gi_value = v
             .get("GraphicalInterface")
             .ok_or_else(|| anyhow!("Missing top-level 'GraphicalInterface' object in {}", path))?;
@@ -183,7 +183,8 @@ impl<S: ContentSource> SimulinkParser<S> {
                             // gives the UI enough information (port counts, etc.) to show
                             // a reasonable placeholder.
                             if matrix_library::is_matrix_library_name(lib_name) {
-                                cache.insert(lib_name.to_string(), matrix_library::initial_system());
+                                cache
+                                    .insert(lib_name.to_string(), matrix_library::initial_system());
                             } else {
                                 cache.insert(lib_name.to_string(), empty_library_system());
                             }
@@ -219,7 +220,9 @@ impl<S: ContentSource> SimulinkParser<S> {
                         if let Some(lib_system) = cache.get_mut(lib_name) {
                             // add missing stub if necessary
                             if !lib_system.blocks.iter().any(|b| b.name == block_path) {
-                                lib_system.blocks.push(matrix_library::create_stub(block_path));
+                                lib_system
+                                    .blocks
+                                    .push(matrix_library::create_stub(block_path));
                             }
                         }
                     }
@@ -418,4 +421,3 @@ impl<S: ContentSource> SimulinkParser<S> {
         }
     }
 }
-

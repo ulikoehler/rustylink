@@ -1,4 +1,4 @@
-use rustylink::editor::block_catalog::{get_block_catalog};
+use rustylink::editor::block_catalog::get_block_catalog;
 
 #[test]
 fn catalog_has_at_least_750_entries() {

@@ -13,8 +13,7 @@
 #![cfg(feature = "egui")]
 
 use crate::model::{
-    Block, BlockChildKind, Branch, EndpointRef, Line, NameLocation, Point, Port,
-    PortCounts, System,
+    Block, BlockChildKind, Branch, EndpointRef, Line, NameLocation, Point, Port, PortCounts, System,
 };
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
@@ -51,18 +50,11 @@ pub enum EditorCommand {
         removed: Vec<(usize, Block)>,
     },
     /// Add a new line.
-    AddLine {
-        line_index: usize,
-        line: Box<Line>,
-    },
+    AddLine { line_index: usize, line: Box<Line> },
     /// Delete lines at given indices (sorted descending).
-    DeleteLines {
-        removed: Vec<(usize, Line)>,
-    },
+    DeleteLines { removed: Vec<(usize, Line)> },
     /// Toggle the commented state of blocks.
-    CommentBlocks {
-        block_indices: Vec<usize>,
-    },
+    CommentBlocks { block_indices: Vec<usize> },
     /// Rotate blocks 90° clockwise (changes port layout by swapping width/height).
     RotateBlocks {
         block_indices: Vec<usize>,
@@ -70,9 +62,7 @@ pub enum EditorCommand {
         old_positions: Vec<String>,
     },
     /// Mirror blocks (flip input/output sides).
-    MirrorBlocks {
-        block_indices: Vec<usize>,
-    },
+    MirrorBlocks { block_indices: Vec<usize> },
     /// Rename a signal line.
     RenameLine {
         line_index: usize,
@@ -93,10 +83,7 @@ pub enum EditorCommand {
         added_lines: Vec<(usize, Line)>,
     },
     /// Add a branch to an existing line.
-    BranchLine {
-        line_index: usize,
-        branch: Branch,
-    },
+    BranchLine { line_index: usize, branch: Branch },
     /// Resize a block to a new position rect.
     ResizeBlock {
         block_index: usize,
@@ -337,7 +324,10 @@ fn apply_inverse(system: &mut System, cmd: &EditorCommand) -> EditorCommand {
                 )),
             }
         }
-        EditorCommand::AddLine { line_index, line: _ } => {
+        EditorCommand::AddLine {
+            line_index,
+            line: _,
+        } => {
             let removed = if *line_index < system.lines.len() {
                 system.lines.remove(*line_index)
             } else {
@@ -432,8 +422,7 @@ fn apply_inverse(system: &mut System, cmd: &EditorCommand) -> EditorCommand {
             if let Some(line) = system.lines.get_mut(*line_index) {
                 line.name.clone_from(old_name);
                 if let Some(n) = old_name {
-                    line.properties
-                        .insert("Name".to_string(), n.clone());
+                    line.properties.insert("Name".to_string(), n.clone());
                 } else {
                     line.properties.swap_remove("Name");
                 }
@@ -720,7 +709,12 @@ pub fn create_default_block(
 /// * `block_index` - Index of the block in `system.blocks`
 /// * `new_x` - New left-edge X coordinate
 /// * `new_y` - New top-edge Y coordinate
-pub fn move_block(system: &mut System, block_index: usize, new_x: i32, new_y: i32) -> EditorCommand {
+pub fn move_block(
+    system: &mut System,
+    block_index: usize,
+    new_x: i32,
+    new_y: i32,
+) -> EditorCommand {
     let block = &system.blocks[block_index];
     let old_position = block
         .position
@@ -896,14 +890,8 @@ pub fn add_line(
         branches: Vec::new(),
         properties: {
             let mut p = IndexMap::new();
-            p.insert(
-                "Src".to_string(),
-                format!("{}#out:{}", src_sid, src_port),
-            );
-            p.insert(
-                "Dst".to_string(),
-                format!("{}#in:{}", dst_sid, dst_port),
-            );
+            p.insert("Src".to_string(), format!("{}#out:{}", src_sid, src_port));
+            p.insert("Dst".to_string(), format!("{}#in:{}", dst_sid, dst_port));
             p
         },
     };
@@ -1055,20 +1043,14 @@ pub fn branch_line(
         branches: Vec::new(),
         properties: {
             let mut p = IndexMap::new();
-            p.insert(
-                "Dst".to_string(),
-                format!("{}#in:{}", dst_sid, dst_port),
-            );
+            p.insert("Dst".to_string(), format!("{}#in:{}", dst_sid, dst_port));
             p
         },
     };
 
     system.lines[line_index].branches.push(branch.clone());
 
-    EditorCommand::BranchLine {
-        line_index,
-        branch,
-    }
+    EditorCommand::BranchLine { line_index, branch }
 }
 
 /// Create a subsystem from a set of selected blocks and their interconnecting lines.
@@ -1207,8 +1189,14 @@ pub fn create_subsystem_from_selection(
 
     let total_inports = next_inport - 1;
     let total_outports = next_outport - 1;
-    let mut subsystem_block =
-        create_default_block(subsystem_name, subsystem_name, cx - 25, cy - 25, total_inports, total_outports);
+    let mut subsystem_block = create_default_block(
+        subsystem_name,
+        subsystem_name,
+        cx - 25,
+        cy - 25,
+        total_inports,
+        total_outports,
+    );
     subsystem_block.subsystem = Some(Box::new(sub_system));
     subsystem_block.block_type = "SubSystem".to_string();
 
@@ -1271,7 +1259,14 @@ pub fn create_subsystem_from_selection(
 /// * `new_t` - New top edge
 /// * `new_r` - New right edge
 /// * `new_b` - New bottom edge
-pub fn resize_block(system: &mut System, block_index: usize, new_l: i32, new_t: i32, new_r: i32, new_b: i32) -> EditorCommand {
+pub fn resize_block(
+    system: &mut System,
+    block_index: usize,
+    new_l: i32,
+    new_t: i32,
+    new_r: i32,
+    new_b: i32,
+) -> EditorCommand {
     let block = &system.blocks[block_index];
     let old_position = block
         .position
@@ -1357,29 +1352,22 @@ pub fn find_snap_port(
                     .as_ref()
                     .and_then(|pc| pc.ins)
                     .unwrap_or_else(|| {
-                        block
-                            .ports
-                            .iter()
-                            .filter(|p| p.port_type == "in")
-                            .count() as u32
+                        block.ports.iter().filter(|p| p.port_type == "in").count() as u32
                     });
                 let n_out = block
                     .port_counts
                     .as_ref()
                     .and_then(|pc| pc.outs)
                     .unwrap_or_else(|| {
-                        block
-                            .ports
-                            .iter()
-                            .filter(|p| p.port_type == "out")
-                            .count() as u32
+                        block.ports.iter().filter(|p| p.port_type == "out").count() as u32
                     });
 
                 let mirrored = block.block_mirror.unwrap_or(false);
 
                 // Check input ports
                 for i in 1..=n_in {
-                    let (px, py) = port_model_pos(rect_l, rect_t, rect_r, rect_b, "in", i, n_in, mirrored);
+                    let (px, py) =
+                        port_model_pos(rect_l, rect_t, rect_r, rect_b, "in", i, n_in, mirrored);
                     let dist = ((pos_x - px).powi(2) + (pos_y - py).powi(2)).sqrt();
                     if dist < snap_radius {
                         if best.as_ref().map_or(true, |b| dist < b.5) {
@@ -1390,7 +1378,8 @@ pub fn find_snap_port(
 
                 // Check output ports
                 for i in 1..=n_out {
-                    let (px, py) = port_model_pos(rect_l, rect_t, rect_r, rect_b, "out", i, n_out, mirrored);
+                    let (px, py) =
+                        port_model_pos(rect_l, rect_t, rect_r, rect_b, "out", i, n_out, mirrored);
                     let dist = ((pos_x - px).powi(2) + (pos_y - py).powi(2)).sqrt();
                     if dist < snap_radius {
                         if best.as_ref().map_or(true, |b| dist < b.5) {
@@ -1407,8 +1396,13 @@ pub fn find_snap_port(
 
 /// Compute port position in model coordinates.
 fn port_model_pos(
-    l: f32, t: f32, r: f32, b: f32,
-    port_type: &str, port_index: u32, num_ports: u32,
+    l: f32,
+    t: f32,
+    r: f32,
+    b: f32,
+    port_type: &str,
+    port_index: u32,
+    num_ports: u32,
     mirrored: bool,
 ) -> (f32, f32) {
     let n = num_ports.max(port_index);
@@ -1429,8 +1423,10 @@ fn port_model_pos(
 /// Returns a list of relative-offset points for the line's `points` field.
 /// The routing avoids diagonal lines and creates clean right-angle paths.
 pub fn auto_route(
-    src_x: f32, src_y: f32,
-    dst_x: f32, dst_y: f32,
+    src_x: f32,
+    src_y: f32,
+    dst_x: f32,
+    dst_y: f32,
     src_port_type: &str,
     dst_port_type: &str,
 ) -> Vec<Point> {
@@ -1454,8 +1450,16 @@ pub fn auto_route(
     } else {
         // Going opposite direction or same-side connection
         let offset = 30;
-        let exit_x = if src_port_type == "out" { offset } else { -offset };
-        let enter_x = if dst_port_type == "in" { -offset } else { offset };
+        let exit_x = if src_port_type == "out" {
+            offset
+        } else {
+            -offset
+        };
+        let enter_x = if dst_port_type == "in" {
+            -offset
+        } else {
+            offset
+        };
 
         points.push(Point { x: exit_x, y: 0 });
         let mid_y = ((src_y + dst_y) / 2.0) as i32 - src_y as i32;

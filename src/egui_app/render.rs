@@ -30,7 +30,6 @@ fn normalize_library_block_path(path: &str) -> Option<String> {
     Some(format!("{lib_norm}/{rest}"))
 }
 
-
 pub(crate) fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
     let map = block_types::get_block_type_config_map();
     let Ok(g) = map.read() else {
@@ -107,11 +106,7 @@ pub(crate) fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
     // A plain Product block with Multiplication="Matrix(*)" is the standard way
     // Simulink encodes a matrix-multiply.  Show the dedicated SVG for it.
     if block.block_type == "Product"
-        && block
-            .properties
-            .get("Multiplication")
-            .map(|v| v.trim())
-            == Some("Matrix(*)")
+        && block.properties.get("Multiplication").map(|v| v.trim()) == Some("Matrix(*)")
     {
         if let Some(cfg) = g.get("MatrixMultiply") {
             return cfg.clone();
@@ -494,13 +489,11 @@ fn get_or_create_svg_texture(
 
     // Insert after creating the texture (to avoid deadlock), then return the stored value.
     Some(ctx.data_mut(|d| {
-        let cache = d.get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
-            cache_id,
-        );
-        cache
-            .entry(key)
-            .or_insert_with(|| value.clone())
-            .clone()
+        let cache = d
+            .get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
+                cache_id,
+            );
+        cache.entry(key).or_insert_with(|| value.clone()).clone()
     }))
 }
 
@@ -612,14 +605,8 @@ mod tests {
     /// through to the generic block_type icon (the "×" Product icon).
     #[test]
     fn icon_lookup_cross_product_case_insensitive() {
-        let mut b = crate::editor::operations::create_default_block(
-            "Product",
-            "Cross product",
-            0,
-            0,
-            2,
-            1,
-        );
+        let mut b =
+            crate::editor::operations::create_default_block("Product", "Cross product", 0, 0, 2, 1);
         // Simulate what the parser sets: library_block_path from SourceBlock.
         b.library_block_path = Some("matrix_library/Cross product".to_string());
 
@@ -630,14 +617,8 @@ mod tests {
     /// "Submatrix" must resolve to its dedicated SVG icon, not the old "👁" placeholder.
     #[test]
     fn icon_lookup_submatrix_uses_svg() {
-        let mut b = crate::editor::operations::create_default_block(
-            "SubSystem",
-            "Submatrix",
-            0,
-            0,
-            1,
-            1,
-        );
+        let mut b =
+            crate::editor::operations::create_default_block("SubSystem", "Submatrix", 0, 0, 1, 1);
         b.library_block_path = Some("matrix_library/Submatrix".to_string());
 
         let cfg = get_block_type_cfg(&b);
@@ -657,7 +638,8 @@ mod tests {
             2,
             1,
         );
-        b.properties.insert("Multiplication".to_string(), "Matrix(*)".to_string());
+        b.properties
+            .insert("Multiplication".to_string(), "Matrix(*)".to_string());
 
         let cfg = get_block_type_cfg(&b);
         assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/matrix_product.svg")));
