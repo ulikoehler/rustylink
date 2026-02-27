@@ -102,7 +102,23 @@ pub(crate) fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
         }
     }
 
-    // Phase 3 – generic block-type fallback (lowest priority).
+    // Phase 3 – Simulink-semantic overrides that are expressed through block
+    // properties rather than via a SourceBlock/library path.
+    // A plain Product block with Multiplication="Matrix(*)" is the standard way
+    // Simulink encodes a matrix-multiply.  Show the dedicated SVG for it.
+    if block.block_type == "Product"
+        && block
+            .properties
+            .get("Multiplication")
+            .map(|v| v.trim())
+            == Some("Matrix(*)")
+    {
+        if let Some(cfg) = g.get("MatrixMultiply") {
+            return cfg.clone();
+        }
+    }
+
+    // Phase 4 – generic block-type fallback (lowest priority).
     if let Some(cfg) = g.get(block.block_type.as_str()) {
         return cfg.clone();
     }
@@ -626,6 +642,25 @@ mod tests {
 
         let cfg = get_block_type_cfg(&b);
         assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/submatrix.svg")));
+    }
+
+    /// A plain Simulink Product block with Multiplication="Matrix(*)" should use
+    /// the matrix_product SVG rather than the generic "×" Product icon.
+    /// This is how Simulink encodes a matrix-multiply without a library reference.
+    #[test]
+    fn icon_lookup_product_matrix_multiplication_uses_svg() {
+        let mut b = crate::editor::operations::create_default_block(
+            "Product",
+            "Matrix Multiply",
+            0,
+            0,
+            2,
+            1,
+        );
+        b.properties.insert("Multiplication".to_string(), "Matrix(*)".to_string());
+
+        let cfg = get_block_type_cfg(&b);
+        assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/matrix_product.svg")));
     }
 }
 /// Screen-space Y coordinates computed for a block's ports (as used by the UI when placing
