@@ -8,26 +8,12 @@
 //! structured, data-driven way.  Future virtual libraries can follow the same
 //! pattern.
 
-use crate::model::{Block, Port, PortCounts};
+use crate::model::{Block, System};
 
-/// Description of a single block type that exists in a virtual library.
-#[derive(Debug)]
-pub struct VirtualBlock {
-    /// Canonical name appearing in the library (case preserved).
-    pub name: &'static str,
-    /// Number of input ports the block should have when rendered as a stub.
-    pub ins: u32,
-    /// Number of output ports the block should have when rendered as a stub.
-    pub outs: u32,
-    /// Optional icon to show for this block in the viewer.  Paths are relative
-    /// to the `icons/` folder embedded by `egui_app::icon_assets`.
-    ///
-    /// Only a handful of matrix-library blocks currently have their own SVG
-    /// assets; others should fall back to a generic placeholder.  This field
-    /// makes it easy to keep the knowledge with the library rather than
-    /// scattering special-cases across `block_types`.
-    pub icon: Option<&'static str>,
-}
+use super::virtual_library;
+use super::virtual_library::VirtualBlock;
+
+// Note: `VirtualBlock` is provided by `builtin_libraries::virtual_library`.
 
 /// The initial set of blocks that the matrix library exposes by default.
 ///
@@ -148,10 +134,7 @@ pub fn is_matrix_library_name(name: &str) -> bool {
 /// result is lowercased.  This keeps "foo   bar" equivalent to "foo bar",
 /// while distinguishing "foobar" from "foo bar".
 fn normalize_name(name: &str) -> String {
-    name.split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_ascii_lowercase()
+    virtual_library::normalize_block_name(name)
 }
 
 /// Return the port counts for a block name.
@@ -189,103 +172,13 @@ pub fn port_counts_if_known(name: &str) -> Option<(u32, u32)> {
 /// from the matrix library.
 ///
 /// The returned block has the proper `block_type`/`name` and a set of ports
-/// matching `port_counts_for`.  Other fields are left as defaults.
+/// matching `port_counts_for`. Other fields are left as defaults.
 pub fn create_stub(name: &str) -> Block {
     let (ins, outs) = port_counts_for(name);
-    let mut ports = Vec::new();
-    for i in 1..=ins {
-        let mut p = Port {
-            port_type: "in".to_string(),
-            index: Some(i),
-            properties: indexmap::IndexMap::new(),
-        };
-        // names may be filled later by the UI code; keep empty string
-        p.properties.insert("Name".to_string(), String::new());
-        ports.push(p);
-    }
-    for i in 1..=outs {
-        let mut p = Port {
-            port_type: "out".to_string(),
-            index: Some(i),
-            properties: indexmap::IndexMap::new(),
-        };
-        p.properties.insert("Name".to_string(), String::new());
-        ports.push(p);
-    }
-    let port_counts = if ins > 0 || outs > 0 {
-        Some(PortCounts {
-            ins: Some(ins),
-            outs: Some(outs),
-        })
-    } else {
-        None
-    };
-
-    let mut child_order = Vec::new();
-    if port_counts.is_some() {
-        child_order.push(crate::model::BlockChildKind::PortCounts);
-    }
-    child_order.push(crate::model::BlockChildKind::P("BlockType".to_string()));
-    if port_counts.is_some() {
-        child_order.push(crate::model::BlockChildKind::PortProperties);
-    }
-
-    Block {
-        block_type: name.to_string(),
-        name: name.to_string(),
-        sid: None,
-        tag_name: "Block".to_string(),
-        position: None,
-        zorder: None,
-        commented: false,
-        name_location: Default::default(),
-        is_matlab_function: false,
-        value: None,
-        value_kind: Default::default(),
-        value_rows: None,
-        value_cols: None,
-        properties: indexmap::IndexMap::new(),
-        ref_properties: Default::default(),
-        port_counts,
-        ports,
-        subsystem: None,
-        system_ref: None,
-        c_function: None,
-        instance_data: None,
-        link_data: None,
-        mask: None,
-        annotations: Vec::new(),
-        background_color: None,
-        show_name: None,
-        font_size: None,
-        font_weight: None,
-        mask_display_text: None,
-        current_setting: None,
-        block_mirror: None,
-        library_source: None,
-        library_block_path: None,
-        child_order,
-    }
+    virtual_library::create_stub_block(name, ins, outs)
 }
 
-/// Build a `System` pre-populated with the initial set of matrix-library
-/// blocks.  This mirrors the earlier `matrix_library_system()` helper.
-fn empty_library_system() -> crate::model::System {
-    crate::model::System {
-        properties: indexmap::IndexMap::new(),
-        blocks: Vec::new(),
-        lines: Vec::new(),
-        annotations: Vec::new(),
-        chart: None,
-    }
-}
-
-/// Build a `System` pre-populated with the initial set of matrix-library
-/// blocks.  This mirrors the earlier `matrix_library_system()` helper.
-pub fn initial_system() -> crate::model::System {
-    let mut sys = empty_library_system();
-    for blk in BLOCKS {
-        sys.blocks.push(create_stub(blk.name));
-    }
-    sys
+/// Construct the initial virtual matrix-library system.
+pub fn initial_system() -> System {
+    virtual_library::initial_system(BLOCKS)
 }

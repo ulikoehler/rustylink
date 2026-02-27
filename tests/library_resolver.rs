@@ -210,6 +210,46 @@ fn resolve_virtual_simulink_logic_and_bit() {
 }
 
 #[test]
+fn resolve_virtual_simulink_discrete_discrete_derivative() {
+    use indexmap::IndexMap;
+    use rustylink::model::System;
+    use rustylink::parser::{FsSource, SimulinkParser};
+
+    let mut blk = rustylink::editor::operations::create_default_block(
+        "SubSystem",
+        "Discrete Derivative",
+        0,
+        0,
+        0,
+        0,
+    );
+    blk.properties.insert(
+        "SourceBlock".to_string(),
+        "simulink/Discrete/Discrete Derivative".to_string(),
+    );
+
+    let mut sys = System {
+        properties: IndexMap::new(),
+        blocks: vec![blk],
+        lines: Vec::new(),
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &[]).unwrap();
+
+    assert_eq!(sys.blocks[0].library_source.as_deref(), Some("simulink/Discrete"));
+    assert_eq!(
+        sys.blocks[0].library_block_path.as_deref(),
+        Some("simulink/Discrete/Discrete Derivative")
+    );
+    assert_eq!(sys.blocks[0].port_counts.as_ref().and_then(|p| p.ins), Some(1));
+    assert_eq!(sys.blocks[0].port_counts.as_ref().and_then(|p| p.outs), Some(1));
+    // 1 input + 1 output
+    assert_eq!(sys.blocks[0].ports.len(), 2);
+}
+
+#[test]
 fn resolve_virtual_matrix_library_blocks() {
     use indexmap::IndexMap;
     use rustylink::model::{Block, System};

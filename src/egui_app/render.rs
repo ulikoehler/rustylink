@@ -656,6 +656,25 @@ mod tests {
         let cfg = get_block_type_cfg(&b);
         assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/matrix_product.svg")));
     }
+
+    #[test]
+    fn icon_lookup_simulink_discrete_derivative() {
+        let mut b = crate::editor::operations::create_default_block(
+            "SubSystem",
+            "Discrete Derivative",
+            0,
+            0,
+            1,
+            1,
+        );
+        b.library_block_path = Some("simulink/Discrete/Discrete Derivative".to_string());
+
+        let cfg = get_block_type_cfg(&b);
+        assert_eq!(
+            cfg.icon,
+            Some(IconSpec::Svg("discrete/discrete_derivative.svg"))
+        );
+    }
 }
 /// Screen-space Y coordinates computed for a block's ports (as used by the UI when placing
 /// port labels and clamped within the block rect). Keys are 1-based port indices.

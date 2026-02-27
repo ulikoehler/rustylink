@@ -22,16 +22,91 @@ pub struct LibraryResolver {
 /// For these, rustylink creates a "virtual" in-memory library instead of
 /// requiring the `.slx` file to be present on disk.
 ///
-/// Initial set:
-/// - `simulink.slx`
-/// - `matrix_library.slx`
-pub const SPECIAL_VIRTUAL_LIBRARIES: [&str; 3] = [
-    "simulink.slx",
-    "matrix_library.slx",
-    // Some blocks are referenced with the full path "simulink/Logic and Bit/...";
-    // treat that prefix as a virtual library as well.
+/// Note: Some Simulink models refer to libraries as `NAME.slx/...`. Both
+/// [`is_virtual_library`] and [`split_source_block_reference`] treat `.slx`
+/// suffixes as optional and match case-insensitively.
+pub const SPECIAL_VIRTUAL_LIBRARIES: [&str; 4] = [
+    // The built-in Simulink library is referenced as `simulink/...` or `simulink.slx/...`.
+    "simulink",
+    // Built-in rustylink virtual library.
+    "matrix_library",
+    // Some blocks are referenced with the full prefix "simulink/Logic and Bit/...".
     "simulink/Logic and Bit",
+    // Discrete library blocks are referenced as "simulink/Discrete/...".
+    "simulink/Discrete",
 ];
+
+fn normalize_segment(seg: &str) -> String {
+    let seg = seg.trim();
+    let seg = seg
+        .strip_suffix(".slx")
+        .or_else(|| seg.strip_suffix(".SLX"))
+        .unwrap_or(seg);
+    seg.to_ascii_lowercase()
+}
+
+fn split_path_segments(path: &str) -> Vec<String> {
+    let path = path.replace('\\', "/");
+    path.split('/')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect()
+}
+
+/// Split a `SourceBlock`-style reference (`Library/Block/...`) into
+/// `(library_name, block_path)`.
+///
+/// Unlike a simple `split_once('/')`, this function supports "virtual libraries"
+/// whose logical names include sub-paths (e.g. `simulink/Discrete`). It performs
+/// a longest-prefix match against [`SPECIAL_VIRTUAL_LIBRARIES`].
+///
+/// Returns `None` if the input does not contain at least one `/` separator.
+pub fn split_source_block_reference(source_block: &str) -> Option<(String, String)> {
+    let source_block = source_block.trim();
+    if source_block.is_empty() {
+        return None;
+    }
+    let segs = split_path_segments(source_block);
+    if segs.len() < 2 {
+        return None;
+    }
+
+    // Longest-prefix match against known virtual library prefixes.
+    let mut best_prefix: Option<&'static str> = None;
+    let mut best_len: usize = 0;
+    for prefix in SPECIAL_VIRTUAL_LIBRARIES {
+        let p_segs = split_path_segments(prefix);
+        if p_segs.is_empty() || segs.len() <= p_segs.len() {
+            continue;
+        }
+        let mut ok = true;
+        for (i, p) in p_segs.iter().enumerate() {
+            if normalize_segment(&segs[i]) != normalize_segment(p) {
+                ok = false;
+                break;
+            }
+        }
+        if ok && p_segs.len() > best_len {
+            best_prefix = Some(prefix);
+            best_len = p_segs.len();
+        }
+    }
+
+    if let Some(prefix) = best_prefix {
+        let rest = segs[best_len..].join("/");
+        return Some((prefix.to_string(), rest));
+    }
+
+    // Fallback: treat the first segment as the library name.
+    let lib = segs[0].trim();
+    let lib = lib
+        .strip_suffix(".slx")
+        .or_else(|| lib.strip_suffix(".SLX"))
+        .unwrap_or(lib);
+    let rest = segs[1..].join("/");
+    Some((lib.to_string(), rest))
+}
 
 /// Return true if the given library name should be treated as a virtual library.
 ///
@@ -41,23 +116,26 @@ pub fn is_virtual_library(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    // lowercase first so that suffix stripping is case-insensitive
-    let mut normalized = name.to_ascii_lowercase();
-    normalized = normalized
-        .strip_suffix(".slx")
-        .unwrap_or(&normalized)
-        .to_string();
-    // collapse multiple slashes for consistency (not strictly needed but harmless)
-    normalized = normalized.replace("\\\\", "/");
+    let segs = split_path_segments(name);
+    if segs.is_empty() {
+        return false;
+    }
 
-    SPECIAL_VIRTUAL_LIBRARIES.iter().any(|s| {
-        let mut s_norm = s.to_ascii_lowercase();
-        s_norm = s_norm.strip_suffix(".slx").unwrap_or(&s_norm).to_string();
-        s_norm = s_norm.replace("\\\\", "/");
-        // match if the names are equal, or if the candidate is a prefix of the
-        // normalized name followed by a slash.  This lets entries like
-        // "simulink/Logic and Bit" cover "simulink/Logic and Bit/SomeBlock".
-        normalized == s_norm || normalized.starts_with(&format!("{}/", s_norm))
+    SPECIAL_VIRTUAL_LIBRARIES.iter().any(|prefix| {
+        let p_segs = split_path_segments(prefix);
+        if p_segs.is_empty() {
+            return false;
+        }
+        if segs.len() < p_segs.len() {
+            return false;
+        }
+        for (i, p) in p_segs.iter().enumerate() {
+            if normalize_segment(&segs[i]) != normalize_segment(p) {
+                return false;
+            }
+        }
+        // exact match or prefix match
+        segs.len() == p_segs.len() || (segs.len() > p_segs.len())
     })
 }
 

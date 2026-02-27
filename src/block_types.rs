@@ -227,6 +227,24 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
         }
     }
 
+    // Register icons advertised by the `simulink/Discrete` virtual library.
+    for b in crate::builtin_libraries::simulink_discrete::BLOCKS {
+        if let Some(icon) = b.icon {
+            for key in &[
+                b.name.to_string(),
+                format!("{}/{}", crate::builtin_libraries::simulink_discrete::LIB_NAME, b.name),
+            ] {
+                m.insert(
+                    key.clone(),
+                    BlockTypeConfig {
+                        icon: Some(IconSpec::Svg(icon)),
+                        ..Default::default()
+                    },
+                );
+            }
+        }
+    }
+
     m
 }
 

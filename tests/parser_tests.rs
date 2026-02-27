@@ -11,6 +11,7 @@ fn virtual_library_detection() {
     assert!(is_virtual_library("matrix_library"));
     assert!(is_virtual_library("simulink/Logic and Bit"));
     assert!(is_virtual_library("Simulink/logic and BIT"));
+    assert!(is_virtual_library("simulink/Discrete"));
     assert!(!is_virtual_library("other"));
 }
 

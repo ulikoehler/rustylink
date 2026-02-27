@@ -165,7 +165,9 @@ impl<S: ContentSource> SimulinkParser<S> {
             };
 
             if let Some(source_block) = block.properties.get("SourceBlock").cloned() {
-                if let Some((lib_name, block_path)) = source_block.split_once('/') {
+                if let Some((lib_name, block_path)) =
+                    crate::parser::library::split_source_block_reference(&source_block)
+                {
                     let lib_name = lib_name.trim();
                     let block_path = block_path.trim();
                     if !cache.contains_key(lib_name) {
@@ -176,15 +178,12 @@ impl<S: ContentSource> SimulinkParser<S> {
                             || crate::parser::library::is_virtual_library(&source_block)
                         {
                             // For most virtual libraries we just insert an empty system.
-                            // The matrix library is special: we want to pre-populate it
-                            // with a few well-known block stubs (and afterwards we also
-                            // lazily create new stubs for any unexpected names).  This
-                            // allows resolution to succeed without emitting warnings and
-                            // gives the UI enough information (port counts, etc.) to show
-                            // a reasonable placeholder.
-                            if matrix_library::is_matrix_library_name(lib_name) {
-                                cache
-                                    .insert(lib_name.to_string(), matrix_library::initial_system());
+                            // Some virtual libraries provide structured metadata so that
+                            // the UI can render reasonable placeholders (ports/icons).
+                            if let Some(sys) =
+                                crate::builtin_libraries::virtual_library_initial_system(lib_name)
+                            {
+                                cache.insert(lib_name.to_string(), sys);
                             } else {
                                 cache.insert(lib_name.to_string(), empty_library_system());
                             }

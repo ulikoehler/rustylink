@@ -101,10 +101,8 @@ impl GraphicalInterface {
             if r.r#type != ExternalFileReferenceType::LibraryBlock {
                 continue;
             }
-            let lib = r
-                .reference
-                .split_once('/')
-                .map(|(a, _)| a.trim().to_string())
+            let lib = crate::parser::library::split_source_block_reference(&r.reference)
+                .map(|(l, _)| l)
                 .unwrap_or_else(|| r.reference.trim().to_string());
             if lib.is_empty() {
                 continue;
@@ -133,15 +131,13 @@ impl GraphicalInterface {
             if r.r#type != ExternalFileReferenceType::LibraryBlock {
                 continue;
             }
-            let lib = r
-                .reference
-                .split_once('/')
-                .map(|(a, _)| a.trim())
-                .unwrap_or_else(|| r.reference.trim());
+            let lib = crate::parser::library::split_source_block_reference(&r.reference)
+                .map(|(l, _)| l)
+                .unwrap_or_else(|| r.reference.trim().to_string());
             if lib.is_empty() {
                 continue;
             }
-            out.entry(lib.to_string()).or_default().push(r.clone());
+            out.entry(lib).or_default().push(r.clone());
         }
         out
     }
