@@ -86,6 +86,23 @@ pub fn port_counts_for(name: &str) -> (u32, u32) {
     }
     (1, 1)
 }
+
+/// Return the port counts for a block name **only if** it is an explicitly
+/// known matrix-library block.
+///
+/// Unlike [`port_counts_for`], this function returns `None` for unrecognised
+/// block names instead of a `(1, 1)` fallback.  This is useful for
+/// auto-detection code that must distinguish between "known block, apply
+/// defaults" and "unknown block, do nothing".
+pub fn port_counts_if_known(name: &str) -> Option<(u32, u32)> {
+    let norm = normalize_name(name);
+    for b in BLOCKS {
+        if normalize_name(b.name) == norm {
+            return Some((b.ins, b.outs));
+        }
+    }
+    None
+}
 /// Construct a minimal `Block` stub suitable for rendering an unknown block
 /// from the matrix library.
 ///

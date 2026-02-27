@@ -680,6 +680,49 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
     {
         crate::mask_eval::evaluate_mask_display(&mut blk);
     }
+
+    // Auto-detect port counts for native matrix-library blocks.
+    //
+    // Some blocks (e.g. IsTriangular, IsSymmetric, IsHermitian, ExpandScalar)
+    // appear directly in the SLX with their type-specific BlockType but without
+    // a SourceBlock property and without an explicit <PortCounts> element.  The
+    // library-resolution pass only processes blocks that carry a SourceBlock, so
+    // these native blocks would otherwise be left with port_counts = None and
+    // render as zero-port blocks.
+    //
+    // Here we fill in the library-defined defaults whenever the block has no
+    // port information of its own.
+    if blk.port_counts.is_none() && blk.ports.is_empty() {
+        if let Some((ins, outs)) =
+            crate::builtin_libraries::matrix_library::port_counts_if_known(&blk.block_type)
+        {
+            if ins > 0 || outs > 0 {
+                blk.port_counts = Some(crate::model::PortCounts {
+                    ins: Some(ins),
+                    outs: Some(outs),
+                });
+                for i in 1..=ins {
+                    let mut p = crate::model::Port {
+                        port_type: "in".to_string(),
+                        index: Some(i),
+                        properties: indexmap::IndexMap::new(),
+                    };
+                    p.properties.insert("Name".to_string(), String::new());
+                    blk.ports.push(p);
+                }
+                for i in 1..=outs {
+                    let mut p = crate::model::Port {
+                        port_type: "out".to_string(),
+                        index: Some(i),
+                        properties: indexmap::IndexMap::new(),
+                    };
+                    p.properties.insert("Name".to_string(), String::new());
+                    blk.ports.push(p);
+                }
+            }
+        }
+    }
+
     Ok(blk)
 }
 
