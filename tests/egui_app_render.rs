@@ -75,7 +75,7 @@ fn svg_parse_extract_diagonal_embedded() {
 #[test]
 fn block_type_registry_contains_matrix_library_icons() {
     use rustylink::block_types::IconSpec;
-    let map = crate::block_types::get_block_type_config_map();
+    let map = rustylink::block_types::get_block_type_config_map();
     let r = map.read().unwrap();
     for b in rustylink::builtin_libraries::matrix_library::BLOCKS {
         if let Some(icon) = b.icon {

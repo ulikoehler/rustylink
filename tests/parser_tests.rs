@@ -49,8 +49,12 @@ fn matrix_library_helpers_work() {
     assert!(!matrix_library::is_matrix_library_name("other"));
 
     // port counts for known and unknown names
+    // CamelCase names are transparently mapped to the spaced canonical name
+    // via humanize_camel_case (e.g. "IdentityMatrix" → "Identity Matrix").
     assert_eq!(matrix_library::port_counts_for("IdentityMatrix"), (0, 1));
-    assert_eq!(matrix_library::port_counts_for("crossproduct"), (2, 1));
+    // All-lowercase with no space can't be mapped to a spaced name, so
+    // "crossproduct" is no longer recognised (falls back to the default).
+    assert_eq!(matrix_library::port_counts_for("crossproduct"), (1, 1));
     assert_eq!(matrix_library::port_counts_for("unknown"), (1, 1));
 
     // whitespace collapse: multiple spaces are treated the same as a single
@@ -58,14 +62,14 @@ fn matrix_library_helpers_work() {
     let a = matrix_library::port_counts_for("Cross   Product");
     let b = matrix_library::port_counts_for("Cross Product");
     assert_eq!(a, b);
-    // however "CrossProduct" (no space) no longer matches "Cross Product".
-    assert_ne!(matrix_library::port_counts_for("CrossProduct"), b);
+    // CamelCase "CrossProduct" is humanized to "Cross Product" and matches.
+    assert_eq!(matrix_library::port_counts_for("CrossProduct"), b);
 
-    // block list contains a particular entry
+    // block list uses the spaced canonical name
     assert!(
         matrix_library::BLOCKS
             .iter()
-            .any(|b| b.name == "IdentityMatrix")
+            .any(|b| b.name == "Identity Matrix")
     );
 
     // stub creation produces a block with the expected fields

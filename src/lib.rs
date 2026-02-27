@@ -37,5 +37,10 @@ pub mod editor;
 #[cfg(feature = "egui")]
 pub use block_types::{
     BlockTypeConfig, IconSpec, Rgb, get_block_type_config_map, set_block_type_config,
-    update_block_type_config,
+    update_block_type_config, register_user_library_block_types,
+};
+
+// Re-export user virtual library API for downstream registration
+pub use builtin_libraries::{
+    OwnedVirtualBlock, UserVirtualLibrarySpec, register_virtual_library,
 };

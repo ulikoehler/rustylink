@@ -4,6 +4,11 @@
 //! libraries that rustylink can use when the actual `.slx` library file is not
 //! present on disk.
 
+use std::sync::Arc;
+
+use once_cell::sync::OnceCell;
+use std::sync::RwLock;
+
 use crate::model::{Block, Port, PortCounts, System};
 
 /// Description of a single block type that exists in a virtual library.
@@ -40,6 +45,14 @@ pub struct VirtualLibrarySpec {
     pub matches_name: fn(&str) -> bool,
     /// Construct the initial virtual system for this library.
     pub initial_system: fn() -> System,
+    /// Optional function to compute a per-instance inline label for a block
+    /// belonging to this library.  Called with the full parsed `Block`; returns
+    /// `Some(label_string)` when a label can be derived from the block's
+    /// `instance_data`, or `None` to fall through to the default icon/value
+    /// rendering.
+    ///
+    /// Set to `None` for libraries that do not need special label rendering.
+    pub compute_instance_label: Option<fn(&Block) -> Option<String>>,
 }
 
 /// Normalize a library block name for matching purposes.
@@ -164,5 +177,139 @@ pub fn initial_system(blocks: &[VirtualBlock]) -> System {
         lines: Vec::new(),
         annotations: Vec::new(),
         chart: None,
+    }
+}
+
+// ── Dynamic (user-registered) virtual library API ────────────────────────────
+
+/// Owned version of [`VirtualBlock`] for dynamic (runtime) virtual library
+/// registration.
+///
+/// Unlike [`VirtualBlock`], all fields are owned `String`s and there is no
+/// `'static` lifetime requirement.
+#[derive(Debug, Clone)]
+pub struct OwnedVirtualBlock {
+    /// Canonical name of the block.  Prefer title-case with spaces over
+    /// CamelCase – e.g. `"My Block"` rather than `"MyBlock"`.
+    pub name: String,
+    /// Additional names recognised as aliases for this block type.
+    pub aliases: Vec<String>,
+    /// Number of input ports the block should have when rendered as a stub.
+    pub ins: u32,
+    /// Number of output ports the block should have when rendered as a stub.
+    pub outs: u32,
+}
+
+/// Dynamic (runtime) virtual library specification.
+///
+/// Unlike [`VirtualLibrarySpec`] (which carries `&'static` references and plain
+/// function pointers), `UserVirtualLibrarySpec` is fully owned and uses
+/// [`Arc`]-wrapped closures.  This makes it suitable for libraries registered at
+/// runtime by downstream crates or applications.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use std::sync::Arc;
+/// use rustylink::builtin_libraries::{OwnedVirtualBlock, UserVirtualLibrarySpec,
+///                                    register_virtual_library};
+///
+/// let spec = UserVirtualLibrarySpec {
+///     name: "my_lib".to_string(),
+///     blocks: vec![OwnedVirtualBlock {
+///         name: "My Block".to_string(),
+///         aliases: vec!["MyBlock".to_string()],
+///         ins: 1,
+///         outs: 1,
+///     }],
+///     matches_name: Arc::new(|name| {
+///         name.to_ascii_lowercase().starts_with("my_lib")
+///     }),
+///     initial_system: Arc::new(|| {
+///         rustylink::model::System {
+///             properties: Default::default(),
+///             blocks: vec![],
+///             lines: vec![],
+///             annotations: vec![],
+///             chart: None,
+///         }
+///     }),
+///     compute_instance_label: None,
+/// };
+/// register_virtual_library(spec);
+/// ```
+pub struct UserVirtualLibrarySpec {
+    /// Canonical name of this library (e.g. `"my_lib"`).
+    pub name: String,
+    /// All virtual blocks the library exposes.
+    pub blocks: Vec<OwnedVirtualBlock>,
+    /// Returns `true` when the provided name (library path or source-block
+    /// path) refers to this library.
+    pub matches_name: Arc<dyn Fn(&str) -> bool + Send + Sync>,
+    /// Construct the initial virtual system for this library.
+    pub initial_system: Arc<dyn Fn() -> System + Send + Sync>,
+    /// Optional per-instance label generator (e.g. for blocks that display a
+    /// configured value in their icon).  Receives the full parsed `Block` and
+    /// returns `Some(label)` when a label can be derived.
+    pub compute_instance_label: Option<Arc<dyn Fn(&Block) -> Option<String> + Send + Sync>>,
+}
+
+static USER_LIBRARIES: OnceCell<RwLock<Vec<UserVirtualLibrarySpec>>> = OnceCell::new();
+
+fn user_libraries_lock() -> &'static RwLock<Vec<UserVirtualLibrarySpec>> {
+    USER_LIBRARIES.get_or_init(|| RwLock::new(Vec::new()))
+}
+
+/// Register a user-defined virtual library.
+///
+/// After calling this, all rustylink dispatch functions – port-count lookup,
+/// icon selection, instance-label generation, `virtual_library_initial_system`,
+/// etc. – will recognise blocks from the new library.
+///
+/// When the `egui` feature is enabled, also call
+/// [`rustylink::block_types::register_user_library_block_types`] to populate
+/// the icon registry for the new library's blocks (a default placeholder icon
+/// is used unless you later call [`rustylink::set_block_type_config`] to
+/// override individual entries).
+pub fn register_virtual_library(spec: UserVirtualLibrarySpec) {
+    if let Ok(mut w) = user_libraries_lock().write() {
+        w.push(spec);
+    }
+}
+
+/// Find a value by searching all user-registered virtual libraries.
+///
+/// Calls `f` for each registered library and returns the first `Some` result.
+/// Returns `None` if no library returns a value.
+pub(crate) fn find_in_user_libraries<F, R>(f: F) -> Option<R>
+where
+    F: Fn(&UserVirtualLibrarySpec) -> Option<R>,
+{
+    let Ok(guard) = user_libraries_lock().read() else {
+        return None;
+    };
+    for spec in guard.iter() {
+        if let Some(r) = f(spec) {
+            return Some(r);
+        }
+    }
+    None
+}
+
+/// Invoke a callback for every block in every user-registered virtual library.
+///
+/// The callback receives `(lib_name, block)` for each block.
+/// Used by `block_types::register_user_library_block_types` to populate the
+/// icon registry.
+pub(crate) fn for_each_user_library_block<F>(mut f: F)
+where
+    F: FnMut(&str, &OwnedVirtualBlock),
+{
+    if let Ok(guard) = user_libraries_lock().read() {
+        for spec in guard.iter() {
+            for block in &spec.blocks {
+                f(&spec.name, block);
+            }
+        }
     }
 }

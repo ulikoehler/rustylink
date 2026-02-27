@@ -654,6 +654,14 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Compare signal to constant",
     ));
     c.push(entry(
+        "Compare To Constant",
+        "Compare To Constant",
+        cat,
+        1,
+        1,
+        "Compare signal to constant (simulink/Logic and Bit Operations)",
+    ));
+    c.push(entry(
         "BitwiseOperator",
         "Bitwise Operator",
         cat,
@@ -932,6 +940,14 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         1,
         1,
         "Discrete-time derivative",
+    ));
+    c.push(entry(
+        "Discrete Derivative",
+        "Discrete Derivative",
+        cat,
+        1,
+        1,
+        "Discrete-time derivative (simulink/Discrete)",
     ));
     c.push(entry(
         "DiscreteTransferFcn",
@@ -1880,7 +1896,7 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Gain by matrix multiplication",
     ));
     c.push(entry(
-        "MatrixMultiply",
+        "Matrix Multiply",
         "Matrix Multiply",
         cat,
         2,
@@ -1910,6 +1926,14 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         1,
         1,
         "Conjugate transpose",
+    ));
+    c.push(entry(
+        "Hermitian Transpose",
+        "Hermitian Transpose",
+        cat,
+        1,
+        1,
+        "Conjugate transpose (matrix library)",
     ));
     c.push(entry(
         "MatrixDivide",
@@ -2003,7 +2027,7 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
     ));
     // additional virtual matrix library blocks
     c.push(entry(
-        "IdentityMatrix",
+        "Identity Matrix",
         "Identity Matrix (virtual)",
         cat,
         0,
@@ -2011,7 +2035,7 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Identity matrix (matrix library)",
     ));
     c.push(entry(
-        "IsTriangular",
+        "Is Triangular",
         "Is Triangular",
         cat,
         1,
@@ -2019,7 +2043,7 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Test if matrix is triangular",
     ));
     c.push(entry(
-        "IsSymmetric",
+        "Is Symmetric",
         "Is Symmetric",
         cat,
         1,
@@ -2035,7 +2059,7 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Extract a submatrix",
     ));
     c.push(entry(
-        "MatrixSquare",
+        "Matrix Square",
         "Matrix Square",
         cat,
         1,
@@ -2043,7 +2067,7 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Compute A'*A",
     ));
     c.push(entry(
-        "PermuteColumns",
+        "Permute Columns",
         "Permute Columns",
         cat,
         2,
@@ -2051,7 +2075,7 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Permute matrix columns",
     ));
     c.push(entry(
-        "ExpandScalar",
+        "Expand Scalar",
         "Expand Scalar",
         cat,
         1,
@@ -2059,28 +2083,50 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Turn scalar into matrix",
     ));
     c.push(entry(
-        "IsHermitian",
+        "Is Hermitian",
         "Is Hermitian",
         cat,
         1,
         1,
         "Test if matrix is Hermitian",
     ));
+    // The canonical matrix-library block name is `Create Diagonal Matrix`.
+    // Earlier versions of the catalog used the shorter `DiagonalMatrix`,
+    // which led to missing icons; make sure the entry now uses the real
+    // name (the display text remains unchanged).
     c.push(entry(
-        "DiagonalMatrix",
+        "Create Diagonal Matrix",
         "Create Diagonal Matrix",
         cat,
         1,
         1,
         "Create diagonal from vector",
     ));
+    // use canonical virtual-library key rather than the older "ExtractDiag" name
     c.push(entry(
-        "ExtractDiag",
+        "Extract Diagonal",
         "Extract Diagonal",
         cat,
         1,
         1,
         "Extract diagonal of matrix",
+    ));
+    // matrix_library virtual-block names (spaced form used for matching)
+    c.push(entry(
+        "Cross Product",
+        "Cross Product (matrix library)",
+        cat,
+        2,
+        1,
+        "Vector cross product (matrix library virtual block)",
+    ));
+    c.push(entry(
+        "Matrix Concatenate",
+        "Matrix Concatenate (matrix library)",
+        cat,
+        2,
+        1,
+        "Concatenate into matrix (matrix library virtual block)",
     ));
     c.push(entry(
         "ToeplitzMatrix",

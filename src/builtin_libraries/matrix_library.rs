@@ -24,35 +24,35 @@ pub const LIB_NAME: &str = "matrix_library";
 /// keep the same order here for compatibility with existing tests.
 pub const BLOCKS: &[VirtualBlock] = &[
     VirtualBlock {
-        name: "IdentityMatrix",
+        name: "Identity Matrix",
         ins: 0,
         outs: 1,
         icon: Some("matrix/identity_matrix.svg"),
         aliases: &[],
     },
     VirtualBlock {
-        name: "IsTriangular",
+        name: "Is Triangular",
         ins: 1,
         outs: 1,
         icon: Some("matrix/is_triangular.svg"),
         aliases: &[],
     },
     VirtualBlock {
-        name: "IsSymmetric",
+        name: "Is Symmetric",
         ins: 1,
         outs: 1,
         icon: Some("matrix/is_symmetric.svg"),
         aliases: &[],
     },
     VirtualBlock {
-        name: "CrossProduct",
+        name: "Cross Product",
         ins: 2,
         outs: 1,
         icon: Some("matrix/cross_product.svg"),
         aliases: &[],
     },
     VirtualBlock {
-        name: "MatrixMultiply",
+        name: "Matrix Multiply",
         ins: 2,
         outs: 1,
         icon: Some("matrix/matrix_product.svg"),
@@ -73,56 +73,64 @@ pub const BLOCKS: &[VirtualBlock] = &[
         aliases: &[],
     },
     VirtualBlock {
-        name: "HermitianTranspose",
+        name: "Hermitian Transpose",
         ins: 1,
         outs: 1,
         icon: Some("matrix/hermitian_transpose.svg"),
         aliases: &[],
     },
     VirtualBlock {
-        name: "MatrixSquare",
+        name: "Matrix Square",
         ins: 1,
         outs: 1,
         icon: Some("matrix/matrix_square.svg"),
         aliases: &["Square"],
     },
     VirtualBlock {
-        name: "PermuteColumns",
+        name: "Permute Columns",
         ins: 2,
         outs: 1,
         icon: None,
         aliases: &[],
     },
     VirtualBlock {
-        name: "ExtractDiagonal",
+        name: "Extract Diagonal",
         ins: 1,
         outs: 1,
         icon: Some("matrix/extract_diagonal.svg"),
-        aliases: &[],
+        // older versions of the catalog (and some SLX files) used the
+        // shorthand "ExtractDiag"; treat it as an alias so lookup still
+        // succeeds.
+        aliases: &["ExtractDiag"],
     },
     VirtualBlock {
-        name: "CreateDiagonalMatrix",
+        name: "Create Diagonal Matrix",
         ins: 1,
         outs: 1,
         icon: Some("matrix/create_diagonal_matrix.svg"),
-        aliases: &[],
+        // some Simulink files (and our catalog) historically referred to
+        // this block as `DiagonalMatrix` instead of the more verbose
+        // `CreateDiagonalMatrix`.  Having an alias here ensures that
+        // port-count lookup, icon registration and other logic still work
+        // for models created with the old name.
+        aliases: &["DiagonalMatrix"],
     },
     VirtualBlock {
-        name: "ExpandScalar",
+        name: "Expand Scalar",
         ins: 1,
         outs: 1,
         icon: Some("matrix/expand_scalar_to_matrix.svg"),
         aliases: &[],
     },
     VirtualBlock {
-        name: "IsHermitian",
+        name: "Is Hermitian",
         ins: 1,
         outs: 1,
         icon: None,
         aliases: &[],
     },
     VirtualBlock {
-        name: "MatrixConcatenate",
+        name: "Matrix Concatenate",
         ins: 2,
         outs: 1,
         icon: None,
@@ -160,14 +168,18 @@ fn normalize_name(name: &str) -> String {
 /// Matching is case-insensitive.  Rather than removing whitespace entirely, we
 /// replace any whitespace run with a single space (see `normalize_name`). If the
 /// name is not recognized, `(1, 1)` is returned as a reasonable default.
+///
+/// CamelCase names from older SLX files (e.g. `"IsTriangular"`) are handled
+/// transparently by also trying the humanized (space-separated) form.
 pub fn port_counts_for(name: &str) -> (u32, u32) {
     let norm = normalize_name(name);
+    let norm_humanized = normalize_name(&virtual_library::humanize_camel_case(name));
     for b in BLOCKS {
-        if normalize_name(b.name) == norm {
+        if normalize_name(b.name) == norm || normalize_name(b.name) == norm_humanized {
             return (b.ins, b.outs);
         }
         for &alias in b.aliases {
-            if normalize_name(alias) == norm {
+            if normalize_name(alias) == norm || normalize_name(alias) == norm_humanized {
                 return (b.ins, b.outs);
             }
         }
@@ -182,14 +194,18 @@ pub fn port_counts_for(name: &str) -> (u32, u32) {
 /// block names instead of a `(1, 1)` fallback.  This is useful for
 /// auto-detection code that must distinguish between "known block, apply
 /// defaults" and "unknown block, do nothing".
+///
+/// CamelCase names from older SLX files (e.g. `"IsTriangular"`) are handled
+/// transparently by also trying the humanized (space-separated) form.
 pub fn port_counts_if_known(name: &str) -> Option<(u32, u32)> {
     let norm = normalize_name(name);
+    let norm_humanized = normalize_name(&virtual_library::humanize_camel_case(name));
     for b in BLOCKS {
-        if normalize_name(b.name) == norm {
+        if normalize_name(b.name) == norm || normalize_name(b.name) == norm_humanized {
             return Some((b.ins, b.outs));
         }
         for &alias in b.aliases {
-            if normalize_name(alias) == norm {
+            if normalize_name(alias) == norm || normalize_name(alias) == norm_humanized {
                 return Some((b.ins, b.outs));
             }
         }

@@ -52,6 +52,44 @@ impl Default for BlockTypeConfig {
     }
 }
 
+/// Register icon/config entries for one virtual-block name into the map.
+///
+/// Generates all useful key variants:
+/// - raw name and its whitespace-normalized lowercase form
+/// - CamelCase-humanized name and its normalized form
+/// - All of the above prefixed with `{lib_name}/`
+///
+/// Duplicate keys are silently skipped.
+fn register_virtual_keys(
+    m: &mut HashMap<String, BlockTypeConfig>,
+    lib_name: &str,
+    raw_name: &str,
+    cfg: BlockTypeConfig,
+) {
+    use crate::builtin_libraries::virtual_library::{humanize_camel_case, normalize_block_name};
+    let human = humanize_camel_case(raw_name);
+    let norm_raw = normalize_block_name(raw_name);
+    let norm_human = normalize_block_name(&human);
+    let mut keys: Vec<String> = vec![
+        raw_name.to_string(),
+        norm_raw.clone(),
+        human.clone(),
+        norm_human.clone(),
+        format!("{lib_name}/{raw_name}"),
+        format!("{lib_name}/{norm_raw}"),
+        format!("{lib_name}/{human}"),
+        format!("{lib_name}/{norm_human}"),
+    ];
+
+    // De-duplicate while preserving insertion order.
+    let mut seen = std::collections::HashSet::new();
+    keys.retain(|k| seen.insert(k.clone()));
+
+    for k in keys {
+        m.insert(k, cfg.clone());
+    }
+}
+
 fn default_registry() -> HashMap<String, BlockTypeConfig> {
     let mut m = HashMap::new();
 
@@ -151,34 +189,6 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
     );
 
     // Register icons advertised by built-in virtual libraries.
-    //
-    // For each virtual block we register:
-    // - its canonical name and a humanized spelling (CamelCase -> "Camel Case")
-    // - any library-provided aliases (and their humanized spellings)
-    // - prefixed forms like "<lib>/<name>" to match SourceBlock paths
-    fn register_virtual_keys(
-        m: &mut HashMap<String, BlockTypeConfig>,
-        lib_name: &str,
-        raw_name: &str,
-        cfg: BlockTypeConfig,
-    ) {
-        let human = crate::builtin_libraries::virtual_library::humanize_camel_case(raw_name);
-        let mut keys: Vec<String> = vec![
-            raw_name.to_string(),
-            human.clone(),
-            format!("{lib_name}/{raw_name}"),
-            format!("{lib_name}/{human}"),
-        ];
-
-        // De-duplicate while preserving insertion order.
-        let mut seen = std::collections::HashSet::new();
-        keys.retain(|k| seen.insert(k.clone()));
-
-        for k in keys {
-            m.insert(k, cfg.clone());
-        }
-    }
-
     for lib in crate::builtin_libraries::VIRTUAL_LIBRARIES {
         for b in lib.blocks {
             // Register canonical name and any aliases.
@@ -247,5 +257,33 @@ where
             .entry(block_type.to_string())
             .or_insert_with(BlockTypeConfig::default);
         f(entry);
+    }
+}
+
+/// Register icon configurations for all currently-registered user virtual
+/// libraries.
+///
+/// Call this after calling
+/// [`register_virtual_library`](crate::builtin_libraries::register_virtual_library)
+/// to make blocks from user libraries visible in the icon registry.  A default
+/// placeholder icon (`👁`) is used for each block.  You can later override
+/// individual entries with [`set_block_type_config`].
+///
+/// It is safe to call this function multiple times; already-present keys are
+/// simply overwritten with the same placeholder.
+pub fn register_user_library_block_types() {
+    let map = get_block_type_config_map();
+    if let Ok(mut m) = map.write() {
+        crate::builtin_libraries::virtual_library::for_each_user_library_block(|lib_name, block| {
+            let cfg = BlockTypeConfig {
+                icon: Some(IconSpec::Utf8("👁")),
+                ..Default::default()
+            };
+            let mut names: Vec<String> = vec![block.name.clone()];
+            names.extend(block.aliases.iter().cloned());
+            for name in names {
+                register_virtual_keys(&mut m, lib_name, &name, cfg.clone());
+            }
+        });
     }
 }

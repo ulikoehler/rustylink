@@ -58,3 +58,16 @@ fn catalog_search_empty_returns_all() {
     let matches: Vec<_> = catalog.iter().filter(|e| e.matches_query("")).collect();
     assert_eq!(matches.len(), catalog.len());
 }
+
+#[test]
+fn catalog_contains_virtual_library_blocks() {
+    use rustylink::builtin_libraries::VIRTUAL_LIBRARIES;
+    let catalog = get_block_catalog();
+    for lib in VIRTUAL_LIBRARIES {
+        for b in lib.blocks {
+            // canonical name should appear as a block_type entry
+            assert!(catalog.iter().any(|e| e.block_type == b.name),
+                "catalog missing entry for virtual block {}", b.name);
+        }
+    }
+}

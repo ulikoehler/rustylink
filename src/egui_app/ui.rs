@@ -1815,6 +1815,16 @@ fn update_internal(
                 let galley = painter.layout_no_wrap(label, font_id.clone(), color);
                 let pos = r_screen.center() - galley.size() * 0.5;
                 painter.galley(pos, galley, color);
+            } else if let Some(instance_label) =
+                crate::builtin_libraries::compute_block_instance_label(b)
+            {
+                // Per-instance label from InstanceData (e.g. "≤ 3.0" for Compare To Constant).
+                let beneath_font_px = 12.0 * font_scale;
+                let font_id = egui::FontId::proportional(beneath_font_px);
+                let color = fg;
+                let galley = painter.layout_no_wrap(instance_label, font_id.clone(), color);
+                let pos = r_screen.center() - galley.size() * 0.5;
+                painter.galley(pos, galley, color);
             } else if b.block_type == "ManualSwitch" {
                 let coords_ref = b.sid.as_ref().and_then(|sid| block_port_y_map.get(sid));
                 render_manual_switch(&painter, b, r_screen, font_scale, coords_ref);
@@ -2301,6 +2311,26 @@ fn show_block_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
                             });
                         }
                     });
+                if let Some(id) = &block.instance_data {
+                    if !id.properties.is_empty() {
+                        ui.separator();
+                        egui::CollapsingHeader::new("Instance Parameters")
+                            .default_open(true)
+                            .show(ui, |ui| {
+                                for (k, v) in &id.properties {
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new(
+                                                crate::parser::helpers::clean_whitespace(k),
+                                            )
+                                            .strong(),
+                                        );
+                                        ui.label(crate::parser::helpers::clean_whitespace(v));
+                                    });
+                                }
+                            });
+                    }
+                }
                 if block.block_type == "CFunction" {
                     if let Some(cfg) = &block.c_function {
                         ui.separator();

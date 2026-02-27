@@ -42,7 +42,7 @@ fn normalize_library_block_path(path: &str) -> Option<String> {
     Some(format!("{lib_norm}/{rest}"))
 }
 
-pub(crate) fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
+pub fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
     let map = block_types::get_block_type_config_map();
     let Ok(g) = map.read() else {
         return BlockTypeConfig::default();
@@ -99,17 +99,25 @@ pub(crate) fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
         }
     }
 
-    // Phase 2 – case-insensitive fallback on the last segments.
-    // Handles blocks where the SLX uses different capitalisation than our
-    // registry (e.g. "Cross product" vs "Cross Product").
+    // Phase 2 – whitespace-normalized and CamelCase-humanized fallback on last
+    // segments.  Handles blocks where the SLX name differs from our registry
+    // key by whitespace collapsing or CamelCase spacing (e.g.
+    // "Create Diagonal\nMatrix" after newline removal → "CreateDiagonalMatrix"
+    // → normalize(humanize(…)) → "create diagonal matrix" → match).
+    //
+    // Because `register_virtual_keys` pre-registers all normalized forms, these
+    // are plain O(1) hash lookups – no linear scan needed.
     for seg in &last_segments {
-        let seg_lower = seg.to_ascii_lowercase();
-        if let Some(cfg) = g
-            .iter()
-            .find(|(k, _)| k.to_ascii_lowercase() == seg_lower)
-            .map(|(_, v)| v.clone())
-        {
+        use crate::builtin_libraries::virtual_library::{humanize_camel_case, normalize_block_name};
+        let seg_norm = normalize_block_name(seg);
+        if let Some(cfg) = g.get(seg_norm.as_str()) {
             return cfg.clone();
+        }
+        let seg_human_norm = normalize_block_name(&humanize_camel_case(seg));
+        if seg_human_norm != seg_norm {
+            if let Some(cfg) = g.get(seg_human_norm.as_str()) {
+                return cfg.clone();
+            }
         }
     }
 
@@ -120,7 +128,7 @@ pub(crate) fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
     if block.block_type == "Product"
         && block.properties.get("Multiplication").map(|v| v.trim()) == Some("Matrix(*)")
     {
-        if let Some(cfg) = g.get("MatrixMultiply") {
+        if let Some(cfg) = g.get("matrix multiply") {
             return cfg.clone();
         }
     }
@@ -167,7 +175,7 @@ pub(crate) fn port_label_display_name(block: &Block, index: u32, is_input: bool)
         .unwrap_or_else(|| format!("{}{}", if is_input { "In" } else { "Out" }, index))
 }
 
-pub(crate) fn wrap_text_to_max_width(
+pub fn wrap_text_to_max_width(
     painter: &egui::Painter,
     text: &str,
     font_id: egui::FontId,
@@ -647,6 +655,49 @@ mod tests {
                 assert_eq!(cfg.icon, Some(IconSpec::Svg(icon)), "block {}", b.name);
             }
         }
+    }
+
+    #[test]
+    fn icon_lookup_diagonal_matrix_alias() {
+        // using the shorter/legacy name as a library path should still hit
+        // the same SVG icon.  this exercises the alias support we just added
+        // to the matrix library.
+        let mut blk = crate::editor::operations::create_default_block(
+            "SubSystem",
+            "Foo",
+            0,
+            0,
+            1,
+            1,
+        );
+        blk.library_block_path = Some("matrix_library/DiagonalMatrix".to_string());
+        let cfg = get_block_type_cfg(&blk);
+        assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/create_diagonal_matrix.svg")));
+
+        // and the generic fallback via block_type (used by the catalog) also works
+        let mut blk2 = crate::editor::operations::create_default_block(
+            "DiagonalMatrix",
+            "Bar",
+            0,
+            0,
+            1,
+            1,
+        );
+        let cfg2 = get_block_type_cfg(&blk2);
+        assert_eq!(cfg2.icon, Some(IconSpec::Svg("matrix/create_diagonal_matrix.svg")));
+
+        // check extract-diagonal alias as well (library path variant)
+        let mut blk3 = crate::editor::operations::create_default_block(
+            "SubSystem",
+            "Qux",
+            0,
+            0,
+            1,
+            1,
+        );
+        blk3.library_block_path = Some("matrix_library/ExtractDiag".to_string());
+        let cfg3 = get_block_type_cfg(&blk3);
+        assert_eq!(cfg3.icon, Some(IconSpec::Svg("matrix/extract_diagonal.svg")));
     }
 
     /// A plain Simulink Product block with Multiplication="Matrix(*)" should use

@@ -533,11 +533,26 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             if b.commented {
                 let commented_bg = Color32::from_rgb(230, 230, 230);
                 ui.painter().rect_filled(r_screen, 0.0, commented_bg);
-                // Use the shared icon layout algorithm (maximized with margins).
-                render_block_icon(ui.painter(), b, &r_screen, font_scale, None);
+                let fg = contrast_color(commented_bg);
+                if let Some(lbl) = crate::builtin_libraries::compute_block_instance_label(b) {
+                    let font_id = egui::FontId::proportional(12.0 * font_scale);
+                    let galley = ui.painter().layout_no_wrap(lbl, font_id, fg);
+                    let pos = r_screen.center() - galley.size() * 0.5;
+                    ui.painter().galley(pos, galley, fg);
+                } else {
+                    render_block_icon(ui.painter(), b, &r_screen, font_scale, None);
+                }
             } else {
                 ui.painter().rect_filled(r_screen, 6.0, bg);
-                render_block_icon(ui.painter(), b, &r_screen, font_scale, None);
+                let fg = contrast_color(bg);
+                if let Some(lbl) = crate::builtin_libraries::compute_block_instance_label(b) {
+                    let font_id = egui::FontId::proportional(12.0 * font_scale);
+                    let galley = ui.painter().layout_no_wrap(lbl, font_id, fg);
+                    let pos = r_screen.center() - galley.size() * 0.5;
+                    ui.painter().galley(pos, galley, fg);
+                } else {
+                    render_block_icon(ui.painter(), b, &r_screen, font_scale, None);
+                }
             }
 
             // Selection highlight
