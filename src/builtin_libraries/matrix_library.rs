@@ -28,7 +28,8 @@ pub const BLOCKS: &[VirtualBlock] = &[
         ins: 0,
         outs: 1,
         icon: Some("matrix/identity_matrix.svg"),
-        aliases: &[],
+        // SLX files store the block type as CamelCase without spaces.
+        aliases: &["IdentityMatrix"],
         compute_instance_label: None,
     },
     VirtualBlock {
@@ -36,7 +37,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         ins: 1,
         outs: 1,
         icon: Some("matrix/is_triangular.svg"),
-        aliases: &[],
+        aliases: &["IsTriangular"],
         compute_instance_label: None,
     },
     VirtualBlock {
@@ -44,7 +45,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         ins: 1,
         outs: 1,
         icon: Some("matrix/is_symmetric.svg"),
-        aliases: &[],
+        aliases: &["IsSymmetric"],
         compute_instance_label: None,
     },
     VirtualBlock {
@@ -96,11 +97,13 @@ pub const BLOCKS: &[VirtualBlock] = &[
         compute_instance_label: None,
     },
     VirtualBlock {
-        name: "Permute Columns",
+        // In Simulink SLX files this block appears as "Permute Matrix";
+        // "Permute Columns" is the internal alias some older files use.
+        name: "Permute Matrix",
         ins: 2,
         outs: 1,
         icon: None,
-        aliases: &[],
+        aliases: &["Permute Columns", "PermuteMatrix", "PermuteColumns"],
         compute_instance_label: None,
     },
     VirtualBlock {

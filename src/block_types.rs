@@ -38,6 +38,11 @@ pub struct BlockTypeConfig {
     pub show_input_port_labels: bool,
     /// Whether to display output port labels inside the block. Default: true.
     pub show_output_port_labels: bool,
+    /// `true` when this entry was explicitly registered (e.g. as a known
+    /// virtual-library block).  Blocks with `known = true` but `icon = None`
+    /// will silently render a `"?"` placeholder without emitting a terminal
+    /// warning – they are recognised block types that just lack a dedicated icon.
+    pub known: bool,
 }
 
 impl Default for BlockTypeConfig {
@@ -48,6 +53,7 @@ impl Default for BlockTypeConfig {
             icon: None,
             show_input_port_labels: true,
             show_output_port_labels: true,
+            known: false,
         }
     }
 }
@@ -197,20 +203,14 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
             names.extend_from_slice(b.aliases);
 
             for &n in &names {
-                if let Some(icon) = b.icon {
-                    register_virtual_keys(
-                        &mut m,
-                        lib.name,
-                        n,
-                        BlockTypeConfig {
-                            icon: Some(IconSpec::Svg(icon)),
-                            ..Default::default()
-                        },
-                    );
-                }
-                // Blocks without a dedicated SVG icon are intentionally not
-                // registered here. render_block_icon will emit a warning and
-                // show "?" for any block whose icon resolves to None.
+                // Always register, even when there is no dedicated SVG icon,
+                // so that `known = true` prevents spurious terminal warnings.
+                let cfg = BlockTypeConfig {
+                    icon: b.icon.map(IconSpec::Svg),
+                    known: true,
+                    ..Default::default()
+                };
+                register_virtual_keys(&mut m, lib.name, n, cfg);
             }
         }
     }

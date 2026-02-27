@@ -592,17 +592,21 @@ pub fn render_block_icon(
             }
         }
     } else {
-        // No icon registered for this block — emit a one-time warning and
-        // render a "?" placeholder so the block is at least visually distinct.
-        let raw_path = block
-            .library_block_path
-            .as_deref()
-            .or_else(|| block.properties.get("SourceBlock").map(|s| s.as_str()))
-            .unwrap_or("<unknown>");
-        // Normalize the path for display: replace newlines with spaces so the
-        // warning message is readable (SLX paths are word-wrapped with newlines).
-        let block_path_display = raw_path.replace(['\n', '\r'], " ").replace('\\', "/");
-        warn_missing_icon(&block.block_type, &block_path_display);
+        // No icon for this block.  Only warn for truly unknown blocks.
+        // Known virtual-library blocks that simply lack a dedicated SVG
+        // (e.g. "Is Hermitian", "Permute Matrix") are silently rendered
+        // as "?" without a terminal warning.
+        if !cfg.known {
+            let raw_path = block
+                .library_block_path
+                .as_deref()
+                .or_else(|| block.properties.get("SourceBlock").map(|s| s.as_str()))
+                .unwrap_or("<unknown>");
+            // Normalize the path for display: replace newlines with spaces so the
+            // warning message is readable (SLX paths are word-wrapped with newlines).
+            let block_path_display = raw_path.replace(['\n', '\r'], " ").replace('\\', "/");
+            warn_missing_icon(&block.block_type, &block_path_display);
+        }
         render_center_glyph_maximized(painter, rect, font_scale, "?", dark_icon, port_label_widths);
     }
 }

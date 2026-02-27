@@ -2067,8 +2067,8 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Compute A'*A",
     ));
     c.push(entry(
-        "Permute Columns",
-        "Permute Columns",
+        "Permute Matrix",
+        "Permute Matrix",
         cat,
         2,
         1,
