@@ -89,6 +89,59 @@ fn block_type_registry_contains_matrix_library_icons() {
     }
 }
 
+/// Verify that `create_stub_block` blocks (as produced by `initial_system()`)
+/// resolve to their SVG icon via Phase 4 (block_type lookup) when
+/// `library_block_path` is `None`.  This is the code path exercised when the
+/// virtual-library browser displays the library grid directly.  The three
+/// blocks that prompted this test are "Identity Matrix", "Is Triangular", and
+/// "Is Symmetric".
+#[test]
+fn icon_lookup_stub_block_initial_system_no_library_path() {
+    use rustylink::block_types::IconSpec;
+    for b in rustylink::builtin_libraries::matrix_library::BLOCKS {
+        if let Some(icon) = b.icon {
+            let blk = rustylink::builtin_libraries::virtual_library::create_stub_block(
+                b.name, b.ins, b.outs,
+            );
+            assert!(
+                blk.library_block_path.is_none(),
+                "stub block should have no library_block_path"
+            );
+            let cfg = rustylink::egui_app::get_block_type_cfg(&blk);
+            assert_eq!(
+                cfg.icon,
+                Some(IconSpec::Svg(icon)),
+                "stub block '{}' (Phase 4 lookup) should resolve to icon '{}'",
+                b.name,
+                icon
+            );
+        }
+    }
+}
+
+/// Ensure identity_matrix.svg (which contains <text> elements, unlike the
+/// purely-geometric sibling icons) parses and rasterizes without error.
+#[test]
+fn svg_rasterization_identity_matrix() {
+    let bytes = icon_assets::get("matrix/identity_matrix.svg").unwrap();
+    let options = resvg::usvg::Options::default();
+    // Parsing must succeed.
+    let tree = resvg::usvg::Tree::from_data(&bytes, &options).unwrap();
+    assert!(tree.size().width() > 0.0 && tree.size().height() > 0.0);
+    // Rasterisation must also succeed.
+    let image = egui_extras::image::load_svg_bytes_with_size(
+        &bytes,
+        egui::SizeHint::Size {
+            width: 128,
+            height: 128,
+            maintain_aspect_ratio: true,
+        },
+        &options,
+    )
+    .unwrap();
+    assert!(image.size[0] > 0 && image.size[1] > 0);
+}
+
 #[test]
 fn svg_rasterization_preserves_aspect_ratio() {
     let bytes = icon_assets::get("matrix/is_triangular.svg").unwrap();
