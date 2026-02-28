@@ -9,14 +9,44 @@ use super::virtual_library::VirtualBlock;
 
 pub const LIB_NAME: &str = "simulink/Logic and Bit Operations";
 
-pub const BLOCKS: &[VirtualBlock] = &[VirtualBlock {
-    name: "Compare To Constant",
-    aliases: &["CompareToConstant"],
-    ins: 1,
-    outs: 1,
-    icon: None,
-    compute_instance_label: Some(compare_to_constant_label),
-}];
+pub const BLOCKS: &[VirtualBlock] = &[
+    VirtualBlock {
+        name: "Compare To Constant",
+        aliases: &["CompareToConstant"],
+        ins: 1,
+        outs: 1,
+        icon: None,
+        compute_instance_label: Some(compare_to_constant_label),
+    },
+    VirtualBlock {
+        name: "Detect Change",
+        aliases: &["DetectChange"],
+        ins: 1,
+        outs: 1,
+        ..VirtualBlock::DEFAULT
+    },
+    VirtualBlock {
+        name: "Detect Increase",
+        aliases: &["DetectIncrease"],
+        ins: 1,
+        outs: 1,
+        ..VirtualBlock::DEFAULT
+    },
+    VirtualBlock {
+        name: "Detect Decrease",
+        aliases: &["DetectDecrease"],
+        ins: 1,
+        outs: 1,
+        ..VirtualBlock::DEFAULT
+    },
+    VirtualBlock {
+        name: "Relational Operator",
+        aliases: &["RelationalOperator"],
+        ins: 2,
+        outs: 1,
+        ..VirtualBlock::DEFAULT
+    },
+];
 
 pub fn get_blocks() -> &'static [VirtualBlock] {
     BLOCKS

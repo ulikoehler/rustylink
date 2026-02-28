@@ -638,6 +638,14 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Compare: ==, ~=, <, <=, >, >=",
     ));
     c.push(entry(
+        "Relational Operator",
+        "Relational Operator",
+        cat,
+        2,
+        1,
+        "Compare: ==, ~=, <, <=, >, >= (simulink/Logic and Bit Operations)",
+    ));
+    c.push(entry(
         "Compare",
         "Compare To Zero",
         cat,
@@ -727,6 +735,14 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Detect when signal changes",
     ));
     c.push(entry(
+        "Detect Change",
+        "Detect Change",
+        cat,
+        1,
+        1,
+        "Detect when signal changes (simulink/Logic and Bit Operations)",
+    ));
+    c.push(entry(
         "DetectDecrease",
         "Detect Decrease",
         cat,
@@ -735,12 +751,28 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Detect when signal decreases",
     ));
     c.push(entry(
+        "Detect Decrease",
+        "Detect Decrease",
+        cat,
+        1,
+        1,
+        "Detect when signal decreases (simulink/Logic and Bit Operations)",
+    ));
+    c.push(entry(
         "DetectIncrease",
         "Detect Increase",
         cat,
         1,
         1,
         "Detect when signal increases",
+    ));
+    c.push(entry(
+        "Detect Increase",
+        "Detect Increase",
+        cat,
+        1,
+        1,
+        "Detect when signal increases (simulink/Logic and Bit Operations)",
     ));
     c.push(entry(
         "DetectRisePositive",

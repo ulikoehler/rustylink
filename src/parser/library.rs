@@ -25,11 +25,13 @@ pub struct LibraryResolver {
 /// Note: Some Simulink models refer to libraries as `NAME.slx/...`. Both
 /// [`is_virtual_library`] and [`split_source_block_reference`] treat `.slx`
 /// suffixes as optional and match case-insensitively.
-pub const SPECIAL_VIRTUAL_LIBRARIES: [&str; 4] = [
+pub const SPECIAL_VIRTUAL_LIBRARIES: [&str; 5] = [
     // The built-in Simulink library is referenced as `simulink/...` or `simulink.slx/...`.
     "simulink",
     // Built-in rustylink virtual library.
     "matrix_library",
+    // Some blocks are referenced with the full prefix "simulink/Logic and Bit Operations/...".
+    "simulink/Logic and Bit Operations",
     // Some blocks are referenced with the full prefix "simulink/Logic and Bit/...".
     "simulink/Logic and Bit",
     // Discrete library blocks are referenced as "simulink/Discrete/...".
@@ -48,9 +50,9 @@ fn normalize_segment(seg: &str) -> String {
 fn split_path_segments(path: &str) -> Vec<String> {
     let path = path.replace('\\', "/");
     path.split('/')
-        .map(|s| s.trim())
+    .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
+    .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
         .collect()
 }
 

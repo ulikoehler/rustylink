@@ -44,7 +44,13 @@ fn graphical_interface_library_names_collects_unique_libs() {
     };
 
     let libs = gi.library_names();
-    assert_eq!(libs, vec!["Regler".to_string(), "simulink".to_string()]);
+    assert_eq!(
+        libs,
+        vec![
+            "Regler".to_string(),
+            "simulink/Logic and Bit Operations".to_string()
+        ]
+    );
 }
 
 #[test]
@@ -86,13 +92,16 @@ fn graphical_interface_library_block_references_by_library_groups_blocks() {
     let grouped = gi.library_block_references_by_library();
     assert_eq!(
         grouped.keys().cloned().collect::<Vec<_>>(),
-        vec!["Regler".to_string(), "simulink".to_string()]
+        vec![
+            "Regler".to_string(),
+            "simulink/Logic and Bit Operations".to_string()
+        ]
     );
     assert_eq!(grouped["Regler"].len(), 2);
     assert_eq!(grouped["Regler"][0].sid, "1");
     assert_eq!(grouped["Regler"][1].sid, "3");
-    assert_eq!(grouped["simulink"].len(), 1);
-    assert_eq!(grouped["simulink"][0].sid, "2");
+    assert_eq!(grouped["simulink/Logic and Bit Operations"].len(), 1);
+    assert_eq!(grouped["simulink/Logic and Bit Operations"][0].sid, "2");
 }
 
 #[test]
@@ -117,7 +126,10 @@ fn library_resolver_finds_and_reports_missing_libraries() {
     let names = vec!["Regler", "OtherLib", "MissingLib"];
     let res = resolver.locate(names.iter().map(|s| *s));
 
-    // verify virtual library helper recognizes the new simulink/Logic and Bit entry
+    // verify virtual library helper recognizes simulink virtual prefixes
+    assert!(rustylink::parser::is_virtual_library(
+        "simulink/Logic and Bit Operations/Whatever"
+    ));
     assert!(rustylink::parser::is_virtual_library(
         "simulink/Logic and Bit/Whatever"
     ));
@@ -142,7 +154,16 @@ fn library_resolver_finds_and_reports_missing_libraries() {
     );
 
     // virtual libraries should not be reported as missing or found
-    let res_virtual = resolver.locate(vec!["simulink/Discrete", "SIMULINK", "matrix_library"].iter().map(|s| *s));
+    let res_virtual = resolver.locate(
+        vec![
+            "simulink/Discrete",
+            "SIMULINK",
+            "simulink/Logic and Bit Operations",
+            "matrix_library",
+        ]
+        .iter()
+        .map(|s| *s),
+    );
     assert!(res_virtual.found.is_empty(), "virtual libs should not appear in found");
     assert!(res_virtual.not_found.is_empty(), "virtual libs should not be listed as missing");
 
@@ -209,9 +230,96 @@ fn resolve_virtual_simulink_logic_and_bit() {
 
     // resolution should succeed (no panic) even though library is virtual/empty
     SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &[]).unwrap();
-    // block still unresolved but no crash
-    assert!(sys.blocks[0].library_source.is_none());
-    assert!(sys.blocks[0].library_block_path.is_none());
+    // simulink/* references should always resolve to a stub block
+    assert_eq!(sys.blocks[0].library_source.as_deref(), Some("simulink/Logic and Bit"));
+    assert_eq!(
+        sys.blocks[0].library_block_path.as_deref(),
+        Some("simulink/Logic and Bit/SomeBlock")
+    );
+    assert_eq!(sys.blocks[0].port_counts.as_ref().and_then(|p| p.ins), Some(1));
+    assert_eq!(sys.blocks[0].port_counts.as_ref().and_then(|p| p.outs), Some(1));
+    assert_eq!(sys.blocks[0].ports.len(), 2);
+}
+
+#[test]
+fn resolve_virtual_simulink_logic_and_bit_operations_compare_to_constant() {
+    use indexmap::IndexMap;
+    use rustylink::model::System;
+    use rustylink::parser::{FsSource, SimulinkParser};
+
+    let mut blk = rustylink::editor::operations::create_default_block(
+        "SubSystem",
+        "Compare To Constant",
+        0,
+        0,
+        1,
+        1,
+    );
+    blk.properties.insert(
+        "SourceBlock".to_string(),
+        "simulink/Logic and Bit Operations/Compare To Constant".to_string(),
+    );
+
+    let mut sys = System {
+        properties: IndexMap::new(),
+        blocks: vec![blk],
+        lines: Vec::new(),
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &[]).unwrap();
+
+    assert_eq!(
+        sys.blocks[0].library_source.as_deref(),
+        Some("simulink/Logic and Bit Operations")
+    );
+    assert_eq!(
+        sys.blocks[0].library_block_path.as_deref(),
+        Some("simulink/Logic and Bit Operations/Compare To Constant")
+    );
+    assert_eq!(sys.blocks[0].ports.len(), 2);
+}
+
+#[test]
+fn resolve_virtual_simulink_logic_and_bit_operations_compare_to_constant_newline_in_name() {
+    use indexmap::IndexMap;
+    use rustylink::model::System;
+    use rustylink::parser::{FsSource, SimulinkParser};
+
+    let mut blk = rustylink::editor::operations::create_default_block(
+        "SubSystem",
+        "Compare To Constant",
+        0,
+        0,
+        1,
+        1,
+    );
+    // Some SLX versions embed newlines in block names.
+    blk.properties.insert(
+        "SourceBlock".to_string(),
+        "simulink/Logic and Bit Operations/Compare\nTo Constant".to_string(),
+    );
+
+    let mut sys = System {
+        properties: IndexMap::new(),
+        blocks: vec![blk],
+        lines: Vec::new(),
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &[]).unwrap();
+
+    assert_eq!(
+        sys.blocks[0].library_source.as_deref(),
+        Some("simulink/Logic and Bit Operations")
+    );
+    // `library_block_path` preserves the original SourceBlock string.
+    assert_eq!(
+        sys.blocks[0].library_block_path.as_deref(),
+        Some("simulink/Logic and Bit Operations/Compare\nTo Constant")
+    );
 }
 
 #[test]

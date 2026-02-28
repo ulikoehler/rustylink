@@ -231,6 +231,37 @@ impl<S: ContentSource> SimulinkParser<S> {
                             }
                         }
                     }
+
+                    // For Simulink virtual libraries we want to be permissive: any
+                    // referenced `simulink/...` block should resolve to a stub even
+                    // if it is not explicitly listed in one of the built-in virtual
+                    // library metadata modules.
+                    if crate::parser::library::is_virtual_library(lib_name) {
+                        let lib_norm = lib_name.trim().to_ascii_lowercase();
+                        let is_simulink_namespace =
+                            lib_norm == "simulink" || lib_norm.starts_with("simulink/");
+                        if is_simulink_namespace {
+                            if let Some(lib_system) = cache.get_mut(lib_name) {
+                                if !lib_system.blocks.iter().any(|b| b.name == block_path) {
+                                    let ins = block
+                                        .port_counts
+                                        .as_ref()
+                                        .and_then(|p| p.ins)
+                                        .unwrap_or(1);
+                                    let outs = block
+                                        .port_counts
+                                        .as_ref()
+                                        .and_then(|p| p.outs)
+                                        .unwrap_or(1);
+                                    lib_system.blocks.push(
+                                        crate::builtin_libraries::virtual_library::create_stub_block(
+                                            block_path, ins, outs,
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
                     if let Some(lib_system) = cache.get(lib_name) {
                         if let Some(lib_block) = Self::find_block_by_name(lib_system, block_path) {
                             if let Some(ref lib_subsystem) = lib_block.subsystem {
