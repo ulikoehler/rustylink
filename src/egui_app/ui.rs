@@ -913,7 +913,7 @@ fn update_internal(
             &crate::model::Line,
             Vec<Pos2>,
             Pos2,
-            Option<ClickAction>,
+            egui::Response,
             usize,
             Vec<(Pos2, Pos2)>,
         )> = Vec::new();
@@ -1026,50 +1026,17 @@ fn update_internal(
                 Pos2::new(min_x - pad, min_y - pad),
                 Pos2::new(max_x + pad, max_y + pad),
             );
-            let resp = ui.allocate_rect(hit_rect, Sense::click());
-            let mut signal_action: Option<ClickAction> = None;
-            if resp.double_clicked() {
-                println!("Line {} double-clicked", li);
-                signal_action = Some(ClickAction::DoublePrimary);
-            } else if resp.secondary_clicked() {
-                println!("Line {} secondary clicked", li);
-                signal_action = Some(ClickAction::Secondary);
-            } else if resp.clicked() {
-                println!("Line {} clicked", li);
-                signal_action = Some(ClickAction::Primary);
-            }
-            if enable_context_menus {
-                resp.context_menu(|ui| {
-                    if ui.button("Info").clicked() {
-                        let line = &entities.lines[li];
-                        record_interaction(
-                            &mut interaction,
-                            UpdateResponse::Signal {
-                                action: ClickAction::Secondary,
-                                line_idx: li,
-                                line: line.clone(),
-                                handled: false,
-                            },
-                        );
-                        ui.close();
-                    }
-                    let line_ref = &entities.lines[li];
-                    for item in &signal_menu_items_snapshot {
-                        if (item.filter)(line_ref) {
-                            if ui.button(&item.label).clicked() {
-                                (item.on_click)(line_ref);
-                                ui.close();
-                            }
-                        }
-                    }
-                });
-            }
+            // Use Sense::hover() instead of Sense::click() so that the
+            // line bounding-box does not steal click events from blocks that
+            // overlap with it.  Actual click detection is deferred to the
+            // precise per-segment distance check in the second pass.
+            let resp = ui.allocate_rect(hit_rect, Sense::hover());
             let main_anchor = *offsets_pts.last().unwrap_or(&cur);
             line_views.push((
                 line,
                 screen_pts,
                 main_anchor,
-                signal_action,
+                resp,
                 li,
                 segments_all,
             ));
@@ -1242,7 +1209,7 @@ fn update_internal(
             }
         }
 
-        for (line, screen_pts, main_anchor, action_opt, li, segments_all) in &line_views {
+        for (line, screen_pts, main_anchor, hover_resp, li, segments_all) in &line_views {
             let color = line_colors
                 .get(*li)
                 .copied()
@@ -1285,7 +1252,11 @@ fn update_internal(
                     &sid_mirrored,
                 );
             }
-            if let Some(action) = action_opt.clone() {
+            // Precise per-segment distance check.  We detect clicks via
+            // pointer state instead of from the bounding-box response so that
+            // line rects (which can be very large) never steal clicks from
+            // blocks that overlap with them.
+            {
                 let mut hit_segments = segments_all.clone();
                 if let Some(first) = hit_segments.first_mut() {
                     let dx = first.1.x - first.0.x;
@@ -1301,8 +1272,7 @@ fn update_internal(
                 }
                 if let Some(cp) = ui.input(|i| i.pointer.interact_pos()) {
                     let mut min_dist = f32::INFINITY;
-                    for (a, b) in hit_segments {
-                        // all segments including branches already in screen space
+                    for (a, b) in &hit_segments {
                         let ab_x = b.x - a.x;
                         let ab_y = b.y - a.y;
                         let ap_x = cp.x - a.x;
@@ -1319,18 +1289,60 @@ fn update_internal(
                             min_dist = dist;
                         }
                     }
-                    if min_dist <= 8.0 {
-                        let title = line.name.clone().unwrap_or("<signal>".into());
-                        let handled = false;
-                        record_interaction(
-                            &mut interaction,
-                            UpdateResponse::Signal {
-                                action,
-                                line_idx: *li,
-                                line: (*line).clone(),
-                                handled,
-                            },
-                        );
+                    let near_segment = min_dist <= 8.0;
+                    if near_segment {
+                        // Determine click type from pointer state.
+                        let primary_clicked = ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary));
+                        let secondary_clicked = ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Secondary));
+                        let double_clicked = ui.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary));
+                        let action = if double_clicked {
+                            println!("Line {} double-clicked", li);
+                            Some(ClickAction::DoublePrimary)
+                        } else if secondary_clicked {
+                            println!("Line {} secondary clicked", li);
+                            Some(ClickAction::Secondary)
+                        } else if primary_clicked {
+                            println!("Line {} clicked", li);
+                            Some(ClickAction::Primary)
+                        } else {
+                            None
+                        };
+                        if let Some(action) = action {
+                            record_interaction(
+                                &mut interaction,
+                                UpdateResponse::Signal {
+                                    action,
+                                    line_idx: *li,
+                                    line: (*line).clone(),
+                                    handled: false,
+                                },
+                            );
+                        }
+                    }
+                    // Context menu: show when secondary-clicked near a segment.
+                    if near_segment && enable_context_menus {
+                        hover_resp.context_menu(|ui| {
+                            if ui.button("Info").clicked() {
+                                record_interaction(
+                                    &mut interaction,
+                                    UpdateResponse::Signal {
+                                        action: ClickAction::Secondary,
+                                        line_idx: *li,
+                                        line: (*line).clone(),
+                                        handled: false,
+                                    },
+                                );
+                                ui.close();
+                            }
+                            for item in &signal_menu_items_snapshot {
+                                if (item.filter)(line) {
+                                    if ui.button(&item.label).clicked() {
+                                        (item.on_click)(line);
+                                        ui.close();
+                                    }
+                                }
+                            }
+                        });
                     }
                 }
             }
@@ -1543,7 +1555,7 @@ fn update_internal(
             }
         };
 
-        for (line, screen_pts, main_anchor, _action, li, _segments_all) in &line_views {
+        for (line, screen_pts, main_anchor, _resp, li, _segments_all) in &line_views {
             let color = line_colors
                 .get(*li)
                 .copied()
