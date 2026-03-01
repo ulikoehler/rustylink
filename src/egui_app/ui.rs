@@ -260,6 +260,18 @@ fn update_internal(
                     .speed(0.05)
                     .range(0.2..=2.0),
             );
+            ui.label("Min name size");
+            ui.add(
+                egui::DragValue::new(&mut app.block_name_min_font_factor)
+                    .speed(0.05)
+                    .range(0.1..=1.0),
+            );
+            ui.label("Max char frac");
+            ui.add(
+                egui::DragValue::new(&mut app.block_name_max_char_width_factor)
+                    .speed(0.01)
+                    .range(0.05..=0.5),
+            );
 
             // Render transient in-GUI notification (right-aligned in the top bar)
             if let Some((msg, expiry)) = &app.transient_notification {
@@ -1602,8 +1614,8 @@ fn update_internal(
         }
 
         // Clickable labels
-        for (r, li) in signal_label_rects {
-            let resp = ui.interact(r, ui.id().with(("signal_label", li)), Sense::click());
+        for (r, li) in &signal_label_rects {
+            let resp = ui.interact(*r, ui.id().with(("signal_label", *li)), Sense::click());
             let mut label_action: Option<ClickAction> = None;
             if resp.double_clicked() {
                 println!("Line {} double-clicked", li);
@@ -1616,12 +1628,12 @@ fn update_internal(
                 label_action = Some(ClickAction::Primary);
             }
             if let Some(action) = label_action {
-                let line = &entities.lines[li];
+                let line = &entities.lines[*li];
                 record_interaction(
                     &mut interaction,
                     UpdateResponse::Signal {
                         action,
-                        line_idx: li,
+                        line_idx: *li,
                         line: line.clone(),
                         handled: false,
                     },
@@ -1630,19 +1642,19 @@ fn update_internal(
             if enable_context_menus {
                 resp.context_menu(|ui| {
                     if ui.button("Info").clicked() {
-                        let line = &entities.lines[li];
+                        let line = &entities.lines[*li];
                         record_interaction(
                             &mut interaction,
                             UpdateResponse::Signal {
                                 action: ClickAction::Secondary,
-                                line_idx: li,
+                                line_idx: *li,
                                 line: line.clone(),
                                 handled: false,
                             },
                         );
                         ui.close();
                     }
-                    let line_ref = &entities.lines[li];
+                    let line_ref = &entities.lines[*li];
                     for item in &signal_menu_items_snapshot {
                         if (item.filter)(line_ref) {
                             if ui.button(&item.label).clicked() {
@@ -1710,6 +1722,23 @@ fn update_internal(
                     entry.right = entry.right.max(size.x);
                 }
             }
+        }
+
+        let mut collidable_obstacle_rects: Vec<Rect> = Vec::new();
+        for (_, r, _, _) in &block_views {
+            collidable_obstacle_rects.push(*r);
+        }
+        for (_, screen_pts, _, _, _, _) in &line_views {
+            for seg in screen_pts.windows(2) {
+                let mut min = seg[0].min(seg[1]);
+                let mut max = seg[0].max(seg[1]);
+                min.x -= 2.0; min.y -= 2.0;
+                max.x += 2.0; max.y += 2.0;
+                collidable_obstacle_rects.push(Rect::from_min_max(min, max));
+            }
+        }
+        for (r, _) in &signal_label_rects {
+            collidable_obstacle_rects.push(*r);
         }
 
         // Finish blocks (border, icon/value, labels) and click handling
@@ -1934,21 +1963,105 @@ fn update_internal(
                 let overall_w = r_screen.width() + left_extra + right_extra;
                 let max_label_w = overall_w * 0.95;
 
-                let font_px = (chevron_h * app.block_name_font_factor).max(1.0);
-                let font = egui::FontId::proportional(font_px);
-                let line_height = (font_px * 1.2).max(1.0);
+                let mut font_px = (chevron_h * app.block_name_font_factor).max(1.0);
+                
+                // Typical character width is roughly font_px * 0.5 for a proportional font.
+                let max_font_px = r_screen.width() * app.block_name_max_char_width_factor * 2.0;
+                if font_px > max_font_px {
+                    font_px = max_font_px.max(1.0);
+                }
+                let min_font_px = (chevron_h * app.block_name_min_font_factor).max(1.0);
+
                 let color = app.block_name_color;
 
-                let lines = wrap_text_to_max_width(painter, &b.name, font.clone(), max_label_w);
-                if !lines.is_empty() {
-                    let left = r_screen.left() - left_extra;
-                    let right = r_screen.right() + right_extra;
-                    let center_x = (left + right) * 0.5;
+                let mut current_font_px = font_px;
+                let mut best_lines = vec![];
+                let mut best_font_px = current_font_px;
+                let mut best_line_height = 0.0;
+                let mut best_rects = vec![];
+
+                let left = r_screen.left() - left_extra;
+                let right = r_screen.right() + right_extra;
+                let center_x = (left + right) * 0.5;
+
+                loop {
+                    let font = egui::FontId::proportional(current_font_px);
+                    let line_height = (current_font_px * 1.2).max(1.0);
+                    let lines = wrap_text_to_max_width(painter, &b.name, font.clone(), max_label_w);
+                    if lines.is_empty() {
+                        break;
+                    }
+
+                    let total_h = (lines.len() as f32) * line_height;
+                    let mut max_w = 0.0_f32;
+                    for l in &lines {
+                        let w = painter.layout_no_wrap(l.to_string(), font.clone(), color).size().x;
+                        if w > max_w { max_w = w; }
+                    }
+
+                    let mut rects = Vec::new();
+                    match b.name_location {
+                        crate::model::NameLocation::Bottom => {
+                            let top = r_screen.bottom() + 2.0 * font_scale;
+                            rects.push(Rect::from_min_size(Pos2::new(center_x - max_w * 0.5, top), eframe::egui::vec2(max_w, total_h)));
+                        }
+                        crate::model::NameLocation::Top => {
+                            let bottom = r_screen.top() - 2.0 * font_scale;
+                            rects.push(Rect::from_min_size(Pos2::new(center_x - max_w * 0.5, bottom - total_h), eframe::egui::vec2(max_w, total_h)));
+                        }
+                        crate::model::NameLocation::Left => {
+                            let y_start = r_screen.center().y - total_h * 0.5;
+                            let gap = 2.0 * font_scale;
+                            let x_right = r_screen.left() - gap;
+                            rects.push(Rect::from_min_size(Pos2::new(x_right - max_w, y_start), eframe::egui::vec2(max_w, total_h)));
+                        }
+                        crate::model::NameLocation::Right => {
+                            let y_start = r_screen.center().y - total_h * 0.5;
+                            let gap = 2.0 * font_scale;
+                            let x_left = r_screen.right() + gap;
+                            rects.push(Rect::from_min_size(Pos2::new(x_left, y_start), eframe::egui::vec2(max_w, total_h)));
+                        }
+                    }
+
+                    let mut collides = false;
+                    for r in &rects {
+                        let expanded = r.expand(2.0);
+                        for obs in &collidable_obstacle_rects {
+                            if expanded.intersects(*obs) {
+                                collides = true;
+                                break;
+                            }
+                        }
+                        if collides {
+                            break;
+                        }
+                    }
+
+                    best_lines = lines;
+                    best_font_px = current_font_px;
+                    best_line_height = line_height;
+                    best_rects = rects;
+
+                    if !collides {
+                        break;
+                    }
+
+                    let next_font_px = current_font_px * 0.9;
+                    if next_font_px < min_font_px {
+                        break;
+                    }
+                    current_font_px = next_font_px;
+                }
+
+                if !best_lines.is_empty() {
+                    collidable_obstacle_rects.extend(best_rects);
+                    let font = egui::FontId::proportional(best_font_px);
+                    let line_height = best_line_height;
 
                     match b.name_location {
                         crate::model::NameLocation::Bottom => {
                             let mut y = r_screen.bottom() + 2.0 * font_scale;
-                            for line in &lines {
+                            for line in &best_lines {
                                 let pos = Pos2::new(center_x, y);
                                 painter.text(pos, Align2::CENTER_TOP, line, font.clone(), color);
                                 y += line_height;
@@ -1957,18 +2070,19 @@ fn update_internal(
                         crate::model::NameLocation::Top => {
                             // Mirror of bottom: keep the first line closest to the block.
                             let mut y = r_screen.top() - 2.0 * font_scale;
-                            for line in &lines {
+                            // Reverse lines so the first line is highest (furthest from block)
+                            for line in best_lines.iter().rev() {
                                 let pos = Pos2::new(center_x, y);
                                 painter.text(pos, Align2::CENTER_BOTTOM, line, font.clone(), color);
                                 y -= line_height;
                             }
                         }
                         crate::model::NameLocation::Left => {
-                            let total_h = (lines.len() as f32) * line_height;
+                            let total_h = (best_lines.len() as f32) * line_height;
                             let mut y = r_screen.center().y - total_h * 0.5;
                             let gap = 2.0 * font_scale;
                             let x_right = r_screen.left() - gap;
-                            for line in &lines {
+                            for line in &best_lines {
                                 let galley = painter.layout_no_wrap(line.to_string(), font.clone(), color);
                                 let pos = Pos2::new(x_right - galley.size().x, y);
                                 painter.galley(pos, galley, color);
@@ -1976,10 +2090,10 @@ fn update_internal(
                             }
                         }
                         crate::model::NameLocation::Right => {
-                            let total_h = (lines.len() as f32) * line_height;
+                            let total_h = (best_lines.len() as f32) * line_height;
                             let mut y = r_screen.center().y - total_h * 0.5;
                             let x = r_screen.right() + 2.0 * font_scale;
-                            for line in &lines {
+                            for line in &best_lines {
                                 let galley = painter.layout_no_wrap(line.to_string(), font.clone(), color);
                                 let pos = Pos2::new(x + 2.0 * font_scale, y);
                                 painter.galley(pos, galley, color);

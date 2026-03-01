@@ -123,6 +123,17 @@ pub struct SubsystemApp {
     /// A value of ~1.0 makes the text approximately the same height as the chevrons.
     pub block_name_font_factor: f32,
 
+    /// Maximum block-name font size factor relative to block width.
+    ///
+    /// The actual font size will be bounded so that a typical character is at most
+    /// `block_width * block_name_max_char_width_factor` pixels wide.
+    pub block_name_max_char_width_factor: f32,
+
+    /// Minimum block-name font size factor relative to port chevron height.
+    ///
+    /// Used when avoiding collisions with other elements.
+    pub block_name_min_font_factor: f32,
+
     /// Color used to draw block name labels.
     ///
     /// Defaults to dark gray (`Color32::from_rgb(40, 40, 40)`).
@@ -166,6 +177,8 @@ impl SubsystemApp {
             block_click_handler: None,
             show_block_names_default: true,
             block_name_font_factor: 0.85,
+            block_name_max_char_width_factor: 1.0 / 8.0,
+            block_name_min_font_factor: 0.5,
             block_name_color: egui::Color32::from_rgb(40, 40, 40),
             selected_block_sids: BTreeSet::new(),
         }
