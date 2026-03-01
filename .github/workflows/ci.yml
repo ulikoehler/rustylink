@@ -61,7 +61,17 @@ jobs:
           toolchain: stable
           override: true
 
+      # cache the tarpaulin binary to avoid reinstalling every run
+      - name: Cache tarpaulin
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/bin/cargo-tarpaulin
+          key: ${{ runner.os }}-tarpaulin-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-tarpaulin-
+
       - name: Install cargo-tarpaulin
+        if: steps.cache-tarpaulin.outputs.cache-hit != 'true'
         run: cargo install cargo-tarpaulin
 
       - name: Run tarpaulin
