@@ -1061,15 +1061,77 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
                     Pos2::new(min_x - pad, min_y - pad),
                     Pos2::new(max_x + pad, max_y + pad),
                 );
-                let line_resp = ui.allocate_rect(hit_rect, Sense::click());
-                line_resp.context_menu(|ui| {
-                    line_context_menu(state, ui, li, line);
-                });
-                if line_resp.clicked() {
-                    if ui.input(|i| i.modifiers.ctrl) {
-                        state.selection.toggle_line(li);
-                    } else {
-                        state.selection.select_line(li);
+                // Use Sense::hover() instead of Sense::click() so that the
+                // line bounding-box does not steal click events from blocks that
+                // overlap with it.  Actual click detection is deferred.
+                let line_resp = ui.allocate_rect(hit_rect, Sense::hover());
+                
+                // Do a line-intersection near check to see if we actually clicked it.
+                let mut is_near_segment = false;
+                if let Some(cp) = ui.input(|i| i.pointer.interact_pos()) {
+                    let mut min_dist = f32::INFINITY;
+                    // Gather all segments
+                    let mut segments = Vec::new();
+                    for seg in screen_pts.windows(2) {
+                        segments.push((seg[0], seg[1]));
+                    }
+                    // Collect branch segments as well
+                    // Doing a quick pass to collect all points:
+                    fn collect_branch_segments_editor(
+                        br: &crate::model::Branch,
+                        start: Pos2,
+                        out: &mut Vec<(Pos2, Pos2)>,
+                        to_screen: &dyn Fn(Pos2) -> Pos2,
+                        sid_map: &std::collections::HashMap<String, Rect>,
+                        port_counts: &std::collections::HashMap<(String, u8), u32>,
+                        sid_mirrored: &std::collections::HashMap<String, bool>,
+                    ) {
+                        let mut cur = start;
+                        for off in &br.points {
+                            let next = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
+                            out.push((to_screen(cur), to_screen(next)));
+                            cur = next;
+                        }
+                        for child in &br.branches {
+                            collect_branch_segments_editor(child, cur, out, to_screen, sid_map, port_counts, sid_mirrored);
+                        }
+                    }
+                    let main_anchor = offsets_pts.last().copied().unwrap_or(offsets_pts.first().copied().unwrap_or(Pos2::ZERO));
+                    for br in &line.branches {
+                        collect_branch_segments_editor(br, main_anchor, &mut segments, &to_screen, &sid_map, &port_counts, &sid_mirrored);
+                    }
+
+                    for (a, b) in &segments {
+                        let ab_x = b.x - a.x;
+                        let ab_y = b.y - a.y;
+                        let ap_x = cp.x - a.x;
+                        let ap_y = cp.y - a.y;
+                        let ab_len2 = (ab_x * ab_x + ab_y * ab_y).max(1e-6);
+                        let t = (ap_x * ab_x + ap_y * ab_y) / ab_len2;
+                        let t_clamped = t.max(0.0).min(1.0);
+                        let proj_x = a.x + ab_x * t_clamped;
+                        let proj_y = a.y + ab_y * t_clamped;
+                        let dx = cp.x - proj_x;
+                        let dy = cp.y - proj_y;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist < min_dist {
+                            min_dist = dist;
+                        }
+                    }
+                    is_near_segment = min_dist <= 8.0;
+                }
+
+                if is_near_segment {
+                    line_resp.context_menu(|ui| {
+                        line_context_menu(state, ui, li, line);
+                    });
+                    let clicked = ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary) || i.pointer.button_clicked(egui::PointerButton::Secondary));
+                    if clicked {
+                        if ui.input(|i| i.modifiers.ctrl) {
+                            state.selection.toggle_line(li);
+                        } else {
+                            state.selection.select_line(li);
+                        }
                     }
                 }
             }
