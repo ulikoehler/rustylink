@@ -1785,38 +1785,58 @@ fn update_internal(
                 painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
             }
 
-            fn paint_port_chevron(
+            fn paint_port_chevron_placed(
                 painter: &egui::Painter,
                 outline: Pos2,
                 is_left_side: bool,
+                placement: Option<crate::builtin_libraries::virtual_library::PortPlacement>,
                 font_scale: f32,
                 color: Color32,
             ) {
+                use crate::builtin_libraries::virtual_library::PortPlacement;
                 let scale = font_scale.max(0.2);
-                // make chevron much larger than previous circle markers
-                // increase stroke width (dash thickness) to twice previous value
                 let stroke_w = (4.0 * scale).max(1.0);
-                // height/width before scaling were 8x6; multiply by 4
                 let h = (8.0 * scale * 4.0).max(3.0 * 4.0);
                 let w = (6.0 * scale * 4.0).max(2.0 * 4.0);
 
-                // Always draw a right-facing chevron.
-                // If the port is on the left side, the chevron's right-most border (incl. stroke rounding)
-                // must touch the block outline. If the port is on the right side, the left-most border
-                // must touch the block outline.
-                let (base_x, tip_x) = if is_left_side {
-                    let tip_x = outline.x - stroke_w / 2.0;
-                    (tip_x - w, tip_x)
-                } else {
-                    let base_x = outline.x + stroke_w / 2.0;
-                    (base_x, base_x + w)
+                let points = match placement {
+                    Some(PortPlacement::Bottom) => {
+                        // Signal enters from below: draw upward-pointing chevron (^)
+                        // tip just outside (below) the block edge, base further below.
+                        let tip_y = outline.y + stroke_w / 2.0;
+                        let base_y = tip_y + w;
+                        vec![
+                            Pos2::new(outline.x - h / 2.0, base_y),
+                            Pos2::new(outline.x, tip_y),
+                            Pos2::new(outline.x + h / 2.0, base_y),
+                        ]
+                    }
+                    Some(PortPlacement::Top) => {
+                        // Signal enters from above: draw downward-pointing chevron (v)
+                        let tip_y = outline.y - stroke_w / 2.0;
+                        let base_y = tip_y - w;
+                        vec![
+                            Pos2::new(outline.x - h / 2.0, base_y),
+                            Pos2::new(outline.x, tip_y),
+                            Pos2::new(outline.x + h / 2.0, base_y),
+                        ]
+                    }
+                    _ => {
+                        // Horizontal chevron (Left/Right sides)
+                        let (base_x, tip_x) = if is_left_side {
+                            let tip_x = outline.x - stroke_w / 2.0;
+                            (tip_x - w, tip_x)
+                        } else {
+                            let base_x = outline.x + stroke_w / 2.0;
+                            (base_x, base_x + w)
+                        };
+                        vec![
+                            Pos2::new(base_x, outline.y - h / 2.0),
+                            Pos2::new(tip_x, outline.y),
+                            Pos2::new(base_x, outline.y + h / 2.0),
+                        ]
+                    }
                 };
-
-                let points = vec![
-                    Pos2::new(base_x, outline.y - h / 2.0),
-                    Pos2::new(tip_x, outline.y),
-                    Pos2::new(base_x, outline.y + h / 2.0),
-                ];
 
                 painter.add(egui::Shape::Path(egui::epaint::PathShape::line(
                     points,
@@ -1868,15 +1888,18 @@ fn update_internal(
                     if connected_ports.contains(&(block_sid.to_string(), port_idx, true)) {
                         continue;
                     }
-                    let left_side = if let Some(ovr) = overrides.iter().find(|o| o.is_input && o.port_index == port_idx) {
-                        super::geometry::port_override_is_left_side(ovr.placement, mirrored)
-                    } else {
-                        ins_left_side
-                    };
-                    paint_port_chevron(
+                    let ovr_placement = overrides
+                        .iter()
+                        .find(|o| o.is_input && o.port_index == port_idx)
+                        .map(|o| o.placement);
+                    let left_side = ovr_placement
+                        .map(|pl| super::geometry::port_override_is_left_side(pl, mirrored))
+                        .unwrap_or(ins_left_side);
+                    paint_port_chevron_placed(
                         painter,
                         *p,
                         left_side,
+                        ovr_placement,
                         font_scale,
                         Color32::from_rgb(60, 60, 200),
                     );
@@ -1887,15 +1910,18 @@ fn update_internal(
                     if connected_ports.contains(&(block_sid.to_string(), port_idx, false)) {
                         continue;
                     }
-                    let left_side = if let Some(ovr) = overrides.iter().find(|o| !o.is_input && o.port_index == port_idx) {
-                        super::geometry::port_override_is_left_side(ovr.placement, mirrored)
-                    } else {
-                        outs_left_side
-                    };
-                    paint_port_chevron(
+                    let ovr_placement = overrides
+                        .iter()
+                        .find(|o| !o.is_input && o.port_index == port_idx)
+                        .map(|o| o.placement);
+                    let left_side = ovr_placement
+                        .map(|pl| super::geometry::port_override_is_left_side(pl, mirrored))
+                        .unwrap_or(outs_left_side);
+                    paint_port_chevron_placed(
                         painter,
                         *p,
                         left_side,
+                        ovr_placement,
                         font_scale,
                         Color32::from_rgb(200, 60, 60),
                     );
