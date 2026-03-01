@@ -1154,10 +1154,8 @@ fn update_internal(
             let ux = dir.x / len;
             let uy = dir.y / len;
             let inset = size * 0.6;
-            let start_inset = size * 0.6;
-            let tail_adj = Pos2::new(tail.x + ux * start_inset, tail.y + uy * start_inset);
             let tip_adj = Pos2::new(tip.x - ux * inset, tip.y - uy * inset);
-            painter.line_segment([tail_adj, tip_adj], stroke);
+            painter.line_segment([tail, tip_adj], stroke);
 
             let px = -uy;
             let py = ux;
