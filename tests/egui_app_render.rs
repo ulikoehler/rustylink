@@ -1,6 +1,6 @@
 use eframe::egui::{Pos2, Rect, Vec2};
-use rustylink::egui_app::{PortLabelMaxWidths, compute_icon_available_rect, icon_assets};
 use rustylink::block_types;
+use rustylink::egui_app::{PortLabelMaxWidths, compute_icon_available_rect, icon_assets};
 
 #[test]
 fn icon_available_rect_respects_10_percent_margin() {

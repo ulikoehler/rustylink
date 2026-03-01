@@ -50,8 +50,8 @@ fn normalize_segment(seg: &str) -> String {
 fn split_path_segments(path: &str) -> Vec<String> {
     let path = path.replace('\\', "/");
     path.split('/')
-    .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
-    .map(|s| s.trim().to_string())
+        .map(|s| s.split_whitespace().collect::<Vec<_>>().join(" "))
+        .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect()
 }

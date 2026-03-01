@@ -14,7 +14,10 @@ use eframe::egui;
 #[cfg(feature = "egui")]
 use rustylink::{
     egui_app,
-    parser::{FsSource, LibraryResolver, SimulinkParser, ZipSource, is_virtual_library, helpers::clean_whitespace},
+    parser::{
+        FsSource, LibraryResolver, SimulinkParser, ZipSource, helpers::clean_whitespace,
+        is_virtual_library,
+    },
 };
 
 #[cfg(feature = "egui")]

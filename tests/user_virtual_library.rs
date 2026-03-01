@@ -3,11 +3,11 @@
 
 use std::sync::Arc;
 
+use rustylink::builtin_libraries::matrix_library;
+use rustylink::builtin_libraries::virtual_library::normalize_block_name;
 use rustylink::builtin_libraries::{
     OwnedVirtualBlock, UserVirtualLibrarySpec, register_virtual_library,
 };
-use rustylink::builtin_libraries::matrix_library;
-use rustylink::builtin_libraries::virtual_library::normalize_block_name;
 
 // ── normalize_block_name ─────────────────────────────────────────────────────
 
@@ -15,7 +15,10 @@ use rustylink::builtin_libraries::virtual_library::normalize_block_name;
 fn normalize_collapses_whitespace() {
     assert_eq!(normalize_block_name("Cross   Product"), "cross product");
     assert_eq!(normalize_block_name("Cross\nProduct"), "cross product");
-    assert_eq!(normalize_block_name("  Identity Matrix "), "identity matrix");
+    assert_eq!(
+        normalize_block_name("  Identity Matrix "),
+        "identity matrix"
+    );
 }
 
 #[test]
@@ -40,9 +43,9 @@ fn matrix_library_spaced_names_are_canonical() {
         // the name gives a different string, the original must already have a
         // space (or be multi-case).
         // This just ensures we didn't accidentally leave "IsTriangular" etc.
-        let has_uppercase_after_start = name.chars()
-            .enumerate()
-            .any(|(i, c)| i > 0 && c.is_uppercase() && !name.chars().nth(i-1).map_or(false, |p| p == ' '));
+        let has_uppercase_after_start = name.chars().enumerate().any(|(i, c)| {
+            i > 0 && c.is_uppercase() && !name.chars().nth(i - 1).map_or(false, |p| p == ' ')
+        });
         // If it has uppercase after a non-space character (CamelCase), it should
         // also have a space somewhere (i.e. be already humanized like "Is Triangular").
         if has_uppercase_after_start {
@@ -62,8 +65,14 @@ fn camelcase_lookup_still_works_via_humanize() {
     assert_eq!(matrix_library::port_counts_for("IdentityMatrix"), (0, 1));
     assert_eq!(matrix_library::port_counts_for("CrossProduct"), (2, 1));
     assert_eq!(matrix_library::port_counts_for("MatrixMultiply"), (2, 1));
-    assert_eq!(matrix_library::port_counts_for("HermitianTranspose"), (1, 1));
-    assert_eq!(matrix_library::port_counts_for("CreateDiagonalMatrix"), (1, 1));
+    assert_eq!(
+        matrix_library::port_counts_for("HermitianTranspose"),
+        (1, 1)
+    );
+    assert_eq!(
+        matrix_library::port_counts_for("CreateDiagonalMatrix"),
+        (1, 1)
+    );
     assert_eq!(matrix_library::port_counts_for("ExtractDiagonal"), (1, 1));
 }
 
@@ -72,8 +81,14 @@ fn spaced_name_lookup_works_directly() {
     assert_eq!(matrix_library::port_counts_for("Identity Matrix"), (0, 1));
     assert_eq!(matrix_library::port_counts_for("Cross Product"), (2, 1));
     assert_eq!(matrix_library::port_counts_for("Matrix Multiply"), (2, 1));
-    assert_eq!(matrix_library::port_counts_for("Hermitian Transpose"), (1, 1));
-    assert_eq!(matrix_library::port_counts_for("Create Diagonal Matrix"), (1, 1));
+    assert_eq!(
+        matrix_library::port_counts_for("Hermitian Transpose"),
+        (1, 1)
+    );
+    assert_eq!(
+        matrix_library::port_counts_for("Create Diagonal Matrix"),
+        (1, 1)
+    );
     assert_eq!(matrix_library::port_counts_for("Extract Diagonal"), (1, 1));
 }
 
@@ -103,6 +118,9 @@ fn make_test_library() -> UserVirtualLibrarySpec {
                 ins: 2,
                 outs: 1,
                 compute_instance_label: None,
+                port_position_overrides: vec![],
+                input_port_names: vec![],
+                output_port_names: vec![],
             },
             OwnedVirtualBlock {
                 name: "Another Block".to_string(),
@@ -110,11 +128,12 @@ fn make_test_library() -> UserVirtualLibrarySpec {
                 ins: 1,
                 outs: 1,
                 compute_instance_label: None,
+                port_position_overrides: vec![],
+                input_port_names: vec![],
+                output_port_names: vec![],
             },
         ],
-        matches_name: Arc::new(|name: &str| {
-            name.to_ascii_lowercase().starts_with("test_userlib")
-        }),
+        matches_name: Arc::new(|name: &str| name.to_ascii_lowercase().starts_with("test_userlib")),
         initial_system: Arc::new(|| rustylink::model::System {
             properties: indexmap::IndexMap::new(),
             blocks: vec![],
@@ -150,6 +169,9 @@ fn register_user_library_with_instance_label() {
             compute_instance_label: Some(Arc::new(|_block: &Block| {
                 Some("custom label".to_string())
             })),
+            port_position_overrides: vec![],
+            input_port_names: vec![],
+            output_port_names: vec![],
         }],
         matches_name: Arc::new(|name: &str| {
             name.to_ascii_lowercase().starts_with("test_label_lib")

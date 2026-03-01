@@ -30,7 +30,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         icon: Some("matrix/identity_matrix.svg"),
         // SLX files store the block type as CamelCase without spaces.
         aliases: &["IdentityMatrix"],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Is Triangular",
@@ -38,7 +38,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/is_triangular.svg"),
         aliases: &["IsTriangular"],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Is Symmetric",
@@ -46,7 +46,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/is_symmetric.svg"),
         aliases: &["IsSymmetric"],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Cross Product",
@@ -54,7 +54,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/cross_product.svg"),
         aliases: &[],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Matrix Multiply",
@@ -62,7 +62,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/matrix_product.svg"),
         aliases: &[],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Submatrix",
@@ -70,7 +70,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/submatrix.svg"),
         aliases: &[],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Transpose",
@@ -78,7 +78,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/matrix_transpose.svg"),
         aliases: &[],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Hermitian Transpose",
@@ -86,7 +86,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/hermitian_transpose.svg"),
         aliases: &[],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Matrix Square",
@@ -94,7 +94,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/matrix_square.svg"),
         aliases: &["Square"],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         // In Simulink SLX files this block appears as "Permute Matrix";
@@ -104,7 +104,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: None,
         aliases: &["Permute Columns", "PermuteMatrix", "PermuteColumns"],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Extract Diagonal",
@@ -115,7 +115,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         // shorthand "ExtractDiag"; treat it as an alias so lookup still
         // succeeds.
         aliases: &["ExtractDiag"],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Create Diagonal Matrix",
@@ -128,7 +128,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         // port-count lookup, icon registration and other logic still work
         // for models created with the old name.
         aliases: &["DiagonalMatrix"],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Expand Scalar",
@@ -136,7 +136,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: Some("matrix/expand_scalar_to_matrix.svg"),
         aliases: &["ExpandScalar"],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Is Hermitian",
@@ -144,7 +144,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: None,
         aliases: &["IsHermitian"],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Matrix Concatenate",
@@ -152,7 +152,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         outs: 1,
         icon: None,
         aliases: &[],
-        compute_instance_label: None,
+        ..VirtualBlock::DEFAULT
     },
 ];
 

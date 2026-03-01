@@ -69,7 +69,6 @@ pub fn resolve_system_reference(reference: &str, base_dir: &Utf8Path) -> Utf8Pat
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,6 +79,9 @@ mod tests {
         assert_eq!(clean_whitespace("  foo  "), "foo");
         assert_eq!(clean_whitespace("foo   bar"), "foo bar");
         assert_eq!(clean_whitespace("foo\nbar\tbaz"), "foo bar baz");
-        assert_eq!(clean_whitespace("   multiple   \n whitespace  "), "multiple whitespace");
+        assert_eq!(
+            clean_whitespace("   multiple   \n whitespace  "),
+            "multiple whitespace"
+        );
     }
 }

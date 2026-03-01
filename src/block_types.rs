@@ -43,6 +43,17 @@ pub struct BlockTypeConfig {
     /// will silently render a `"?"` placeholder without emitting a terminal
     /// warning – they are recognised block types that just lack a dedicated icon.
     pub known: bool,
+    /// Optional overrides for individual port positions and placement sides.
+    ///
+    /// When non-empty, these override the default evenly-distributed port
+    /// layout for the specified ports.  Ports not listed here use the
+    /// standard positioning.
+    pub port_position_overrides:
+        Vec<crate::builtin_libraries::virtual_library::PortPositionOverride>,
+    /// Custom names for input ports
+    pub input_port_names: Vec<String>,
+    /// Custom names for output ports
+    pub output_port_names: Vec<String>,
 }
 
 impl Default for BlockTypeConfig {
@@ -54,6 +65,9 @@ impl Default for BlockTypeConfig {
             show_input_port_labels: true,
             show_output_port_labels: true,
             known: false,
+            port_position_overrides: Vec::new(),
+            input_port_names: Vec::new(),
+            output_port_names: Vec::new(),
         }
     }
 }
@@ -208,6 +222,9 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
                 let cfg = BlockTypeConfig {
                     icon: b.icon.map(IconSpec::Svg),
                     known: true,
+                    port_position_overrides: b.port_position_overrides.to_vec(),
+                    input_port_names: b.input_port_names.iter().map(|s| s.to_string()).collect(),
+                    output_port_names: b.output_port_names.iter().map(|s| s.to_string()).collect(),
                     ..Default::default()
                 };
                 register_virtual_keys(&mut m, lib.name, n, cfg);

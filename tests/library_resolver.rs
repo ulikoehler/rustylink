@@ -164,8 +164,14 @@ fn library_resolver_finds_and_reports_missing_libraries() {
         .iter()
         .map(|s| *s),
     );
-    assert!(res_virtual.found.is_empty(), "virtual libs should not appear in found");
-    assert!(res_virtual.not_found.is_empty(), "virtual libs should not be listed as missing");
+    assert!(
+        res_virtual.found.is_empty(),
+        "virtual libs should not appear in found"
+    );
+    assert!(
+        res_virtual.not_found.is_empty(),
+        "virtual libs should not be listed as missing"
+    );
 
     assert_eq!(res.not_found, vec!["MissingLib".to_string()]);
 }
@@ -231,13 +237,22 @@ fn resolve_virtual_simulink_logic_and_bit() {
     // resolution should succeed (no panic) even though library is virtual/empty
     SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &[]).unwrap();
     // simulink/* references should always resolve to a stub block
-    assert_eq!(sys.blocks[0].library_source.as_deref(), Some("simulink/Logic and Bit"));
+    assert_eq!(
+        sys.blocks[0].library_source.as_deref(),
+        Some("simulink/Logic and Bit")
+    );
     assert_eq!(
         sys.blocks[0].library_block_path.as_deref(),
         Some("simulink/Logic and Bit/SomeBlock")
     );
-    assert_eq!(sys.blocks[0].port_counts.as_ref().and_then(|p| p.ins), Some(1));
-    assert_eq!(sys.blocks[0].port_counts.as_ref().and_then(|p| p.outs), Some(1));
+    assert_eq!(
+        sys.blocks[0].port_counts.as_ref().and_then(|p| p.ins),
+        Some(1)
+    );
+    assert_eq!(
+        sys.blocks[0].port_counts.as_ref().and_then(|p| p.outs),
+        Some(1)
+    );
     assert_eq!(sys.blocks[0].ports.len(), 2);
 }
 
@@ -351,13 +366,22 @@ fn resolve_virtual_simulink_discrete_discrete_derivative() {
 
     SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &[]).unwrap();
 
-    assert_eq!(sys.blocks[0].library_source.as_deref(), Some("simulink/Discrete"));
+    assert_eq!(
+        sys.blocks[0].library_source.as_deref(),
+        Some("simulink/Discrete")
+    );
     assert_eq!(
         sys.blocks[0].library_block_path.as_deref(),
         Some("simulink/Discrete/Discrete Derivative")
     );
-    assert_eq!(sys.blocks[0].port_counts.as_ref().and_then(|p| p.ins), Some(1));
-    assert_eq!(sys.blocks[0].port_counts.as_ref().and_then(|p| p.outs), Some(1));
+    assert_eq!(
+        sys.blocks[0].port_counts.as_ref().and_then(|p| p.ins),
+        Some(1)
+    );
+    assert_eq!(
+        sys.blocks[0].port_counts.as_ref().and_then(|p| p.outs),
+        Some(1)
+    );
     // 1 input + 1 output
     assert_eq!(sys.blocks[0].ports.len(), 2);
 }

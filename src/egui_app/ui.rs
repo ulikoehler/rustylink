@@ -880,31 +880,71 @@ fn update_internal(
 
         let line_stroke_default = Stroke::new(2.0, Color32::LIGHT_GREEN);
         let mut port_counts: HashMap<(String, u8), u32> = HashMap::new();
-        fn reg_ep(ep: &EndpointRef, port_counts: &mut HashMap<(String, u8), u32>) {
+        // Track which ports are actually connected to at least one line.
+        // Key: (sid, port_index, is_input)
+        let mut connected_ports: std::collections::HashSet<(String, u32, bool)> =
+            std::collections::HashSet::new();
+        fn reg_ep(
+            ep: &EndpointRef,
+            port_counts: &mut HashMap<(String, u8), u32>,
+            connected_ports: &mut std::collections::HashSet<(String, u32, bool)>,
+        ) {
             let key = (ep.sid.clone(), if ep.port_type == "out" { 1 } else { 0 });
             let idx1 = if ep.port_index == 0 { 1 } else { ep.port_index };
             port_counts
                 .entry(key)
                 .and_modify(|v| *v = (*v).max(idx1))
                 .or_insert(idx1);
+            connected_ports.insert((ep.sid.clone(), idx1, ep.port_type != "out"));
         }
-        fn reg_branch(br: &crate::model::Branch, port_counts: &mut HashMap<(String, u8), u32>) {
+        fn reg_branch(
+            br: &crate::model::Branch,
+            port_counts: &mut HashMap<(String, u8), u32>,
+            connected_ports: &mut std::collections::HashSet<(String, u32, bool)>,
+        ) {
             if let Some(dst) = &br.dst {
-                reg_ep(dst, port_counts);
+                reg_ep(dst, port_counts, connected_ports);
             }
             for sub in &br.branches {
-                reg_branch(sub, port_counts);
+                reg_branch(sub, port_counts, connected_ports);
             }
         }
         for line in &entities.lines {
             if let Some(src) = &line.src {
-                reg_ep(src, &mut port_counts);
+                reg_ep(src, &mut port_counts, &mut connected_ports);
             }
             if let Some(dst) = &line.dst {
-                reg_ep(dst, &mut port_counts);
+                reg_ep(dst, &mut port_counts, &mut connected_ports);
             }
             for br in &line.branches {
-                reg_branch(br, &mut port_counts);
+                reg_branch(br, &mut port_counts, &mut connected_ports);
+            }
+        }
+
+        // Pre-populate port_counts from block declarations so that the
+        // line-endpoint and chevron positioning formulas use the same
+        // total port count (the block-declared count) when computing Y
+        // positions.  Without this, lines would compute Y using the max
+        // port index seen in connections while chevrons use the block's
+        // declared count, causing a visual mismatch.
+        for (b, _) in &blocks {
+            if let Some(sid) = &b.sid {
+                if let Some(pc) = &b.port_counts {
+                    if let Some(ins) = pc.ins {
+                        let key = (sid.clone(), 0u8);
+                        port_counts
+                            .entry(key)
+                            .and_modify(|v| *v = (*v).max(ins))
+                            .or_insert(ins);
+                    }
+                    if let Some(outs) = pc.outs {
+                        let key = (sid.clone(), 1u8);
+                        port_counts
+                            .entry(key)
+                            .and_modify(|v| *v = (*v).max(outs))
+                            .or_insert(outs);
+                    }
+                }
             }
         }
 
@@ -1652,7 +1692,7 @@ fn update_internal(
                     continue;
                 }
 
-                let pname = port_label_display_name(block, *index, *is_input);
+                let pname = port_label_display_name(block, *index, *is_input, &cfg);
                 let galley = painter.layout_no_wrap(pname, font_id.clone(), Color32::TRANSPARENT);
                 let size = galley.size();
 
@@ -1726,32 +1766,56 @@ fn update_internal(
             // Draw port indicators derived from the block's own port counts.
             // This is important for virtual-library blocks (e.g. matrix_library)
             // and for unconnected blocks where no lines exist yet.
+            // Chevrons are hidden for ports that have at least one connection.
             let in_count = b.port_counts.as_ref().and_then(|p| p.ins).unwrap_or(0);
             let out_count = b.port_counts.as_ref().and_then(|p| p.outs).unwrap_or(0);
             if in_count > 0 || out_count > 0 {
                 let mirrored = b.block_mirror.unwrap_or(false);
-                let (ins, outs) = super::geometry::port_indicator_positions(
+                let overrides = &cfg.port_position_overrides;
+                let (ins, outs) = super::geometry::port_indicator_positions_with_overrides(
                     *r_screen,
                     in_count,
                     out_count,
                     mirrored,
+                    overrides,
                 );
                 let ins_left_side = !mirrored;
                 let outs_left_side = mirrored;
-                for p in ins {
+                let block_sid = b.sid.as_deref().unwrap_or("");
+                for (i, p) in ins.iter().enumerate() {
+                    let port_idx = (i as u32) + 1;
+                    // Skip chevron if this input port is connected
+                    if connected_ports.contains(&(block_sid.to_string(), port_idx, true)) {
+                        continue;
+                    }
+                    let left_side = if let Some(ovr) = overrides.iter().find(|o| o.is_input && o.port_index == port_idx) {
+                        super::geometry::port_override_is_left_side(ovr.placement, mirrored)
+                    } else {
+                        ins_left_side
+                    };
                     paint_port_chevron(
                         painter,
-                        p,
-                        ins_left_side,
+                        *p,
+                        left_side,
                         font_scale,
                         Color32::from_rgb(60, 60, 200),
                     );
                 }
-                for p in outs {
+                for (i, p) in outs.iter().enumerate() {
+                    let port_idx = (i as u32) + 1;
+                    // Skip chevron if this output port is connected
+                    if connected_ports.contains(&(block_sid.to_string(), port_idx, false)) {
+                        continue;
+                    }
+                    let left_side = if let Some(ovr) = overrides.iter().find(|o| !o.is_input && o.port_index == port_idx) {
+                        super::geometry::port_override_is_left_side(ovr.placement, mirrored)
+                    } else {
+                        outs_left_side
+                    };
                     paint_port_chevron(
                         painter,
-                        p,
-                        outs_left_side,
+                        *p,
+                        left_side,
                         font_scale,
                         Color32::from_rgb(200, 60, 60),
                     );
@@ -1961,7 +2025,7 @@ fn update_internal(
                 continue;
             }
             let mirrored = block.block_mirror.unwrap_or(false);
-            let pname = port_label_display_name(block, index, is_input);
+            let pname = port_label_display_name(block, index, is_input, &cfg);
             let galley = ui.painter().layout_no_wrap(
                 pname,
                 font_id.clone(),
@@ -2315,10 +2379,10 @@ fn show_block_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
                         }
                         for (k, v) in &block.properties {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(
-                                    crate::parser::helpers::clean_whitespace(k)
-                                )
-                                .strong());
+                                ui.label(
+                                    RichText::new(crate::parser::helpers::clean_whitespace(k))
+                                        .strong(),
+                                );
                                 ui.label(crate::parser::helpers::clean_whitespace(v));
                             });
                         }
@@ -2485,8 +2549,8 @@ pub fn update_with_info(app: &mut SubsystemApp, ui: &mut egui::Ui) -> UpdateResp
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::helpers::clean_whitespace;
     use crate::editor::operations::create_default_block;
+    use crate::parser::helpers::clean_whitespace;
 
     #[test]
     fn block_dialog_title_cleans_whitespace() {
@@ -2502,15 +2566,16 @@ mod tests {
         let mut blk = create_default_block("SubSystem", "X", 0, 0, 0, 0);
         // remove the built-in properties so we can test our own
         blk.properties.clear();
-        blk.properties.insert("  Key \nName  ".to_string(), "  value\n1  ".to_string());
+        blk.properties
+            .insert("  Key \nName  ".to_string(), "  value\n1  ".to_string());
         let cleaned: Vec<(String, String)> = blk
             .properties
             .iter()
             .map(|(k, v)| (clean_whitespace(k), clean_whitespace(v)))
             .collect();
-        assert_eq!(cleaned,
+        assert_eq!(
+            cleaned,
             vec![("Key Name".to_string(), "value 1".to_string())]
         );
     }
 }
-

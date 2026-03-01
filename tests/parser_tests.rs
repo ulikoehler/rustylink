@@ -37,7 +37,10 @@ fn resolving_virtual_library_does_not_error() {
     // The block still exists and has received a stub from the simulink/*
     // virtual-library fallback.
     assert_eq!(sys.blocks.len(), 1);
-    assert_eq!(sys.blocks[0].library_source.as_deref(), Some("simulink/Logic and Bit"));
+    assert_eq!(
+        sys.blocks[0].library_source.as_deref(),
+        Some("simulink/Logic and Bit")
+    );
     assert_eq!(
         sys.blocks[0].library_block_path.as_deref(),
         Some("simulink/Logic and Bit/Foo")

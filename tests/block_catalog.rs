@@ -66,8 +66,11 @@ fn catalog_contains_virtual_library_blocks() {
     for lib in VIRTUAL_LIBRARIES {
         for b in (lib.get_blocks)() {
             // canonical name should appear as a block_type entry
-            assert!(catalog.iter().any(|e| e.block_type == b.name),
-                "catalog missing entry for virtual block {}", b.name);
+            assert!(
+                catalog.iter().any(|e| e.block_type == b.name),
+                "catalog missing entry for virtual block {}",
+                b.name
+            );
         }
     }
 }

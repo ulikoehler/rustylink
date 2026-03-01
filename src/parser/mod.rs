@@ -197,8 +197,11 @@ impl<S: ContentSource> SimulinkParser<S> {
                                     Err(e) => {
                                         // sanitize each piece so stray whitespace doesn't
                                         // create confusing log lines
-                                        let lib_name_clean = crate::parser::helpers::clean_whitespace(lib_name);
-                                        let host_clean = crate::parser::helpers::clean_whitespace(&block_host_path);
+                                        let lib_name_clean =
+                                            crate::parser::helpers::clean_whitespace(lib_name);
+                                        let host_clean = crate::parser::helpers::clean_whitespace(
+                                            &block_host_path,
+                                        );
                                         warn_yellow(format!(
                                             "failed to parse library '{}' (requested by '{}'): {}",
                                             lib_name_clean, host_clean, e
@@ -208,8 +211,10 @@ impl<S: ContentSource> SimulinkParser<S> {
                                 }
                             } else {
                                 if !suppress_missing_external_warnings {
-                                    let lib_name_clean = crate::parser::helpers::clean_whitespace(lib_name);
-                                    let host_clean = crate::parser::helpers::clean_whitespace(&block_host_path);
+                                    let lib_name_clean =
+                                        crate::parser::helpers::clean_whitespace(lib_name);
+                                    let host_clean =
+                                        crate::parser::helpers::clean_whitespace(&block_host_path);
                                     warn_yellow(format!(
                                         "library '{}' not found (requested by '{}')",
                                         lib_name_clean, host_clean
@@ -243,11 +248,8 @@ impl<S: ContentSource> SimulinkParser<S> {
                         if is_simulink_namespace {
                             if let Some(lib_system) = cache.get_mut(lib_name) {
                                 if !lib_system.blocks.iter().any(|b| b.name == block_path) {
-                                    let ins = block
-                                        .port_counts
-                                        .as_ref()
-                                        .and_then(|p| p.ins)
-                                        .unwrap_or(1);
+                                    let ins =
+                                        block.port_counts.as_ref().and_then(|p| p.ins).unwrap_or(1);
                                     let outs = block
                                         .port_counts
                                         .as_ref()
@@ -280,8 +282,10 @@ impl<S: ContentSource> SimulinkParser<S> {
                             } else {
                                 ""
                             };
-                            let source_clean = crate::parser::helpers::clean_whitespace(&source_block);
-                            let host_clean = crate::parser::helpers::clean_whitespace(&block_host_path);
+                            let source_clean =
+                                crate::parser::helpers::clean_whitespace(&source_block);
+                            let host_clean =
+                                crate::parser::helpers::clean_whitespace(&block_host_path);
                             warn_yellow(format!(
                                 "library block '{}' not found{} (requested by '{}')",
                                 source_clean, extra, host_clean

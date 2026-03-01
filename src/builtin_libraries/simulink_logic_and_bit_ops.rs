@@ -15,8 +15,8 @@ pub const BLOCKS: &[VirtualBlock] = &[
         aliases: &["CompareToConstant"],
         ins: 1,
         outs: 1,
-        icon: None,
         compute_instance_label: Some(compare_to_constant_label),
+        ..VirtualBlock::DEFAULT
     },
     VirtualBlock {
         name: "Detect Change",

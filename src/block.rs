@@ -575,7 +575,7 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                         "[rustylink] Error parsing <Mask> in block '{}': {}",
                         name_clean, err
                     );
-                },
+                }
             },
             "InstanceData" => match parse_instance_data_node(child) {
                 Ok(id) => {
@@ -588,7 +588,7 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                         "[rustylink] Warning: failed to parse <InstanceData> in block '{}': {}",
                         name_clean, err
                     );
-                },
+                }
             },
             "Annotation" => match parse_annotation_node(child) {
                 Ok(a) => {
@@ -602,7 +602,7 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                         "[rustylink] Warning: failed to parse <Annotation> in block '{}': {}",
                         name_clean, err
                     );
-                },
+                }
             },
             _ => {}
         }

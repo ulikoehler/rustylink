@@ -11,6 +11,41 @@ use std::sync::RwLock;
 
 use crate::model::{Block, Port, PortCounts, System};
 
+/// Side of a block where a port can be placed.
+///
+/// Used by [`PortPositionOverride`] to specify non-standard port locations,
+/// e.g. a circular block with one input on the left and another on the top.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PortPlacement {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+/// Override the default position and placement of a single port.
+///
+/// By default, input ports are evenly distributed along the left edge and
+/// output ports along the right edge.  A `PortPositionOverride` allows a
+/// library block definition to move an individual port to any side of the
+/// block and to place it at an arbitrary position along that side.
+///
+/// # Fields
+///
+/// * `is_input` – `true` for an input port, `false` for an output port.
+/// * `port_index` – 1-based port index.
+/// * `placement` – which side of the block the port sits on.
+/// * `fraction` – position along that side as a fraction in `[0.0, 1.0]`.
+///   For `Left`/`Right` sides, `0.0` is the top and `1.0` is the bottom.
+///   For `Top`/`Bottom` sides, `0.0` is the left and `1.0` is the right.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PortPositionOverride {
+    pub is_input: bool,
+    pub port_index: u32,
+    pub placement: PortPlacement,
+    pub fraction: f32,
+}
+
 /// Description of a single block type that exists in a virtual library.
 #[derive(Clone, Copy)]
 pub struct VirtualBlock {
@@ -34,6 +69,17 @@ pub struct VirtualBlock {
     /// returns `Some(label)` when a label can be derived, or `None` to fall
     /// through to the default icon / value rendering.
     pub compute_instance_label: Option<fn(&Block) -> Option<String>>,
+    /// Optional overrides for individual port positions and placement sides.
+    ///
+    /// When non-empty, these override the default evenly-distributed port
+    /// layout for the specified ports.  Ports not listed here use the
+    /// standard positioning.  Currently no built-in library block uses this
+    /// facility, but it is available for custom virtual libraries.
+    pub port_position_overrides: &'static [PortPositionOverride],
+    /// Custom names for input ports (overrides "In1", "In2" etc.)
+    pub input_port_names: &'static [&'static str],
+    /// Custom names for output ports (overrides "Out1", "Out2" etc.)
+    pub output_port_names: &'static [&'static str],
 }
 
 impl std::fmt::Debug for VirtualBlock {
@@ -48,6 +94,9 @@ impl std::fmt::Debug for VirtualBlock {
                 "compute_instance_label",
                 &self.compute_instance_label.map(|_| "<fn>"),
             )
+            .field("port_position_overrides", &self.port_position_overrides)
+            .field("input_port_names", &self.input_port_names)
+            .field("output_port_names", &self.output_port_names)
             .finish()
     }
 }
@@ -88,6 +137,9 @@ impl VirtualBlock {
         outs: 0,
         icon: None,
         compute_instance_label: None,
+        port_position_overrides: &[],
+        input_port_names: &[],
+        output_port_names: &[],
     };
 }
 
@@ -238,6 +290,14 @@ pub struct OwnedVirtualBlock {
     /// Mirrors [`VirtualBlock::compute_instance_label`] for the dynamic
     /// (user-registered) library API.
     pub compute_instance_label: Option<Arc<dyn Fn(&Block) -> Option<String> + Send + Sync>>,
+    /// Optional overrides for individual port positions and placement sides.
+    ///
+    /// See [`VirtualBlock::port_position_overrides`] for semantics.
+    pub port_position_overrides: Vec<PortPositionOverride>,
+    /// Custom names for input ports
+    pub input_port_names: Vec<String>,
+    /// Custom names for output ports
+    pub output_port_names: Vec<String>,
 }
 
 impl std::fmt::Debug for OwnedVirtualBlock {
@@ -251,6 +311,9 @@ impl std::fmt::Debug for OwnedVirtualBlock {
                 "compute_instance_label",
                 &self.compute_instance_label.as_ref().map(|_| "<fn>"),
             )
+            .field("port_position_overrides", &self.port_position_overrides)
+            .field("input_port_names", &self.input_port_names)
+            .field("output_port_names", &self.output_port_names)
             .finish()
     }
 }
@@ -263,6 +326,9 @@ impl Clone for OwnedVirtualBlock {
             ins: self.ins,
             outs: self.outs,
             compute_instance_label: self.compute_instance_label.clone(),
+            port_position_overrides: self.port_position_overrides.clone(),
+            input_port_names: self.input_port_names.clone(),
+            output_port_names: self.output_port_names.clone(),
         }
     }
 }
@@ -289,6 +355,7 @@ impl Clone for OwnedVirtualBlock {
 ///         ins: 1,
 ///         outs: 1,
 ///         compute_instance_label: None,
+///         port_position_overrides: vec![],
 ///     }],
 ///     matches_name: Arc::new(|name| {
 ///         name.to_ascii_lowercase().starts_with("my_lib")

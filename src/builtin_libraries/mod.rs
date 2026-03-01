@@ -17,7 +17,8 @@ use virtual_library::VirtualLibrarySpec;
 // Re-export user library API so downstream users don't need to import the
 // submodule directly.
 pub use virtual_library::{
-    OwnedVirtualBlock, UserVirtualLibrarySpec, register_virtual_library,
+    OwnedVirtualBlock, PortPlacement, PortPositionOverride, UserVirtualLibrarySpec,
+    register_virtual_library,
 };
 
 /// All built-in virtual libraries with structured metadata.

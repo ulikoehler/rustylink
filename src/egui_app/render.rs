@@ -110,7 +110,9 @@ pub fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
     // Because `register_virtual_keys` pre-registers all normalized forms, these
     // are plain O(1) hash lookups – no linear scan needed.
     for seg in &last_segments {
-        use crate::builtin_libraries::virtual_library::{humanize_camel_case, normalize_block_name};
+        use crate::builtin_libraries::virtual_library::{
+            humanize_camel_case, normalize_block_name,
+        };
         let seg_norm = normalize_block_name(seg);
         if let Some(cfg) = g.get(seg_norm.as_str()) {
             return cfg.clone();
@@ -152,12 +154,31 @@ pub struct PortLabelMaxWidths {
     pub right: f32,
 }
 
-pub(crate) fn port_label_display_name(block: &Block, index: u32, is_input: bool) -> String {
+pub(crate) fn port_label_display_name(
+    block: &Block,
+    index: u32,
+    is_input: bool,
+    cfg: &BlockTypeConfig,
+) -> String {
     // Note: The port-label drawing code treats mirroring as swapping the logical direction
     // when looking up Port properties. Keep this logic in one place so icon sizing and
     // label rendering stay consistent.
     let mirrored = block.block_mirror.unwrap_or(false);
     let logical_is_input = if mirrored { !is_input } else { is_input };
+
+    let fallback_name = || {
+        let names = if logical_is_input {
+            &cfg.input_port_names
+        } else {
+            &cfg.output_port_names
+        };
+        if index > 0 && (index as usize) <= names.len() {
+            names[(index - 1) as usize].clone()
+        } else {
+            format!("{}{}", if is_input { "In" } else { "Out" }, index)
+        }
+    };
+
     block
         .ports
         .iter()
@@ -171,10 +192,10 @@ pub(crate) fn port_label_display_name(block: &Block, index: u32, is_input: bool)
                 .cloned()
                 .or_else(|| p.properties.get("PropagatedSignals").cloned())
                 .or_else(|| p.properties.get("name").cloned())
-                .or_else(|| Some(format!("{}{}", if is_input { "In" } else { "Out" }, index)))
+                .or_else(|| Some(fallback_name()))
         })
         .next()
-        .unwrap_or_else(|| format!("{}{}", if is_input { "In" } else { "Out" }, index))
+        .unwrap_or_else(fallback_name)
 }
 
 pub fn wrap_text_to_max_width(
@@ -528,8 +549,7 @@ fn warn_missing_icon(block_type: &str, block_path: &str) {
         if set.insert(block_type.to_string()) {
             eprintln!(
                 "\x1b[33m[rustylink] WARNING: {} at {} does not have a corresponding virtual library block\x1b[0m",
-                block_type,
-                block_path
+                block_type, block_path
             );
         }
     }
@@ -697,42 +717,33 @@ mod tests {
         // using the shorter/legacy name as a library path should still hit
         // the same SVG icon.  this exercises the alias support we just added
         // to the matrix library.
-        let mut blk = crate::editor::operations::create_default_block(
-            "SubSystem",
-            "Foo",
-            0,
-            0,
-            1,
-            1,
-        );
+        let mut blk =
+            crate::editor::operations::create_default_block("SubSystem", "Foo", 0, 0, 1, 1);
         blk.library_block_path = Some("matrix_library/DiagonalMatrix".to_string());
         let cfg = get_block_type_cfg(&blk);
-        assert_eq!(cfg.icon, Some(IconSpec::Svg("matrix/create_diagonal_matrix.svg")));
+        assert_eq!(
+            cfg.icon,
+            Some(IconSpec::Svg("matrix/create_diagonal_matrix.svg"))
+        );
 
         // and the generic fallback via block_type (used by the catalog) also works
-        let mut blk2 = crate::editor::operations::create_default_block(
-            "DiagonalMatrix",
-            "Bar",
-            0,
-            0,
-            1,
-            1,
-        );
+        let mut blk2 =
+            crate::editor::operations::create_default_block("DiagonalMatrix", "Bar", 0, 0, 1, 1);
         let cfg2 = get_block_type_cfg(&blk2);
-        assert_eq!(cfg2.icon, Some(IconSpec::Svg("matrix/create_diagonal_matrix.svg")));
+        assert_eq!(
+            cfg2.icon,
+            Some(IconSpec::Svg("matrix/create_diagonal_matrix.svg"))
+        );
 
         // check extract-diagonal alias as well (library path variant)
-        let mut blk3 = crate::editor::operations::create_default_block(
-            "SubSystem",
-            "Qux",
-            0,
-            0,
-            1,
-            1,
-        );
+        let mut blk3 =
+            crate::editor::operations::create_default_block("SubSystem", "Qux", 0, 0, 1, 1);
         blk3.library_block_path = Some("matrix_library/ExtractDiag".to_string());
         let cfg3 = get_block_type_cfg(&blk3);
-        assert_eq!(cfg3.icon, Some(IconSpec::Svg("matrix/extract_diagonal.svg")));
+        assert_eq!(
+            cfg3.icon,
+            Some(IconSpec::Svg("matrix/extract_diagonal.svg"))
+        );
     }
 
     /// A plain Simulink Product block with Multiplication="Matrix(*)" should use
@@ -801,7 +812,8 @@ mod tests {
 
     #[test]
     fn icon_lookup_matrix_square_alias_square() {
-        let mut b = crate::editor::operations::create_default_block("SubSystem", "Square", 0, 0, 1, 1);
+        let mut b =
+            crate::editor::operations::create_default_block("SubSystem", "Square", 0, 0, 1, 1);
         b.library_block_path = Some("matrix_library/Square".to_string());
 
         let cfg = get_block_type_cfg(&b);
