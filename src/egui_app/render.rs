@@ -1069,4 +1069,54 @@ pub fn render_manual_switch(
     }
 }
 
+/// Draw the interior labels (+/-) for a Sum block.
+///
+/// The surrounding circle fill and stroke are drawn in the main ui loop's
+/// background-fill and border-stroke passes.  This function only adds the
+/// operator characters at their respective input-port positions inside the
+/// circle – the left-edge operator for input 1 and the bottom-edge operator
+/// for input 2.
+///
+/// The `Inputs` property format used by Simulink is e.g. `|++`: the first
+/// character is an ignored spacer, the subsequent characters are the per-port
+/// operators in order ('+' or '-').
+pub fn render_sum_block(
+    painter: &egui::Painter,
+    block: &Block,
+    rect: &Rect,
+    font_scale: f32,
+) {
+    let operators: Vec<char> = block
+        .properties
+        .get("Inputs")
+        .map(|s| s.chars().skip(1).collect())
+        .unwrap_or_default();
+    let left_op = operators.first().copied().unwrap_or('+');
+    let bottom_op = operators.get(1).copied().unwrap_or('+');
+
+    let font_size = (rect.height() * 0.32).clamp(8.0, 22.0) * font_scale;
+    let color = Color32::from_rgb(32, 32, 32);
+    let font_id = egui::FontId::monospace(font_size);
+
+    // Left input operator – left quarter of the circle, vertically centred
+    let left_pos = Pos2::new(rect.left() + rect.width() * 0.22, rect.center().y);
+    painter.text(
+        left_pos,
+        egui::Align2::CENTER_CENTER,
+        left_op.to_string(),
+        font_id.clone(),
+        color,
+    );
+
+    // Bottom input operator – horizontally centred, bottom quarter of the circle
+    let bottom_pos = Pos2::new(rect.center().x, rect.bottom() - rect.height() * 0.22);
+    painter.text(
+        bottom_pos,
+        egui::Align2::CENTER_CENTER,
+        bottom_op.to_string(),
+        font_id,
+        color,
+    );
+}
+
 // no re-exports; keep this module focused on rendering helpers

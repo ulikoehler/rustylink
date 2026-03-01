@@ -96,6 +96,7 @@ impl Default for Config {
 pub struct PlacementResult {
     pub rect: RectF,
     pub horizontal: bool,
+    pub intersected: bool,
 }
 
 fn expanded_rect(r: RectF, factor: f32) -> RectF {
@@ -132,7 +133,7 @@ pub fn place_label(
     }
     segs.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(Ordering::Equal));
 
-    let mut best_overall: Option<(RectF, bool, f32)> = None; // (rect, horizontal, score)
+    let mut best_overall: Option<(RectF, bool, f32, bool)> = None; // (rect, horizontal, score, intersected)
 
     for (_i, a, b, _len) in segs.into_iter() {
         let horizontal = (a.y - b.y).abs() <= (a.x - b.x).abs();
@@ -198,7 +199,8 @@ pub fn place_label(
             )
         };
 
-        let mut chosen: Option<(RectF, f32)> = None; // (rect, score)
+        let mut chosen: Option<(RectF, f32, bool)> = None; // (rect, score, intersected)
+
         let mut best_score = f32::INFINITY;
         let max_perp_mult = 5;
         for k in 0..=max_perp_mult {
@@ -241,14 +243,10 @@ pub fn place_label(
                     let center_bias = if m == 0 && k == 0 { -1.0 } else { 0.0 };
                     let spill_bias = spill * 100.0; // strong penalty for spill
                     let score = (if intersect { overlap } else { 0.0 }) + center_bias + spill_bias;
-                    if !intersect {
-                        if score < best_score {
-                            best_score = score;
-                            chosen = Some((rect, score));
-                        }
-                    } else if score < best_score {
+
+                    if score < best_score {
                         best_score = score;
-                        chosen = Some((rect, score));
+                        chosen = Some((rect, score, intersect));
                     }
                     progressed = true;
                 }
@@ -271,9 +269,9 @@ pub fn place_label(
             }
         }
 
-        if let Some((rect, score)) = chosen {
-            if best_overall.map(|(_, _, s)| score < s).unwrap_or(true) {
-                best_overall = Some((rect, horizontal, score));
+        if let Some((rect, score, intersected)) = chosen {
+            if best_overall.map(|(_, _, s, _)| score < s).unwrap_or(true) {
+                best_overall = Some((rect, horizontal, score, intersected));
             }
             if score <= 0.0 {
                 break;
@@ -281,7 +279,11 @@ pub fn place_label(
         }
     }
 
-    best_overall.map(|(rect, horizontal, _)| PlacementResult { rect, horizontal })
+    best_overall.map(|(rect, horizontal, _, intersected)| PlacementResult {
+        rect,
+        horizontal,
+        intersected,
+    })
 }
 
 // Unit tests were moved to integration tests in `tests/label_place.rs` to

@@ -15,7 +15,8 @@ use super::geometry::{
 use super::navigation::resolve_subsystem_by_vec;
 use super::render::{
     ComputedPortYCoordinates, PortLabelMaxWidths, get_block_type_cfg, port_label_display_name,
-    render_block_icon, render_center_glyph_maximized, render_manual_switch, wrap_text_to_max_width,
+    render_block_icon, render_center_glyph_maximized, render_manual_switch, render_sum_block,
+    wrap_text_to_max_width,
 };
 use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
 use super::text::{highlight_query_job, matlab_syntax_job};
@@ -633,7 +634,23 @@ fn update_internal(
                 paint_selected_shadow(ui.painter(), r_screen, rounding, font_scale);
             }
 
-            if b.commented {
+            if b.block_type == "Gain" {
+                // Gain block uses a right-pointing triangle instead of a
+                // rectangle.  Vertices: left-top, right-center, left-bottom.
+                let pts = vec![
+                    egui::pos2(r_screen.left(), r_screen.top()),
+                    egui::pos2(r_screen.right(), r_screen.center().y),
+                    egui::pos2(r_screen.left(), r_screen.bottom()),
+                ];
+                let mut tri = egui::epaint::PathShape::closed_line(pts, Stroke::NONE);
+                tri.fill = bg;
+                ui.painter().add(egui::Shape::Path(tri));
+            } else if b.block_type == "Sum" {
+                // Sum block uses a circle instead of a rectangle.
+                let center = r_screen.center();
+                let radius = r_screen.size().min_elem() / 2.0;
+                ui.painter().circle_filled(center, radius, bg);
+            } else if b.commented {
                 // Light gray background, no outline
                 let commented_bg = Color32::from_rgb(230, 230, 230);
                 effective_bg = commented_bg;
@@ -1749,7 +1766,24 @@ fn update_internal(
                 2.0,
                 Color32::from_rgb(border_rgb.0, border_rgb.1, border_rgb.2),
             );
-            painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
+            if b.block_type == "Gain" {
+                // Draw the triangle outline instead of a rectangle border.
+                let pts = vec![
+                    egui::pos2(r_screen.left(), r_screen.top()),
+                    egui::pos2(r_screen.right(), r_screen.center().y),
+                    egui::pos2(r_screen.left(), r_screen.bottom()),
+                ];
+                painter.add(egui::Shape::Path(egui::epaint::PathShape::closed_line(
+                    pts, stroke,
+                )));
+            } else if b.block_type == "Sum" {
+                // Draw the circle outline instead of a rectangle border.
+                let center = r_screen.center();
+                let radius = r_screen.size().min_elem() / 2.0;
+                painter.circle_stroke(center, radius, stroke);
+            } else {
+                painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
+            }
 
             fn paint_port_chevron(
                 painter: &egui::Painter,
@@ -1794,8 +1828,27 @@ fn update_internal(
             // This is important for virtual-library blocks (e.g. matrix_library)
             // and for unconnected blocks where no lines exist yet.
             // Chevrons are hidden for ports that have at least one connection.
-            let in_count = b.port_counts.as_ref().and_then(|p| p.ins).unwrap_or(0);
-            let out_count = b.port_counts.as_ref().and_then(|p| p.outs).unwrap_or(0);
+            // For base Gain/Sum blocks port_counts may be absent; supply defaults.
+            let in_count = b
+                .port_counts
+                .as_ref()
+                .and_then(|p| p.ins)
+                .unwrap_or(if b.block_type == "Gain" {
+                    1
+                } else if b.block_type == "Sum" {
+                    2
+                } else {
+                    0
+                });
+            let out_count = b
+                .port_counts
+                .as_ref()
+                .and_then(|p| p.outs)
+                .unwrap_or(if b.block_type == "Gain" || b.block_type == "Sum" {
+                    1
+                } else {
+                    0
+                });
             if in_count > 0 || out_count > 0 {
                 let mirrored = b.block_mirror.unwrap_or(false);
                 let overrides = &cfg.port_position_overrides;
@@ -1931,6 +1984,8 @@ fn update_internal(
             } else if b.block_type == "ManualSwitch" {
                 let coords_ref = b.sid.as_ref().and_then(|sid| block_port_y_map.get(sid));
                 render_manual_switch(&painter, b, r_screen, font_scale, coords_ref);
+            } else if b.block_type == "Sum" {
+                render_sum_block(&painter, b, r_screen, font_scale);
             } else {
                 render_block_icon(
                     &painter,
@@ -1950,8 +2005,26 @@ fn update_internal(
                 let chevron_h = (8.0 * scale * 4.0).max(3.0 * 4.0);
                 let chevron_w = (6.0 * scale * 4.0).max(2.0 * 4.0);
 
-                let in_count = b.port_counts.as_ref().and_then(|p| p.ins).unwrap_or(0);
-                let out_count = b.port_counts.as_ref().and_then(|p| p.outs).unwrap_or(0);
+                let in_count = b
+                    .port_counts
+                    .as_ref()
+                    .and_then(|p| p.ins)
+                    .unwrap_or(if b.block_type == "Gain" {
+                        1
+                    } else if b.block_type == "Sum" {
+                        2
+                    } else {
+                        0
+                    });
+                let out_count = b
+                    .port_counts
+                    .as_ref()
+                    .and_then(|p| p.outs)
+                    .unwrap_or(if b.block_type == "Gain" || b.block_type == "Sum" {
+                        1
+                    } else {
+                        0
+                    });
                 let mirrored = b.block_mirror.unwrap_or(false);
                 let ins_left_side = !mirrored;
                 let outs_left_side = mirrored;
@@ -1964,7 +2037,7 @@ fn update_internal(
                 let max_label_w = overall_w * 0.95;
 
                 let mut font_px = (chevron_h * app.block_name_font_factor).max(1.0);
-                
+
                 // Typical character width is roughly font_px * 0.5 for a proportional font.
                 let max_font_px = r_screen.width() * app.block_name_max_char_width_factor * 2.0;
                 if font_px > max_font_px {

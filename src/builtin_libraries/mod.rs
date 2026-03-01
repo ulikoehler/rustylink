@@ -9,6 +9,7 @@ pub mod virtual_library;
 pub mod matrix_library;
 pub mod simulink_discrete;
 pub mod simulink_logic_and_bit_ops;
+pub mod simulink_math_operations;
 
 use crate::model::{Block, System};
 
@@ -37,6 +38,11 @@ pub const VIRTUAL_LIBRARIES: &[VirtualLibrarySpec] = &[
         name: simulink_logic_and_bit_ops::LIB_NAME,
         matches_name: simulink_logic_and_bit_ops::is_simulink_logic_and_bit_ops_name,
         get_blocks: simulink_logic_and_bit_ops::get_blocks,
+    },
+    VirtualLibrarySpec {
+        name: simulink_math_operations::LIB_NAME,
+        matches_name: simulink_math_operations::is_simulink_math_operations_name,
+        get_blocks: simulink_math_operations::get_blocks,
     },
 ];
 
@@ -76,7 +82,8 @@ pub fn compute_block_instance_label(block: &Block) -> Option<String> {
         .library_block_path
         .as_deref()
         .or_else(|| block.properties.get("SourceBlock").map(|s| s.as_str()));
-    let raw = raw?;
+    let default_raw = format!("simulink/Math Operations/{}", block.block_type);
+    let raw = raw.unwrap_or(&default_raw);
 
     // Normalize: replace embedded newlines/CRs with spaces (they act as word-wrap
     // separators in SLX XML, e.g. "Compare\nTo Constant" → "Compare To Constant"),

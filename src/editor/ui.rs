@@ -569,18 +569,11 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
 
             // Block label (deferred)
 
-
             let show_name = b.show_name.unwrap_or(state.app.show_block_names_default);
 
-
             if show_name {
-
-
                 deferred_block_labels.push(((*b).clone(), r_screen, bg, font_scale));
-
-
             }
-
 
             collidable_obstacle_rects.push(r_screen);
 
@@ -939,37 +932,27 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
 
             // Selection highlight for lines
 
-
             if is_selected {
                 for seg in screen_pts.windows(2) {
                     ui.painter().line_segment(
                         [seg[0], seg[1]],
                         Stroke::new(5.0, Color32::from_rgba_unmultiplied(0, 120, 255, 60)),
                     );
+                }
 
+                for seg in screen_pts.windows(2) {
+                    let mut min = seg[0].min(seg[1]);
 
-            }
+                    let mut max = seg[0].max(seg[1]);
 
+                    min.x -= 2.0;
+                    min.y -= 2.0;
 
-            for seg in screen_pts.windows(2) {
+                    max.x += 2.0;
+                    max.y += 2.0;
 
-
-                let mut min = seg[0].min(seg[1]);
-
-
-                let mut max = seg[0].max(seg[1]);
-
-
-                min.x -= 2.0; min.y -= 2.0;
-
-
-                max.x += 2.0; max.y += 2.0;
-
-
-                collidable_obstacle_rects.push(Rect::from_min_max(min, max));
-
-
-            }
+                    collidable_obstacle_rects.push(Rect::from_min_max(min, max));
+                }
             }
 
             // Line label
@@ -1009,7 +992,7 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
                 // line bounding-box does not steal click events from blocks that
                 // overlap with it.  Actual click detection is deferred.
                 let line_resp = ui.allocate_rect(hit_rect, Sense::hover());
-                
+
                 // Do a line-intersection near check to see if we actually clicked it.
                 let mut is_near_segment = false;
                 if let Some(cp) = ui.input(|i| i.pointer.interact_pos()) {
@@ -1037,12 +1020,31 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
                             cur = next;
                         }
                         for child in &br.branches {
-                            collect_branch_segments_editor(child, cur, out, to_screen, sid_map, port_counts, sid_mirrored);
+                            collect_branch_segments_editor(
+                                child,
+                                cur,
+                                out,
+                                to_screen,
+                                sid_map,
+                                port_counts,
+                                sid_mirrored,
+                            );
                         }
                     }
-                    let main_anchor = offsets_pts.last().copied().unwrap_or(offsets_pts.first().copied().unwrap_or(Pos2::ZERO));
+                    let main_anchor = offsets_pts
+                        .last()
+                        .copied()
+                        .unwrap_or(offsets_pts.first().copied().unwrap_or(Pos2::ZERO));
                     for br in &line.branches {
-                        collect_branch_segments_editor(br, main_anchor, &mut segments, &to_screen, &sid_map, &port_counts, &sid_mirrored);
+                        collect_branch_segments_editor(
+                            br,
+                            main_anchor,
+                            &mut segments,
+                            &to_screen,
+                            &sid_map,
+                            &port_counts,
+                            &sid_mirrored,
+                        );
                     }
 
                     for (a, b) in &segments {
@@ -1069,7 +1071,10 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
                     line_resp.context_menu(|ui| {
                         line_context_menu(state, ui, li, line);
                     });
-                    let clicked = ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary) || i.pointer.button_clicked(egui::PointerButton::Secondary));
+                    let clicked = ui.input(|i| {
+                        i.pointer.button_clicked(egui::PointerButton::Primary)
+                            || i.pointer.button_clicked(egui::PointerButton::Secondary)
+                    });
                     if clicked {
                         if ui.input(|i| i.modifiers.ctrl) {
                             state.selection.toggle_line(li);
@@ -1083,456 +1088,272 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
 
         // Draw deferred block labels
 
-
         for (b, r_screen, bg, font_scale) in deferred_block_labels {
-
-
             let scale = font_scale.max(0.2);
-
 
             let chevron_h = (8.0 * scale * 4.0).max(3.0 * 4.0);
 
-
             let chevron_w = (6.0 * scale * 4.0).max(2.0 * 4.0);
-
-
-        
-
 
             let in_count = b.port_counts.as_ref().and_then(|p| p.ins).unwrap_or(0);
 
-
             let out_count = b.port_counts.as_ref().and_then(|p| p.outs).unwrap_or(0);
-
 
             let mirrored = b.block_mirror.unwrap_or(false);
 
-
             let ins_left_side = !mirrored;
-
 
             let outs_left_side = mirrored;
 
-
             let has_left = (in_count > 0 && ins_left_side) || (out_count > 0 && outs_left_side);
-
 
             let has_right = (in_count > 0 && !ins_left_side) || (out_count > 0 && !outs_left_side);
 
-
             let left_extra = if has_left { chevron_w } else { 0.0 };
-
 
             let right_extra = if has_right { chevron_w } else { 0.0 };
 
-
             let overall_w = r_screen.width() + left_extra + right_extra;
-
 
             let max_label_w = overall_w * state.app.block_name_max_char_width_factor;
 
-
-        
-
-
             let min_font_px = (chevron_h * state.app.block_name_min_font_factor).max(1.0);
-
 
             let font_px = (chevron_h * state.app.block_name_font_factor).max(1.0);
 
-
-            let fg = if b.commented { Color32::GRAY } else { contrast_color(bg) };
-
-
-        
-
+            let fg = if b.commented {
+                Color32::GRAY
+            } else {
+                contrast_color(bg)
+            };
 
             let mut current_font_px = font_px;
 
-
             let mut best_lines = vec![];
-
 
             let mut best_font_px = current_font_px;
 
-
             let mut best_line_height = 0.0;
-
 
             let mut best_rects = vec![];
 
-
-        
-
-
             let left = r_screen.left() - left_extra;
-
 
             let right = r_screen.right() + right_extra;
 
-
             let center_x = (left + right) * 0.5;
 
-
-        
-
-
             loop {
-
-
                 let label_font = egui::FontId::proportional(current_font_px);
-
 
                 let line_height = (current_font_px * 1.2).max(1.0);
 
-
-                let lines = wrap_text_to_max_width(ui.painter(), &b.name, label_font.clone(), max_label_w);
-
+                let lines =
+                    wrap_text_to_max_width(ui.painter(), &b.name, label_font.clone(), max_label_w);
 
                 if lines.is_empty() {
-
-
                     break;
-
-
                 }
-
-
-        
-
 
                 let total_h = (lines.len() as f32) * line_height;
 
-
                 let mut max_w = 0.0_f32;
 
-
                 for l in &lines {
+                    let w = ui
+                        .painter()
+                        .layout_no_wrap(l.to_string(), label_font.clone(), fg)
+                        .size()
+                        .x;
 
-
-                    let w = ui.painter().layout_no_wrap(l.to_string(), label_font.clone(), fg).size().x;
-
-
-                    if w > max_w { max_w = w; }
-
-
+                    if w > max_w {
+                        max_w = w;
+                    }
                 }
-
-
-        
-
 
                 let mut rects = Vec::new();
 
-
                 match b.name_location {
-
-
                     crate::model::NameLocation::Bottom => {
-
-
                         let top = r_screen.bottom() + 2.0 * font_scale;
 
-
-                        rects.push(Rect::from_min_size(Pos2::new(center_x - max_w * 0.5, top), eframe::egui::vec2(max_w, total_h)));
-
-
+                        rects.push(Rect::from_min_size(
+                            Pos2::new(center_x - max_w * 0.5, top),
+                            eframe::egui::vec2(max_w, total_h),
+                        ));
                     }
-
 
                     crate::model::NameLocation::Top => {
-
-
                         let bottom = r_screen.top() - 2.0 * font_scale;
 
-
-                        rects.push(Rect::from_min_size(Pos2::new(center_x - max_w * 0.5, bottom - total_h), eframe::egui::vec2(max_w, total_h)));
-
-
+                        rects.push(Rect::from_min_size(
+                            Pos2::new(center_x - max_w * 0.5, bottom - total_h),
+                            eframe::egui::vec2(max_w, total_h),
+                        ));
                     }
 
-
                     crate::model::NameLocation::Left => {
-
-
                         let y_start = r_screen.center().y - total_h * 0.5;
 
-
                         let gap = 2.0 * font_scale;
-
 
                         let x_right = r_screen.left() - gap;
 
-
-                        rects.push(Rect::from_min_size(Pos2::new(x_right - max_w, y_start), eframe::egui::vec2(max_w, total_h)));
-
-
+                        rects.push(Rect::from_min_size(
+                            Pos2::new(x_right - max_w, y_start),
+                            eframe::egui::vec2(max_w, total_h),
+                        ));
                     }
 
-
                     crate::model::NameLocation::Right => {
-
-
                         let y_start = r_screen.center().y - total_h * 0.5;
-
 
                         let gap = 2.0 * font_scale;
 
-
                         let x_left = r_screen.right() + gap;
 
-
-                        rects.push(Rect::from_min_size(Pos2::new(x_left, y_start), eframe::egui::vec2(max_w, total_h)));
-
-
+                        rects.push(Rect::from_min_size(
+                            Pos2::new(x_left, y_start),
+                            eframe::egui::vec2(max_w, total_h),
+                        ));
                     }
-
-
                 }
-
-
-        
-
 
                 let mut collides = false;
 
-
                 for r in &rects {
-
-
                     let expanded = r.expand(2.0);
 
-
                     for obs in &collidable_obstacle_rects {
-
-
                         if expanded.intersects(*obs) {
-
-
                             collides = true;
 
-
                             break;
-
-
                         }
-
-
                     }
-
 
                     if collides {
-
-
                         break;
-
-
                     }
-
-
                 }
-
-
-        
-
 
                 best_lines = lines;
 
-
                 best_font_px = current_font_px;
-
 
                 best_line_height = line_height;
 
-
                 best_rects = rects;
 
-
-        
-
-
                 if !collides {
-
-
                     break;
-
-
                 }
-
-
-        
-
 
                 let next_font_px = current_font_px * 0.9;
 
-
                 if next_font_px < min_font_px {
-
-
                     break;
-
-
                 }
 
-
                 current_font_px = next_font_px;
-
-
             }
 
-
-        
-
-
             if !best_lines.is_empty() {
-
-
                 collidable_obstacle_rects.extend(best_rects);
-
 
                 let label_font = egui::FontId::proportional(best_font_px);
 
-
                 let line_height = best_line_height;
 
-
                 match b.name_location {
-
-
                     crate::model::NameLocation::Bottom => {
-
-
                         let mut y = r_screen.bottom() + 4.0 * font_scale;
 
-
                         for line in &best_lines {
-
-
                             let pos = Pos2::new(center_x, y);
 
-
-                            ui.painter().text(pos, Align2::CENTER_TOP, line, label_font.clone(), fg);
-
+                            ui.painter().text(
+                                pos,
+                                Align2::CENTER_TOP,
+                                line,
+                                label_font.clone(),
+                                fg,
+                            );
 
                             y += line_height;
-
-
                         }
-
-
                     }
-
 
                     crate::model::NameLocation::Top => {
-
-
                         let mut y = r_screen.top() - 4.0 * font_scale;
 
-
                         for line in best_lines.iter().rev() {
-
-
                             let pos = Pos2::new(center_x, y);
 
-
-                            ui.painter().text(pos, Align2::CENTER_BOTTOM, line, label_font.clone(), fg);
-
+                            ui.painter().text(
+                                pos,
+                                Align2::CENTER_BOTTOM,
+                                line,
+                                label_font.clone(),
+                                fg,
+                            );
 
                             y -= line_height;
-
-
                         }
-
-
                     }
 
-
                     crate::model::NameLocation::Left => {
-
-
                         let total_h = (best_lines.len() as f32) * line_height;
-
 
                         let mut y = r_screen.center().y - total_h * 0.5;
 
-
                         let gap = 2.0 * font_scale;
-
 
                         let x_right = r_screen.left() - gap;
 
-
                         for line in &best_lines {
-
-
-                            let galley = ui.painter().layout_no_wrap(line.to_string(), label_font.clone(), fg);
-
+                            let galley = ui.painter().layout_no_wrap(
+                                line.to_string(),
+                                label_font.clone(),
+                                fg,
+                            );
 
                             let pos = Pos2::new(x_right - galley.size().x, y);
 
-
                             ui.painter().galley(pos, galley, fg);
 
-
                             y += line_height;
-
-
                         }
-
-
                     }
 
-
                     crate::model::NameLocation::Right => {
-
-
                         let total_h = (best_lines.len() as f32) * line_height;
-
 
                         let mut y = r_screen.center().y - total_h * 0.5;
 
-
                         let gap = 2.0 * font_scale;
-
 
                         let x_left = r_screen.right() + gap;
 
-
                         for line in &best_lines {
-
-
-                            let galley = ui.painter().layout_no_wrap(line.to_string(), label_font.clone(), fg);
-
+                            let galley = ui.painter().layout_no_wrap(
+                                line.to_string(),
+                                label_font.clone(),
+                                fg,
+                            );
 
                             let pos = Pos2::new(x_left + 2.0 * font_scale, y);
 
-
                             ui.painter().galley(pos, galley, fg);
 
-
                             y += line_height;
-
-
                         }
-
-
                     }
-
-
                 }
-
-
             }
-
-
         }
 
-
-        
-
-
         // Draw the connection being drawn
-
 
         if let DragMode::Connection {
             ref src_sid,

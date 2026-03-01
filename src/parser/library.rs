@@ -25,7 +25,8 @@ pub struct LibraryResolver {
 /// Note: Some Simulink models refer to libraries as `NAME.slx/...`. Both
 /// [`is_virtual_library`] and [`split_source_block_reference`] treat `.slx`
 /// suffixes as optional and match case-insensitively.
-pub const SPECIAL_VIRTUAL_LIBRARIES: [&str; 5] = [
+pub const SPECIAL_VIRTUAL_LIBRARIES: [&str; 6] = [
+    "simulink/Math Operations",
     // The built-in Simulink library is referenced as `simulink/...` or `simulink.slx/...`.
     "simulink",
     // Built-in rustylink virtual library.
