@@ -34,3 +34,8 @@ pub use text::{highlight_query_job, matlab_syntax_job};
 pub use ui::{
     ClickAction, UpdateResponse, apply_update_response, show_info_windows, update, update_with_info,
 };
+
+// Expose a couple of internal helpers for use by integration tests.
+pub use ui::helpers::{block_dialog_title, clean_display_string};
+// SVG parsing helper (also needed by some tests)
+pub use render::embedded_egui_sans_fontdb;

@@ -4,9 +4,6 @@ pub mod colors;
 pub mod dialogs;
 pub mod update;
 
-#[cfg(test)]
-mod tests;
-
 pub use types::{ClickAction, UpdateResponse};
 pub use dialogs::{apply_update_response, show_info_windows};
 

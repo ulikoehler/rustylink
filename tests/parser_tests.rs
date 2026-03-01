@@ -4,6 +4,8 @@ use rustylink::builtin_libraries::matrix_library;
 use rustylink::model::System;
 use rustylink::parser::{FsSource, LibraryResolver, SimulinkParser, is_virtual_library};
 
+use rustylink::parser::helpers::clean_whitespace;
+
 #[test]
 fn virtual_library_detection() {
     assert!(is_virtual_library("simulink"));
@@ -84,4 +86,16 @@ fn matrix_library_helpers_work() {
     let stub = matrix_library::create_stub("Foo");
     assert_eq!(stub.block_type, "Foo");
     assert_eq!(stub.ports.len(), 2); // default 1 in + 1 out
+}
+
+#[test]
+fn clean_whitespace_basic() {
+    assert_eq!(clean_whitespace("foo"), "foo");
+    assert_eq!(clean_whitespace("  foo  "), "foo");
+    assert_eq!(clean_whitespace("foo   bar"), "foo bar");
+    assert_eq!(clean_whitespace("foo\nbar\tbaz"), "foo bar baz");
+    assert_eq!(
+        clean_whitespace("   multiple   \n whitespace  "),
+        "multiple whitespace"
+    );
 }

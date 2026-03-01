@@ -6,7 +6,7 @@ use super::types::{ClickAction, UpdateResponse};
 /// UI components to avoid rendering stray newlines/tabs that may come from the
 /// parsed Simulink model.
 #[allow(dead_code)]
-pub(crate) fn clean_display_string(s: &str) -> String {
+pub fn clean_display_string(s: &str) -> String {
     crate::parser::helpers::clean_whitespace(s)
 }
 
@@ -16,7 +16,7 @@ pub(crate) fn clean_display_string(s: &str) -> String {
 /// formats them as "name (type)".  Having a dedicated function makes it easy to
 /// test.
 #[allow(dead_code)]
-pub(crate) fn block_dialog_title(block: &crate::model::Block) -> String {
+pub fn block_dialog_title(block: &crate::model::Block) -> String {
     format!(
         "{} ({})",
         clean_display_string(&block.name),

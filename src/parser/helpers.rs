@@ -68,20 +68,3 @@ pub fn resolve_system_reference(reference: &str, base_dir: &Utf8Path) -> Utf8Pat
         base_dir.join(candidate)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn clean_whitespace_basic() {
-        assert_eq!(clean_whitespace("foo"), "foo");
-        assert_eq!(clean_whitespace("  foo  "), "foo");
-        assert_eq!(clean_whitespace("foo   bar"), "foo bar");
-        assert_eq!(clean_whitespace("foo\nbar\tbaz"), "foo bar baz");
-        assert_eq!(
-            clean_whitespace("   multiple   \n whitespace  "),
-            "multiple whitespace"
-        );
-    }
-}
