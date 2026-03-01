@@ -11,6 +11,23 @@ use std::sync::RwLock;
 
 use crate::model::{Block, Port, PortCounts, System};
 
+/// Rendering shape for a block body.
+///
+/// Determines how the background fill and border stroke of a block are drawn
+/// in the egui viewer.  The default is [`BlockShape::Rectangle`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
+pub enum BlockShape {
+    /// Standard rectangular block (default).
+    #[default]
+    Rectangle,
+    /// Right-pointing triangle (e.g. Gain blocks).
+    Triangle,
+    /// Circle (e.g. Sum blocks).
+    Circle,
+    /// Solid black rectangle with no interior label (e.g. Bus Creator/Selector).
+    FilledBlack,
+}
+
 /// Side of a block where a port can be placed.
 ///
 /// Used by [`PortPositionOverride`] to specify non-standard port locations,
@@ -60,6 +77,8 @@ pub struct VirtualBlock {
     pub ins: u32,
     /// Number of output ports the block should have when rendered as a stub.
     pub outs: u32,
+    /// Rendering shape for this block's body in the egui viewer.
+    pub shape: BlockShape,
     /// Optional icon to show for this block in the viewer. Paths are relative
     /// to the `icons/` folder embedded by `egui_app::icon_assets`.
     pub icon: Option<&'static str>,
@@ -89,6 +108,7 @@ impl std::fmt::Debug for VirtualBlock {
             .field("aliases", &self.aliases)
             .field("ins", &self.ins)
             .field("outs", &self.outs)
+            .field("shape", &self.shape)
             .field("icon", &self.icon)
             .field(
                 "compute_instance_label",
@@ -135,6 +155,7 @@ impl VirtualBlock {
         aliases: &[],
         ins: 0,
         outs: 0,
+        shape: BlockShape::Rectangle,
         icon: None,
         compute_instance_label: None,
         port_position_overrides: &[],

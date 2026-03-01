@@ -1,4 +1,4 @@
-use super::virtual_library::{PortPlacement, PortPositionOverride, VirtualBlock};
+use super::virtual_library::{BlockShape, PortPlacement, PortPositionOverride, VirtualBlock};
 use crate::model::Block;
 
 pub const LIB_NAME: &str = "simulink/Math Operations";
@@ -16,6 +16,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         aliases: &[],
         ins: 1,
         outs: 1,
+        shape: BlockShape::Triangle,
         compute_instance_label: Some(gain_label),
         ..VirtualBlock::DEFAULT
     },
@@ -24,6 +25,7 @@ pub const BLOCKS: &[VirtualBlock] = &[
         aliases: &[],
         ins: 2,
         outs: 1,
+        shape: BlockShape::Circle,
         port_position_overrides: SUM_PORT_OVERRIDES,
         ..VirtualBlock::DEFAULT
     },

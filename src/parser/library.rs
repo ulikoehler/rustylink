@@ -25,7 +25,7 @@ pub struct LibraryResolver {
 /// Note: Some Simulink models refer to libraries as `NAME.slx/...`. Both
 /// [`is_virtual_library`] and [`split_source_block_reference`] treat `.slx`
 /// suffixes as optional and match case-insensitively.
-pub const SPECIAL_VIRTUAL_LIBRARIES: [&str; 6] = [
+pub const SPECIAL_VIRTUAL_LIBRARIES: [&str; 7] = [
     "simulink/Math Operations",
     // The built-in Simulink library is referenced as `simulink/...` or `simulink.slx/...`.
     "simulink",
@@ -37,6 +37,8 @@ pub const SPECIAL_VIRTUAL_LIBRARIES: [&str; 6] = [
     "simulink/Logic and Bit",
     // Discrete library blocks are referenced as "simulink/Discrete/...".
     "simulink/Discrete",
+    // Signal Routing blocks (BusCreator, BusSelector, …).
+    "simulink/Signal Routing",
 ];
 
 fn normalize_segment(seg: &str) -> String {

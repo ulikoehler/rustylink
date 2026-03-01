@@ -1069,6 +1069,30 @@ pub fn render_manual_switch(
     }
 }
 
+/// Function type for custom block-interior renderers.
+///
+/// A renderer receives the egui painter, the block data, the block's screen
+/// rectangle, and the current font scale factor.
+pub type InteriorRendererFn = fn(&egui::Painter, &Block, &Rect, f32);
+
+fn interior_renderer_registry() -> &'static std::collections::HashMap<&'static str, InteriorRendererFn> {
+    static REG: OnceLock<std::collections::HashMap<&'static str, InteriorRendererFn>> =
+        OnceLock::new();
+    REG.get_or_init(|| {
+        let mut m: std::collections::HashMap<&'static str, InteriorRendererFn> =
+            std::collections::HashMap::new();
+        m.insert("Sum", render_sum_block);
+        m
+    })
+}
+
+/// Look up a custom interior renderer for the given block type, if any.
+///
+/// Returns `None` for block types that use the standard icon / label rendering.
+pub fn get_interior_renderer(block_type: &str) -> Option<InteriorRendererFn> {
+    interior_renderer_registry().get(block_type).copied()
+}
+
 /// Draw the interior labels (+/-) for a Sum block.
 ///
 /// The surrounding circle fill and stroke are drawn in the main ui loop's

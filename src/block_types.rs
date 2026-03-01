@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+pub use crate::builtin_libraries::virtual_library::BlockShape;
 use once_cell::sync::OnceCell;
 
 /// Simple RGB color independent of egui types.
@@ -38,6 +39,12 @@ pub struct BlockTypeConfig {
     pub show_input_port_labels: bool,
     /// Whether to display output port labels inside the block. Default: true.
     pub show_output_port_labels: bool,
+    /// Rendering shape for this block's body.
+    pub shape: BlockShape,
+    /// Default number of input ports when `port_counts` is absent on the block.
+    pub default_ins: u32,
+    /// Default number of output ports when `port_counts` is absent on the block.
+    pub default_outs: u32,
     /// `true` when this entry was explicitly registered (e.g. as a known
     /// virtual-library block).  Blocks with `known = true` but `icon = None`
     /// will silently render a `"?"` placeholder without emitting a terminal
@@ -64,6 +71,9 @@ impl Default for BlockTypeConfig {
             icon: None,
             show_input_port_labels: true,
             show_output_port_labels: true,
+            shape: BlockShape::Rectangle,
+            default_ins: 0,
+            default_outs: 0,
             known: false,
             port_position_overrides: Vec::new(),
             input_port_names: Vec::new(),
@@ -222,6 +232,9 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
                 let cfg = BlockTypeConfig {
                     icon: b.icon.map(IconSpec::Svg),
                     known: true,
+                    shape: b.shape,
+                    default_ins: b.ins,
+                    default_outs: b.outs,
                     port_position_overrides: b.port_position_overrides.to_vec(),
                     input_port_names: b.input_port_names.iter().map(|s| s.to_string()).collect(),
                     output_port_names: b.output_port_names.iter().map(|s| s.to_string()).collect(),

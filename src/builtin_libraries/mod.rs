@@ -10,6 +10,7 @@ pub mod matrix_library;
 pub mod simulink_discrete;
 pub mod simulink_logic_and_bit_ops;
 pub mod simulink_math_operations;
+pub mod simulink_signal_routing;
 
 use crate::model::{Block, System};
 
@@ -18,7 +19,7 @@ use virtual_library::VirtualLibrarySpec;
 // Re-export user library API so downstream users don't need to import the
 // submodule directly.
 pub use virtual_library::{
-    OwnedVirtualBlock, PortPlacement, PortPositionOverride, UserVirtualLibrarySpec,
+    BlockShape, OwnedVirtualBlock, PortPlacement, PortPositionOverride, UserVirtualLibrarySpec,
     register_virtual_library,
 };
 
@@ -43,6 +44,11 @@ pub const VIRTUAL_LIBRARIES: &[VirtualLibrarySpec] = &[
         name: simulink_math_operations::LIB_NAME,
         matches_name: simulink_math_operations::is_simulink_math_operations_name,
         get_blocks: simulink_math_operations::get_blocks,
+    },
+    VirtualLibrarySpec {
+        name: simulink_signal_routing::LIB_NAME,
+        matches_name: simulink_signal_routing::is_simulink_signal_routing_name,
+        get_blocks: simulink_signal_routing::get_blocks,
     },
 ];
 
