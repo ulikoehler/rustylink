@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 164 146.25"
+   width="164"
+   height="146.25"
+   version="1.1"
+   id="svg506"
+   sodipodi:docname="submatrix.svg"
+   inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <defs
+     id="defs510" />
+  <sodipodi:namedview
+     id="namedview508"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     showgrid="false"
+     inkscape:zoom="2.991381"
+     inkscape:cx="18.051863"
+     inkscape:cy="68.53022"
+     inkscape:window-width="1920"
+     inkscape:window-height="1016"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg506" />
+  <path
+     d="M 12,4.25 H 2 v 140 h 10"
+     fill="none"
+     stroke="#333333"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="path478" />
+  <path
+     d="m 152,4.25 h 10 v 140 h -10"
+     fill="none"
+     stroke="#333333"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="path480" />
+  <!-- Row 1 -->
+  <rect
+     x="20"
+     y="9.25"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#333333"
+     stroke="#333333"
+     stroke-width="1.5"
+     id="rect482" />
+  <rect
+     x="64"
+     y="9.25"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#555555"
+     stroke="#555555"
+     stroke-width="1.5"
+     id="rect484" />
+  <rect
+     x="108"
+     y="9.25"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#999999"
+     stroke="#999999"
+     stroke-width="1.5"
+     id="rect486" />
+  <!-- Row 2 -->
+  <rect
+     x="20"
+     y="53.25"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#555555"
+     stroke="#555555"
+     stroke-width="1.5"
+     id="rect488" />
+  <rect
+     x="64"
+     y="53.25"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#333333"
+     stroke="#333333"
+     stroke-width="1.5"
+     id="rect490" />
+  <rect
+     x="108"
+     y="53.25"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#777777"
+     stroke="#777777"
+     stroke-width="1.5"
+     id="rect492" />
+  <!-- Row 3 -->
+  <rect
+     x="20"
+     y="97.25"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#999999"
+     stroke="#999999"
+     stroke-width="1.5"
+     id="rect494" />
+  <rect
+     x="64"
+     y="97.25"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#777777"
+     stroke="#777777"
+     stroke-width="1.5"
+     id="rect496" />
+  <rect
+     x="108"
+     y="97.25"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#333333"
+     stroke="#333333"
+     stroke-width="1.5"
+     id="rect498" />
+  <!-- Dashed rectangle enclosing the 2x2 submatrix (rows 1-2, cols 1-2: cells at 38,25 and 82,69) -->
+  <rect
+     x="12"
+     y="1.25"
+     width="95"
+     height="96"
+     rx="6"
+     ry="8"
+     fill="none"
+     stroke="#e63946"
+     stroke-width="2.5"
+     stroke-dasharray="8, 4"
+     id="rect500"
+     style="stroke-dasharray:none;stroke-width:5" />
+  <!-- Corner brackets / highlight arrows indicating extracted submatrix -->
+  <!-- Top-left label tab -->
+</svg>

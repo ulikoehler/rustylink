@@ -1,195 +1,19 @@
-#![cfg(feature = "egui")]
-#![cfg(feature = "egui")]
-
-use std::collections::HashMap;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-
-use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
-use eframe::egui::epaint::Shape;
-
 use crate::model::EndpointRef;
+use crate::egui_app::geometry::{endpoint_pos_maybe_mirrored, endpoint_pos_with_target_maybe_mirrored};
+use crate::egui_app::render::{ComputedPortYCoordinates, PortLabelMaxWidths, port_label_display_name};
+use std::collections::HashMap;
+use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
+use crate::egui_app::state::SubsystemApp;
+use crate::block_types::BlockShape;
+use crate::egui_app::render::{get_block_type_cfg, render_block_icon, render_center_glyph_maximized, render_manual_switch, get_interior_renderer, wrap_text_to_max_width};
+use crate::egui_app::text::highlight_query_job;
+use crate::egui_app::navigation::resolve_subsystem_by_vec;
+use crate::egui_app::geometry::{parse_rect_str, parse_block_rect};
+use super::types::{UpdateResponse, ClickAction};
+use super::helpers::{is_block_subsystem, record_interaction};
+use super::colors::{block_base_color, contrast_color};
 
-use super::geometry::{
-    endpoint_pos_maybe_mirrored, endpoint_pos_with_target_maybe_mirrored, parse_block_rect,
-    parse_rect_str,
-};
-use super::render::{
-    ComputedPortYCoordinates, get_block_type_cfg, render_block_icon, render_manual_switch,
-};
-use super::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
-use super::navigation::resolve_subsystem_by_vec;
-use super::text::{highlight_query_job, matlab_syntax_job};
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ClickAction {
-    Primary,
-    Secondary,
-    DoublePrimary,
-    DoubleSecondary,
-}
-
-#[derive(Clone, Debug)]
-pub enum UpdateResponse {
-    None,
-    Block {
-        action: ClickAction,
-        block: crate::model::Block,
-        handled: bool,
-    },
-    Signal {
-        action: ClickAction,
-        line_idx: usize,
-        line: crate::model::Line,
-        handled: bool,
-    },
-}
-
-fn is_block_subsystem(b: &crate::model::Block) -> bool {
-    (b.block_type == "SubSystem" || b.block_type == "Reference")
-        && b.subsystem
-            .as_ref()
-            .map_or(false, |sub| sub.chart.is_none())
-}
-
-fn record_interaction(current: &mut UpdateResponse, new: UpdateResponse) {
-    if matches!(new, UpdateResponse::None) {
-        return;
-    }
-    fn is_double(resp: &UpdateResponse) -> bool {
-        match resp {
-            UpdateResponse::Block { action, .. }
-            | UpdateResponse::Signal { action, .. } => matches!(
-                action,
-                ClickAction::DoublePrimary | ClickAction::DoubleSecondary
-            ),
-            UpdateResponse::None => false,
-        }
-    }
-
-    let current_is_double = is_double(current);
-    let new_is_double = is_double(&new);
-
-    if matches!(current, UpdateResponse::None) {
-        *current = new;
-    } else if current_is_double && !new_is_double {
-        // Preserve the earlier double-click interaction.
-    } else if new_is_double && !current_is_double {
-        *current = new;
-    } else {
-        // Default: prefer the most recent interaction.
-        *current = new;
-    }
-}
-
-#[allow(dead_code)]
-fn expand_rect_for_label(
-    rect: Rect,
-    block: &crate::model::Block,
-    ui: &egui::Ui,
-    font_scale: f32,
-) -> Rect {
-    let font = egui::FontId::proportional(14.0 * font_scale);
-    let label = block.name.replace('\n', " ");
-    let galley = ui.painter().layout_no_wrap(label, font, Color32::BLACK);
-    let padding = 16.0 * font_scale;
-    let desired = galley.size().x + padding;
-    if desired > rect.width() {
-        let extra = desired - rect.width();
-        Rect::from_min_max(
-            Pos2::new(rect.min.x - extra * 0.5, rect.min.y),
-            Pos2::new(rect.max.x + extra * 0.5, rect.max.y),
-        )
-    } else {
-        rect
-    }
-}
-
-fn luminance(c: Color32) -> f32 {
-    fn to_lin(u: u8) -> f32 {
-        let s = (u as f32) / 255.0;
-        if s <= 0.04045 {
-            s / 12.92
-        } else {
-            ((s + 0.055) / 1.055).powf(2.4)
-        }
-    }
-    0.2126 * to_lin(c.r()) + 0.7152 * to_lin(c.g()) + 0.0722 * to_lin(c.b())
-}
-
-fn contrast_color(bg: Color32) -> Color32 {
-    let lum = luminance(bg);
-    if lum > 0.6 {
-        Color32::from_rgb(25, 35, 45)
-    } else {
-        Color32::from_rgb(235, 245, 245)
-    }
-}
-
-fn hsv_to_color32(h: f32, s: f32, v: f32) -> Color32 {
-    let h6 = (h * 6.0) % 6.0;
-    let c = v * s;
-    let x = c * (1.0 - ((h6 % 2.0) - 1.0).abs());
-    let (r1, g1, b1) = if h6 < 1.0 {
-        (c, x, 0.0)
-    } else if h6 < 2.0 {
-        (x, c, 0.0)
-    } else if h6 < 3.0 {
-        (0.0, c, x)
-    } else if h6 < 4.0 {
-        (0.0, x, c)
-    } else if h6 < 5.0 {
-        (x, 0.0, c)
-    } else {
-        (c, 0.0, x)
-    };
-    let m = v - c;
-    let (r, g, b) = (r1 + m, g1 + m, b1 + m);
-    Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
-}
-
-fn hash_color(input: &str, s: f32, v: f32) -> Color32 {
-    let mut hasher = DefaultHasher::new();
-    input.hash(&mut hasher);
-    let hash = hasher.finish();
-    let h = (hash as f32 / u64::MAX as f32) % 1.0;
-    hsv_to_color32(h, s, v)
-}
-
-fn block_base_color(
-    block: &crate::model::Block,
-    cfg: &crate::block_types::BlockTypeConfig,
-) -> Color32 {
-    if let Some(ref color_str) = block.background_color {
-        let lower = color_str.to_lowercase();
-        match lower.as_str() {
-            "yellow" => return Color32::from_rgb(255, 230, 120),
-            "red" => return Color32::from_rgb(230, 90, 90),
-            "green" => return Color32::from_rgb(120, 210, 140),
-            "blue" => return Color32::from_rgb(100, 160, 230),
-            "black" => return Color32::from_rgb(40, 40, 40),
-            "white" => return Color32::from_rgb(235, 235, 235),
-            "gray" | "grey" => return Color32::from_rgb(180, 180, 180),
-            _ => {
-                if lower.starts_with('#') && lower.len() == 7 {
-                    if let (Ok(r), Ok(g), Ok(b)) = (
-                        u8::from_str_radix(&lower[1..3], 16),
-                        u8::from_str_radix(&lower[3..5], 16),
-                        u8::from_str_radix(&lower[5..7], 16),
-                    ) {
-                        return Color32::from_rgb(r, g, b);
-                    }
-                }
-            }
-        }
-    }
-    if let Some(bg) = cfg.background {
-        return Color32::from_rgb(bg.0, bg.1, bg.2);
-    }
-    hash_color(&block.block_type, 0.35, 0.90)
-}
-
-fn update_internal(
+pub(crate) fn update_internal(
     app: &mut SubsystemApp,
     ui: &mut egui::Ui,
     enable_context_menus: bool,
@@ -228,6 +52,28 @@ fn update_internal(
             if resp.changed() {
                 app.update_search_matches();
             }
+
+            ui.separator();
+            ui.checkbox(&mut app.show_block_names_default, "Block names");
+            ui.label("Name size");
+            ui.add(
+                egui::DragValue::new(&mut app.block_name_font_factor)
+                    .speed(0.05)
+                    .range(0.2..=2.0),
+            );
+            ui.label("Min name size");
+            ui.add(
+                egui::DragValue::new(&mut app.block_name_min_font_factor)
+                    .speed(0.05)
+                    .range(0.1..=1.0),
+            );
+            ui.label("Max char frac");
+            ui.add(
+                egui::DragValue::new(&mut app.block_name_max_char_width_factor)
+                    .speed(0.01)
+                    .range(0.05..=0.5),
+            );
+
             // Render transient in-GUI notification (right-aligned in the top bar)
             if let Some((msg, expiry)) = &app.transient_notification {
                 if std::time::Instant::now() > *expiry {
@@ -235,7 +81,9 @@ fn update_internal(
                     app.transient_notification = None;
                 } else {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let label = egui::Label::new(RichText::new(msg).color(Color32::from_rgb(255, 200, 80)));
+                        let label = egui::Label::new(
+                            RichText::new(msg).color(Color32::from_rgb(255, 200, 80)),
+                        );
                         ui.add(label);
                     });
                 }
@@ -425,7 +273,7 @@ fn update_internal(
             staged_reset = false;
         }
 
-        let canvas_resp = ui.interact(avail, ui.id().with("canvas"), Sense::drag());
+        let canvas_resp = ui.interact(avail, ui.id().with("canvas"), Sense::click_and_drag());
         if canvas_resp.dragged() {
             let d = canvas_resp.drag_delta();
             staged_pan += d;
@@ -498,45 +346,39 @@ fn update_internal(
         let mut sid_map: HashMap<String, Rect> = HashMap::new();
         let mut sid_screen_map: HashMap<String, Rect> = HashMap::new();
         let mut block_views: Vec<(&crate::model::Block, Rect, bool, Color32)> = Vec::new();
+        let mut any_block_clicked = false;
+
+        fn paint_selected_shadow(painter: &egui::Painter, r: Rect, rounding: f32, font_scale: f32) {
+            let scale = font_scale.max(0.2);
+            // Draw a soft-ish shadow using multiple outside strokes. This ensures the
+            // highlight is only outside the block, never covering its interior.
+            let widths = [10.0 * scale, 18.0 * scale, 28.0 * scale];
+            let alphas = [50_u8, 30_u8, 18_u8];
+            for (w, a) in widths.into_iter().zip(alphas) {
+                let col = Color32::from_rgba_premultiplied(200, 60, 60, a);
+                painter.rect_stroke(
+                    r,
+                    rounding,
+                    Stroke::new(w, col),
+                    egui::StrokeKind::Outside,
+                );
+            }
+        }
+
         for (b, r) in &blocks {
             if let Some(sid) = &b.sid {
                 sid_map.insert(sid.clone(), *r);
             }
-            let mut r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
+            let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
             if let Some(sid) = &b.sid {
                 sid_screen_map.insert(sid.clone(), r_screen);
             }
-            let cfg = get_block_type_cfg(&b.block_type);
+
+            let resp = ui.allocate_rect(r_screen, Sense::click());
+            let cfg = get_block_type_cfg(b);
             let bg = block_base_color(b, &cfg);
             let mut effective_bg = bg;
-            if b.commented {
-                // Light gray background, no outline
-                let commented_bg = Color32::from_rgb(230, 230, 230);
-                effective_bg = commented_bg;
-                ui.painter().rect_filled(r_screen, 0.0, commented_bg);
-                // Icon in dark gray
-                let icon_size = 24.0 * font_scale.max(0.01);
-                let icon_center = r_screen.center();
-                let font = egui::FontId::proportional(icon_size);
-                let dark_icon = Color32::from_rgb(80, 80, 80);
-                if let Some(icon) = cfg.icon {
-                    match icon {
-                        crate::block_types::IconSpec::Utf8(glyph) => {
-                            ui.painter().text(
-                                icon_center,
-                                Align2::CENTER_CENTER,
-                                glyph,
-                                font,
-                                dark_icon,
-                            );
-                        }
-                    }
-                }
-            } else {
-                // Normal block rendering
-                ui.painter().rect_filled(r_screen, 6.0, bg);
-            }
-            let resp = ui.allocate_rect(r_screen, Sense::click());
+
             let mut block_action: Option<ClickAction> = None;
             if resp.double_clicked() {
                 println!("Block {} double-clicked", b.name);
@@ -547,6 +389,81 @@ fn update_internal(
             } else if resp.clicked() {
                 println!("Block {} clicked", b.name);
                 block_action = Some(ClickAction::Primary);
+            }
+
+            // Selection: single-click selects, Shift-click toggles (multi-select).
+            // This is independent from block dialogs (which remain available on double-click).
+            if matches!(block_action, Some(ClickAction::Primary)) {
+                any_block_clicked = true;
+                if let Some(sid) = &b.sid {
+                    let shift = ui.input(|i| i.modifiers.shift);
+                    if shift {
+                        if app.selected_block_sids.contains(sid) {
+                            app.selected_block_sids.remove(sid);
+                        } else {
+                            app.selected_block_sids.insert(sid.clone());
+                        }
+                    } else {
+                        app.selected_block_sids.clear();
+                        app.selected_block_sids.insert(sid.clone());
+                    }
+                }
+            }
+
+            // Clear selection when clicking empty canvas.
+            if canvas_resp.clicked() && !any_block_clicked {
+                if let Some(pos) = canvas_resp.interact_pointer_pos() {
+                    let hit_any = blocks.iter().any(|(_, br)| {
+                        let br_screen = Rect::from_min_max(to_screen(br.min), to_screen(br.max));
+                        br_screen.contains(pos)
+                    });
+                    if !hit_any {
+                        app.selected_block_sids.clear();
+                    }
+                }
+            }
+
+            // Paint selection shadow behind the block (outside-only).
+            if b
+                .sid
+                .as_ref()
+                .map(|sid| app.selected_block_sids.contains(sid))
+                .unwrap_or(false)
+            {
+                let rounding = if b.commented { 0.0 } else { 6.0 };
+                paint_selected_shadow(ui.painter(), r_screen, rounding, font_scale);
+            }
+
+            match cfg.shape {
+                BlockShape::Triangle => {
+                    // Gain-style: right-pointing triangle fill.
+                    // Vertices: left-top, right-center, left-bottom.
+                    let pts = vec![
+                        egui::pos2(r_screen.left(), r_screen.top()),
+                        egui::pos2(r_screen.right(), r_screen.center().y),
+                        egui::pos2(r_screen.left(), r_screen.bottom()),
+                    ];
+                    let mut tri = egui::epaint::PathShape::closed_line(pts, Stroke::NONE);
+                    tri.fill = bg;
+                    ui.painter().add(egui::Shape::Path(tri));
+                }
+                BlockShape::Circle => {
+                    let center = r_screen.center();
+                    let radius = r_screen.size().min_elem() / 2.0;
+                    ui.painter().circle_filled(center, radius, bg);
+                }
+                BlockShape::FilledBlack => {
+                    ui.painter().rect_filled(r_screen, 0.0, Color32::BLACK);
+                }
+                BlockShape::Rectangle => {
+                    if b.commented {
+                        let commented_bg = Color32::from_rgb(230, 230, 230);
+                        effective_bg = commented_bg;
+                        ui.painter().rect_filled(r_screen, 0.0, commented_bg);
+                    } else {
+                        ui.painter().rect_filled(r_screen, 6.0, bg);
+                    }
+                }
             }
             if enable_context_menus {
                 resp.context_menu(|ui| {
@@ -573,7 +490,10 @@ fn update_internal(
             }
             if let Some(action) = block_action {
                 let mut handled = false;
-                if matches!(action, ClickAction::Primary | ClickAction::DoublePrimary) {
+                if matches!(action, ClickAction::Primary) {
+                    // Primary click is used for selection; keep it from opening dialogs/subsystems.
+                    handled = true;
+                } else if matches!(action, ClickAction::DoublePrimary) {
                     if let Some(handler) = block_click_handler_snapshot.as_ref() {
                         handled = handler(app, b);
                     }
@@ -583,13 +503,18 @@ fn update_internal(
                     } else if !handled && b.block_type == "Reference" && b.subsystem.is_none() {
                         // Inform user when a Reference block can't be opened because the
                         // referenced library/subsystem was not resolved.
+                        // Trim/crunch whitespace in the block name before logging.
+                        let clean_name = crate::parser::helpers::clean_whitespace(&b.name);
                         let hint = match b.system_ref.as_deref() {
-                            Some(r) => format!(" (System Ref=\"{}\")", r),
+                            Some(r) => {
+                                let r = crate::parser::helpers::clean_whitespace(r);
+                                format!(" (System Ref=\"{}\")", r)
+                            }
                             None => String::new(),
                         };
                         let msg = format!(
                             "Cannot open reference block '{}'{}: referenced subsystem not resolved. Try adding the library path with -L or placing the library next to the .slx file.",
-                            b.name, hint
+                            clean_name, hint
                         );
                         println!("{}", msg);
                         // show transient in-GUI notification for 5s
@@ -790,31 +715,71 @@ fn update_internal(
 
         let line_stroke_default = Stroke::new(2.0, Color32::LIGHT_GREEN);
         let mut port_counts: HashMap<(String, u8), u32> = HashMap::new();
-        fn reg_ep(ep: &EndpointRef, port_counts: &mut HashMap<(String, u8), u32>) {
+        // Track which ports are actually connected to at least one line.
+        // Key: (sid, port_index, is_input)
+        let mut connected_ports: std::collections::HashSet<(String, u32, bool)> =
+            std::collections::HashSet::new();
+        fn reg_ep(
+            ep: &EndpointRef,
+            port_counts: &mut HashMap<(String, u8), u32>,
+            connected_ports: &mut std::collections::HashSet<(String, u32, bool)>,
+        ) {
             let key = (ep.sid.clone(), if ep.port_type == "out" { 1 } else { 0 });
             let idx1 = if ep.port_index == 0 { 1 } else { ep.port_index };
             port_counts
                 .entry(key)
                 .and_modify(|v| *v = (*v).max(idx1))
                 .or_insert(idx1);
+            connected_ports.insert((ep.sid.clone(), idx1, ep.port_type != "out"));
         }
-        fn reg_branch(br: &crate::model::Branch, port_counts: &mut HashMap<(String, u8), u32>) {
+        fn reg_branch(
+            br: &crate::model::Branch,
+            port_counts: &mut HashMap<(String, u8), u32>,
+            connected_ports: &mut std::collections::HashSet<(String, u32, bool)>,
+        ) {
             if let Some(dst) = &br.dst {
-                reg_ep(dst, port_counts);
+                reg_ep(dst, port_counts, connected_ports);
             }
             for sub in &br.branches {
-                reg_branch(sub, port_counts);
+                reg_branch(sub, port_counts, connected_ports);
             }
         }
         for line in &entities.lines {
             if let Some(src) = &line.src {
-                reg_ep(src, &mut port_counts);
+                reg_ep(src, &mut port_counts, &mut connected_ports);
             }
             if let Some(dst) = &line.dst {
-                reg_ep(dst, &mut port_counts);
+                reg_ep(dst, &mut port_counts, &mut connected_ports);
             }
             for br in &line.branches {
-                reg_branch(br, &mut port_counts);
+                reg_branch(br, &mut port_counts, &mut connected_ports);
+            }
+        }
+
+        // Pre-populate port_counts from block declarations so that the
+        // line-endpoint and chevron positioning formulas use the same
+        // total port count (the block-declared count) when computing Y
+        // positions.  Without this, lines would compute Y using the max
+        // port index seen in connections while chevrons use the block's
+        // declared count, causing a visual mismatch.
+        for (b, _) in &blocks {
+            if let Some(sid) = &b.sid {
+                if let Some(pc) = &b.port_counts {
+                    if let Some(ins) = pc.ins {
+                        let key = (sid.clone(), 0u8);
+                        port_counts
+                            .entry(key)
+                            .and_modify(|v| *v = (*v).max(ins))
+                            .or_insert(ins);
+                    }
+                    if let Some(outs) = pc.outs {
+                        let key = (sid.clone(), 1u8);
+                        port_counts
+                            .entry(key)
+                            .and_modify(|v| *v = (*v).max(outs))
+                            .or_insert(outs);
+                    }
+                }
             }
         }
 
@@ -823,7 +788,7 @@ fn update_internal(
             &crate::model::Line,
             Vec<Pos2>,
             Pos2,
-            Option<ClickAction>,
+            egui::Response,
             usize,
             Vec<(Pos2, Pos2)>,
         )> = Vec::new();
@@ -936,50 +901,17 @@ fn update_internal(
                 Pos2::new(min_x - pad, min_y - pad),
                 Pos2::new(max_x + pad, max_y + pad),
             );
-            let resp = ui.allocate_rect(hit_rect, Sense::click());
-            let mut signal_action: Option<ClickAction> = None;
-            if resp.double_clicked() {
-                println!("Line {} double-clicked", li);
-                signal_action = Some(ClickAction::DoublePrimary);
-            } else if resp.secondary_clicked() {
-                println!("Line {} secondary clicked", li);
-                signal_action = Some(ClickAction::Secondary);
-            } else if resp.clicked() {
-                println!("Line {} clicked", li);
-                signal_action = Some(ClickAction::Primary);
-            }
-            if enable_context_menus {
-                resp.context_menu(|ui| {
-                    if ui.button("Info").clicked() {
-                        let line = &entities.lines[li];
-                        record_interaction(
-                            &mut interaction,
-                            UpdateResponse::Signal {
-                                action: ClickAction::Secondary,
-                                line_idx: li,
-                                line: line.clone(),
-                                handled: false,
-                            },
-                        );
-                        ui.close();
-                    }
-                    let line_ref = &entities.lines[li];
-                    for item in &signal_menu_items_snapshot {
-                        if (item.filter)(line_ref) {
-                            if ui.button(&item.label).clicked() {
-                                (item.on_click)(line_ref);
-                                ui.close();
-                            }
-                        }
-                    }
-                });
-            }
+            // Use Sense::hover() instead of Sense::click() so that the
+            // line bounding-box does not steal click events from blocks that
+            // overlap with it.  Actual click detection is deferred to the
+            // precise per-segment distance check in the second pass.
+            let resp = ui.allocate_rect(hit_rect, Sense::hover());
             let main_anchor = *offsets_pts.last().unwrap_or(&cur);
             line_views.push((
                 line,
                 screen_pts,
                 main_anchor,
-                signal_action,
+                resp,
                 li,
                 segments_all,
             ));
@@ -1013,7 +945,7 @@ fn update_internal(
                     );
                     let num_dst = port_counts.get(&key).copied();
                     let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
-                    let end_pt = super::geometry::endpoint_pos_with_target_maybe_mirrored(
+                    let end_pt = crate::egui_app::geometry::endpoint_pos_with_target_maybe_mirrored(
                         *dr,
                         dstb,
                         num_dst,
@@ -1057,10 +989,8 @@ fn update_internal(
             let ux = dir.x / len;
             let uy = dir.y / len;
             let inset = size * 0.6;
-            let start_inset = size * 0.6;
-            let tail_adj = Pos2::new(tail.x + ux * start_inset, tail.y + uy * start_inset);
             let tip_adj = Pos2::new(tip.x - ux * inset, tip.y - uy * inset);
-            painter.line_segment([tail_adj, tip_adj], stroke);
+            painter.line_segment([tail, tip_adj], stroke);
 
             let px = -uy;
             let py = ux;
@@ -1152,7 +1082,7 @@ fn update_internal(
             }
         }
 
-        for (line, screen_pts, main_anchor, action_opt, li, segments_all) in &line_views {
+        for (line, screen_pts, main_anchor, hover_resp, li, segments_all) in &line_views {
             let color = line_colors
                 .get(*li)
                 .copied()
@@ -1195,7 +1125,11 @@ fn update_internal(
                     &sid_mirrored,
                 );
             }
-            if let Some(action) = action_opt.clone() {
+            // Precise per-segment distance check.  We detect clicks via
+            // pointer state instead of from the bounding-box response so that
+            // line rects (which can be very large) never steal clicks from
+            // blocks that overlap with them.
+            {
                 let mut hit_segments = segments_all.clone();
                 if let Some(first) = hit_segments.first_mut() {
                     let dx = first.1.x - first.0.x;
@@ -1211,8 +1145,7 @@ fn update_internal(
                 }
                 if let Some(cp) = ui.input(|i| i.pointer.interact_pos()) {
                     let mut min_dist = f32::INFINITY;
-                    for (a, b) in hit_segments {
-                        // all segments including branches already in screen space
+                    for (a, b) in &hit_segments {
                         let ab_x = b.x - a.x;
                         let ab_y = b.y - a.y;
                         let ap_x = cp.x - a.x;
@@ -1229,18 +1162,60 @@ fn update_internal(
                             min_dist = dist;
                         }
                     }
-                    if min_dist <= 8.0 {
-                        let title = line.name.clone().unwrap_or("<signal>".into());
-                        let handled = false;
-                        record_interaction(
-                            &mut interaction,
-                            UpdateResponse::Signal {
-                                action,
-                                line_idx: *li,
-                                line: (*line).clone(),
-                                handled,
-                            },
-                        );
+                    let near_segment = min_dist <= 8.0;
+                    if near_segment {
+                        // Determine click type from pointer state.
+                        let primary_clicked = ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Primary));
+                        let secondary_clicked = ui.input(|i| i.pointer.button_clicked(egui::PointerButton::Secondary));
+                        let double_clicked = ui.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary));
+                        let action = if double_clicked {
+                            println!("Line {} double-clicked", li);
+                            Some(ClickAction::DoublePrimary)
+                        } else if secondary_clicked {
+                            println!("Line {} secondary clicked", li);
+                            Some(ClickAction::Secondary)
+                        } else if primary_clicked {
+                            println!("Line {} clicked", li);
+                            Some(ClickAction::Primary)
+                        } else {
+                            None
+                        };
+                        if let Some(action) = action {
+                            record_interaction(
+                                &mut interaction,
+                                UpdateResponse::Signal {
+                                    action,
+                                    line_idx: *li,
+                                    line: (*line).clone(),
+                                    handled: false,
+                                },
+                            );
+                        }
+                    }
+                    // Context menu: show when secondary-clicked near a segment.
+                    if near_segment && enable_context_menus {
+                        hover_resp.context_menu(|ui| {
+                            if ui.button("Info").clicked() {
+                                record_interaction(
+                                    &mut interaction,
+                                    UpdateResponse::Signal {
+                                        action: ClickAction::Secondary,
+                                        line_idx: *li,
+                                        line: (*line).clone(),
+                                        handled: false,
+                                    },
+                                );
+                                ui.close();
+                            }
+                            for item in &signal_menu_items_snapshot {
+                                if (item.filter)(line) {
+                                    if ui.button(&item.label).clicked() {
+                                        (item.on_click)(line);
+                                        ui.close();
+                                    }
+                                }
+                            }
+                        });
                     }
                 }
             }
@@ -1453,7 +1428,7 @@ fn update_internal(
             }
         };
 
-        for (line, screen_pts, main_anchor, _action, li, _segments_all) in &line_views {
+        for (line, screen_pts, main_anchor, _resp, li, _segments_all) in &line_views {
             let color = line_colors
                 .get(*li)
                 .copied()
@@ -1462,8 +1437,8 @@ fn update_internal(
         }
 
         // Clickable labels
-        for (r, li) in signal_label_rects {
-            let resp = ui.interact(r, ui.id().with(("signal_label", li)), Sense::click());
+        for (r, li) in &signal_label_rects {
+            let resp = ui.interact(*r, ui.id().with(("signal_label", *li)), Sense::click());
             let mut label_action: Option<ClickAction> = None;
             if resp.double_clicked() {
                 println!("Line {} double-clicked", li);
@@ -1476,12 +1451,12 @@ fn update_internal(
                 label_action = Some(ClickAction::Primary);
             }
             if let Some(action) = label_action {
-                let line = &entities.lines[li];
+                let line = &entities.lines[*li];
                 record_interaction(
                     &mut interaction,
                     UpdateResponse::Signal {
                         action,
-                        line_idx: li,
+                        line_idx: *li,
                         line: line.clone(),
                         handled: false,
                     },
@@ -1490,19 +1465,19 @@ fn update_internal(
             if enable_context_menus {
                 resp.context_menu(|ui| {
                     if ui.button("Info").clicked() {
-                        let line = &entities.lines[li];
+                        let line = &entities.lines[*li];
                         record_interaction(
                             &mut interaction,
                             UpdateResponse::Signal {
                                 action: ClickAction::Secondary,
-                                line_idx: li,
+                                line_idx: *li,
                                 line: line.clone(),
                                 handled: false,
                             },
                         );
                         ui.close();
                     }
-                    let line_ref = &entities.lines[li];
+                    let line_ref = &entities.lines[*li];
                     for item in &signal_menu_items_snapshot {
                         if (item.filter)(line_ref) {
                             if ui.button(&item.label).clicked() {
@@ -1515,15 +1490,245 @@ fn update_internal(
             }
         }
 
+        // Pre-compute max inside-block port label widths per block (left/right).
+        // The icon renderer uses this to maximize the center icon without overlapping
+        // port labels, while still enforcing ≥10% outer margins.
+        let mut port_label_max_widths: HashMap<String, PortLabelMaxWidths> = HashMap::new();
+        {
+            let mut seen: std::collections::HashSet<(String, u32, bool, i32)> = Default::default();
+            let font_id = egui::FontId::proportional(12.0 * font_scale);
+            for (sid, index, is_input, y) in &port_label_requests {
+                let key = (sid.clone(), *index, *is_input, y.round() as i32);
+                if !seen.insert(key) {
+                    continue;
+                }
+
+                let Some(brect) = sid_screen_map.get(sid).copied() else {
+                    continue;
+                };
+                let Some(block) = blocks.iter().find_map(|(b, _)| {
+                    if b.sid.as_ref() == Some(sid) {
+                        Some(*b)
+                    } else {
+                        None
+                    }
+                }) else {
+                    continue;
+                };
+                if block.mask.is_some() {
+                    continue;
+                }
+                let cfg = get_block_type_cfg(block);
+                if (*is_input && !cfg.show_input_port_labels)
+                    || (!*is_input && !cfg.show_output_port_labels)
+                {
+                    continue;
+                }
+
+                let pname = port_label_display_name(block, *index, *is_input, &cfg);
+                let galley = painter.layout_no_wrap(pname, font_id.clone(), Color32::TRANSPARENT);
+                let size = galley.size();
+
+                // Match the label drawing code: skip labels that won't be drawn due to width.
+                let avail_w = brect.width() - 8.0 * font_scale;
+                if size.x > avail_w {
+                    continue;
+                }
+
+                // Same side selection as the label drawing code.
+                let mirrored = block.block_mirror.unwrap_or(false);
+                let is_left = *is_input ^ mirrored;
+                let entry = port_label_max_widths.entry(sid.clone()).or_default();
+                if is_left {
+                    entry.left = entry.left.max(size.x);
+                } else {
+                    entry.right = entry.right.max(size.x);
+                }
+            }
+        }
+
+        let mut collidable_obstacle_rects: Vec<Rect> = Vec::new();
+        for (_, r, _, _) in &block_views {
+            collidable_obstacle_rects.push(*r);
+        }
+        for (_, screen_pts, _, _, _, _) in &line_views {
+            for seg in screen_pts.windows(2) {
+                let mut min = seg[0].min(seg[1]);
+                let mut max = seg[0].max(seg[1]);
+                min.x -= 2.0; min.y -= 2.0;
+                max.x += 2.0; max.y += 2.0;
+                collidable_obstacle_rects.push(Rect::from_min_max(min, max));
+            }
+        }
+        for (r, _) in &signal_label_rects {
+            collidable_obstacle_rects.push(*r);
+        }
+
         // Finish blocks (border, icon/value, labels) and click handling
         for (b, r_screen, _clicked, bg) in &block_views {
-            let cfg = get_block_type_cfg(&b.block_type);
+            let cfg = get_block_type_cfg(b);
             let border_rgb = cfg.border.unwrap_or(crate::block_types::Rgb(180, 180, 200));
             let stroke = Stroke::new(
                 2.0,
                 Color32::from_rgb(border_rgb.0, border_rgb.1, border_rgb.2),
             );
-            painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
+            match cfg.shape {
+                BlockShape::Triangle => {
+                    let pts = vec![
+                        egui::pos2(r_screen.left(), r_screen.top()),
+                        egui::pos2(r_screen.right(), r_screen.center().y),
+                        egui::pos2(r_screen.left(), r_screen.bottom()),
+                    ];
+                    painter.add(egui::Shape::Path(egui::epaint::PathShape::closed_line(
+                        pts, stroke,
+                    )));
+                }
+                BlockShape::Circle => {
+                    let center = r_screen.center();
+                    let radius = r_screen.size().min_elem() / 2.0;
+                    painter.circle_stroke(center, radius, stroke);
+                }
+                BlockShape::FilledBlack => {
+                    // No separate border — the filled black rect is sufficient.
+                }
+                BlockShape::Rectangle => {
+                    painter.rect_stroke(*r_screen, 4.0, stroke, egui::StrokeKind::Inside);
+                }
+            }
+
+            fn paint_port_chevron_placed(
+                painter: &egui::Painter,
+                outline: Pos2,
+                is_left_side: bool,
+                placement: Option<crate::builtin_libraries::virtual_library::PortPlacement>,
+                font_scale: f32,
+                color: Color32,
+            ) {
+                use crate::builtin_libraries::virtual_library::PortPlacement;
+                let scale = font_scale.max(0.2);
+                let stroke_w = (4.0 * scale).max(1.0);
+                let h = (8.0 * scale * 4.0).max(3.0 * 4.0);
+                let w = (6.0 * scale * 4.0).max(2.0 * 4.0);
+
+                let points = match placement {
+                    Some(PortPlacement::Bottom) => {
+                        // Signal enters from below: draw upward-pointing chevron (^)
+                        // tip just outside (below) the block edge, base further below.
+                        let tip_y = outline.y + stroke_w / 2.0;
+                        let base_y = tip_y + w;
+                        vec![
+                            Pos2::new(outline.x - h / 2.0, base_y),
+                            Pos2::new(outline.x, tip_y),
+                            Pos2::new(outline.x + h / 2.0, base_y),
+                        ]
+                    }
+                    Some(PortPlacement::Top) => {
+                        // Signal enters from above: draw downward-pointing chevron (v)
+                        let tip_y = outline.y - stroke_w / 2.0;
+                        let base_y = tip_y - w;
+                        vec![
+                            Pos2::new(outline.x - h / 2.0, base_y),
+                            Pos2::new(outline.x, tip_y),
+                            Pos2::new(outline.x + h / 2.0, base_y),
+                        ]
+                    }
+                    _ => {
+                        // Horizontal chevron (Left/Right sides)
+                        let (base_x, tip_x) = if is_left_side {
+                            let tip_x = outline.x - stroke_w / 2.0;
+                            (tip_x - w, tip_x)
+                        } else {
+                            let base_x = outline.x + stroke_w / 2.0;
+                            (base_x, base_x + w)
+                        };
+                        vec![
+                            Pos2::new(base_x, outline.y - h / 2.0),
+                            Pos2::new(tip_x, outline.y),
+                            Pos2::new(base_x, outline.y + h / 2.0),
+                        ]
+                    }
+                };
+
+                painter.add(egui::Shape::Path(egui::epaint::PathShape::line(
+                    points,
+                    Stroke::new(stroke_w, color),
+                )));
+            }
+
+            // Draw port indicators derived from the block's own port counts.
+            // This is important for virtual-library blocks (e.g. matrix_library)
+            // and for unconnected blocks where no lines exist yet.
+            // Chevrons are hidden for ports that have at least one connection.
+            // For base blocks port_counts may be absent; fall back to the
+            // virtual-library defaults carried in BlockTypeConfig.
+            let in_count = b
+                .port_counts
+                .as_ref()
+                .and_then(|p| p.ins)
+                .unwrap_or(cfg.default_ins);
+            let out_count = b
+                .port_counts
+                .as_ref()
+                .and_then(|p| p.outs)
+                .unwrap_or(cfg.default_outs);
+            if in_count > 0 || out_count > 0 {
+                let mirrored = b.block_mirror.unwrap_or(false);
+                let overrides = &cfg.port_position_overrides;
+                let (ins, outs) = crate::egui_app::geometry::port_indicator_positions_with_overrides(
+                    *r_screen,
+                    in_count,
+                    out_count,
+                    mirrored,
+                    overrides,
+                );
+                let ins_left_side = !mirrored;
+                let outs_left_side = mirrored;
+                let block_sid = b.sid.as_deref().unwrap_or("");
+                for (i, p) in ins.iter().enumerate() {
+                    let port_idx = (i as u32) + 1;
+                    // Skip chevron if this input port is connected
+                    if connected_ports.contains(&(block_sid.to_string(), port_idx, true)) {
+                        continue;
+                    }
+                    let ovr_placement = overrides
+                        .iter()
+                        .find(|o| o.is_input && o.port_index == port_idx)
+                        .map(|o| o.placement);
+                    let left_side = ovr_placement
+                        .map(|pl| crate::egui_app::geometry::port_override_is_left_side(pl, mirrored))
+                        .unwrap_or(ins_left_side);
+                    paint_port_chevron_placed(
+                        painter,
+                        *p,
+                        left_side,
+                        ovr_placement,
+                        font_scale,
+                        Color32::from_rgb(60, 60, 200),
+                    );
+                }
+                for (i, p) in outs.iter().enumerate() {
+                    let port_idx = (i as u32) + 1;
+                    // Skip chevron if this output port is connected
+                    if connected_ports.contains(&(block_sid.to_string(), port_idx, false)) {
+                        continue;
+                    }
+                    let ovr_placement = overrides
+                        .iter()
+                        .find(|o| !o.is_input && o.port_index == port_idx)
+                        .map(|o| o.placement);
+                    let left_side = ovr_placement
+                        .map(|pl| crate::egui_app::geometry::port_override_is_left_side(pl, mirrored))
+                        .unwrap_or(outs_left_side);
+                    paint_port_chevron_placed(
+                        painter,
+                        *p,
+                        left_side,
+                        ovr_placement,
+                        font_scale,
+                        Color32::from_rgb(200, 60, 60),
+                    );
+                }
+            }
             let fg = contrast_color(*bg);
             let display_signal_label = if b.block_type == "Display" {
                 let sid = b.sid.as_deref();
@@ -1548,10 +1753,22 @@ fn update_internal(
             } else {
                 None
             };
+
+            let icon_port_label_widths = b
+                .sid
+                .as_ref()
+                .and_then(|sid| port_label_max_widths.get(sid))
+                .copied();
             // Icon/value rendering with precedence: mask > value > custom/icon
             if b.block_type == "Constant" {
-                let icon_font = egui::FontId::proportional(18.0 * font_scale);
-                painter.text(r_screen.center(), Align2::CENTER_CENTER, "C", icon_font, fg);
+                render_center_glyph_maximized(
+                    &painter,
+                    r_screen,
+                    font_scale,
+                    "C",
+                    fg,
+                    icon_port_label_widths,
+                );
             } else if b.mask.is_some() {
                 if let Some(text) = b.mask_display_text.as_ref() {
                     let font_size = (b.font_size.unwrap_or(14) as f32) * font_scale;
@@ -1582,78 +1799,199 @@ fn update_internal(
                 let galley = painter.layout_no_wrap(label, font_id.clone(), color);
                 let pos = r_screen.center() - galley.size() * 0.5;
                 painter.galley(pos, galley, color);
+            } else if let Some(instance_label) =
+                crate::builtin_libraries::compute_block_instance_label(b)
+            {
+                // Per-instance label from InstanceData (e.g. "≤ 3.0" for Compare To Constant).
+                let beneath_font_px = 12.0 * font_scale;
+                let font_id = egui::FontId::proportional(beneath_font_px);
+                let color = fg;
+                let galley = painter.layout_no_wrap(instance_label, font_id.clone(), color);
+                let pos = r_screen.center() - galley.size() * 0.5;
+                painter.galley(pos, galley, color);
             } else if b.block_type == "ManualSwitch" {
                 let coords_ref = b.sid.as_ref().and_then(|sid| block_port_y_map.get(sid));
                 render_manual_switch(&painter, b, r_screen, font_scale, coords_ref);
+            } else if let Some(renderer) = get_interior_renderer(&b.block_type) {
+                renderer(&painter, b, r_screen, font_scale);
+            } else if cfg.shape == BlockShape::FilledBlack {
+                // Solid-fill blocks (e.g. BusCreator/BusSelector) need no interior rendering.
             } else {
-                render_block_icon(&painter, b, r_screen, font_scale);
+                render_block_icon(
+                    &painter,
+                    b,
+                    r_screen,
+                    font_scale,
+                    icon_port_label_widths,
+                );
             }
-            // Respect ShowName flag when drawing label near the block according to NameLocation.
-            // If value is shown or mask display is used, do not draw the name label
-            let show_name = b.show_name.unwrap_or(true);
-            let suppress_label = b.mask.is_some();
-            if show_name && !suppress_label {
-                let lines: Vec<&str> = b.name.split('\n').collect();
-                let font = egui::FontId::proportional(10.0 * font_scale);
-                // Force white labels beneath/around blocks for consistent readability
-                let color = Color32::WHITE;
-                let line_height = 16.0 * font_scale;
-                match b.name_location {
-                    crate::model::NameLocation::Bottom => {
-                        let mut y = r_screen.bottom() + 2.0 * font_scale;
-                        for line in lines.iter().copied() {
-                            let pos = Pos2::new(r_screen.center().x, y);
-                            painter.text(pos, Align2::CENTER_TOP, line, font.clone(), color);
-                            y += line_height;
+            // Draw block name label near the block according to NameLocation.
+            // Global default can be toggled; per-block override uses `Block::show_name`.
+            let show_name = b.show_name.unwrap_or(app.show_block_names_default);
+            if show_name {
+                let scale = font_scale.max(0.2);
+
+                // Keep name width bounded relative to (block + chevrons) width.
+                let chevron_h = (8.0 * scale * 4.0).max(3.0 * 4.0);
+                let chevron_w = (6.0 * scale * 4.0).max(2.0 * 4.0);
+
+                let in_count = b
+                    .port_counts
+                    .as_ref()
+                    .and_then(|p| p.ins)
+                    .unwrap_or(cfg.default_ins);
+                let out_count = b
+                    .port_counts
+                    .as_ref()
+                    .and_then(|p| p.outs)
+                    .unwrap_or(cfg.default_outs);
+                let mirrored = b.block_mirror.unwrap_or(false);
+                let ins_left_side = !mirrored;
+                let outs_left_side = mirrored;
+                let has_left = (in_count > 0 && ins_left_side) || (out_count > 0 && outs_left_side);
+                let has_right = (in_count > 0 && !ins_left_side)
+                    || (out_count > 0 && !outs_left_side);
+                let left_extra = if has_left { chevron_w } else { 0.0 };
+                let right_extra = if has_right { chevron_w } else { 0.0 };
+                let overall_w = r_screen.width() + left_extra + right_extra;
+                let max_label_w = overall_w * 0.95;
+
+                let mut font_px = (chevron_h * app.block_name_font_factor).max(1.0);
+
+                // Typical character width is roughly font_px * 0.5 for a proportional font.
+                let max_font_px = r_screen.width() * app.block_name_max_char_width_factor * 2.0;
+                if font_px > max_font_px {
+                    font_px = max_font_px.max(1.0);
+                }
+                let min_font_px = (chevron_h * app.block_name_min_font_factor).max(1.0);
+
+                let color = app.block_name_color;
+
+                let mut current_font_px = font_px;
+                let mut best_lines = vec![];
+                let mut best_font_px = current_font_px;
+                let mut best_line_height = 0.0;
+                let mut best_rects = vec![];
+
+                let left = r_screen.left() - left_extra;
+                let right = r_screen.right() + right_extra;
+                let center_x = (left + right) * 0.5;
+
+                loop {
+                    let font = egui::FontId::proportional(current_font_px);
+                    let line_height = (current_font_px * 1.2).max(1.0);
+                    let lines = wrap_text_to_max_width(painter, &b.name, font.clone(), max_label_w);
+                    if lines.is_empty() {
+                        break;
+                    }
+
+                    let total_h = (lines.len() as f32) * line_height;
+                    let mut max_w = 0.0_f32;
+                    for l in &lines {
+                        let w = painter.layout_no_wrap(l.to_string(), font.clone(), color).size().x;
+                        if w > max_w { max_w = w; }
+                    }
+
+                    let mut rects = Vec::new();
+                    match b.name_location {
+                        crate::model::NameLocation::Bottom => {
+                            let top = r_screen.bottom() + 2.0 * font_scale;
+                            rects.push(Rect::from_min_size(Pos2::new(center_x - max_w * 0.5, top), eframe::egui::vec2(max_w, total_h)));
+                        }
+                        crate::model::NameLocation::Top => {
+                            let bottom = r_screen.top() - 2.0 * font_scale;
+                            rects.push(Rect::from_min_size(Pos2::new(center_x - max_w * 0.5, bottom - total_h), eframe::egui::vec2(max_w, total_h)));
+                        }
+                        crate::model::NameLocation::Left => {
+                            let y_start = r_screen.center().y - total_h * 0.5;
+                            let gap = 2.0 * font_scale;
+                            let x_right = r_screen.left() - gap;
+                            rects.push(Rect::from_min_size(Pos2::new(x_right - max_w, y_start), eframe::egui::vec2(max_w, total_h)));
+                        }
+                        crate::model::NameLocation::Right => {
+                            let y_start = r_screen.center().y - total_h * 0.5;
+                            let gap = 2.0 * font_scale;
+                            let x_left = r_screen.right() + gap;
+                            rects.push(Rect::from_min_size(Pos2::new(x_left, y_start), eframe::egui::vec2(max_w, total_h)));
                         }
                     }
-                    crate::model::NameLocation::Top => {
-                        // Mirror of bottom: start just above the block and stack upwards.
-                        // Keep the first line closest to the block (same as bottom behavior).
-                        let mut y = r_screen.top() - 2.0 * font_scale;
-                        for line in lines.iter().copied() {
-                            let pos = Pos2::new(r_screen.center().x, y);
-                            painter.text(pos, Align2::CENTER_BOTTOM, line, font.clone(), color);
-                            y -= line_height;
+
+                    let mut collides = false;
+                    for r in &rects {
+                        let expanded = r.expand(2.0);
+                        for obs in &collidable_obstacle_rects {
+                            if expanded.intersects(*obs) {
+                                collides = true;
+                                break;
+                            }
+                        }
+                        if collides {
+                            break;
                         }
                     }
-                    crate::model::NameLocation::Left => {
-                        // Place labels to the left of the block without overlap: align each line's right edge
-                        // to r_screen.left() - gap.
-                        let mut galleys: Vec<(std::sync::Arc<egui::Galley>, f32)> = Vec::new();
-                        for line in lines.iter().copied() {
-                            let galley =
-                                painter.layout_no_wrap(line.to_string(), font.clone(), color);
-                            galleys.push((galley, line_height));
-                        }
-                        let total_h = (lines.len() as f32) * line_height;
-                        let mut y = r_screen.center().y - total_h * 0.5;
-                        let gap = 2.0 * font_scale;
-                        let x_right = r_screen.left() - gap;
-                        for (galley, lh) in galleys {
-                            let pos = Pos2::new(x_right - galley.size().x, y);
-                            painter.galley(pos, galley, color);
-                            y += lh;
-                        }
+
+                    best_lines = lines;
+                    best_font_px = current_font_px;
+                    best_line_height = line_height;
+                    best_rects = rects;
+
+                    if !collides {
+                        break;
                     }
-                    crate::model::NameLocation::Right => {
-                        // Place labels to the right of the block
-                        let mut galleys: Vec<(std::sync::Arc<egui::Galley>, f32)> = Vec::new();
-                        let mut max_w = 0.0f32;
-                        for line in lines.iter().copied() {
-                            let galley =
-                                painter.layout_no_wrap(line.to_string(), font.clone(), color);
-                            max_w = max_w.max(galley.size().x);
-                            galleys.push((galley, line_height));
+
+                    let next_font_px = current_font_px * 0.9;
+                    if next_font_px < min_font_px {
+                        break;
+                    }
+                    current_font_px = next_font_px;
+                }
+
+                if !best_lines.is_empty() {
+                    collidable_obstacle_rects.extend(best_rects);
+                    let font = egui::FontId::proportional(best_font_px);
+                    let line_height = best_line_height;
+
+                    match b.name_location {
+                        crate::model::NameLocation::Bottom => {
+                            let mut y = r_screen.bottom() + 2.0 * font_scale;
+                            for line in &best_lines {
+                                let pos = Pos2::new(center_x, y);
+                                painter.text(pos, Align2::CENTER_TOP, line, font.clone(), color);
+                                y += line_height;
+                            }
                         }
-                        let total_h = (lines.len() as f32) * line_height;
-                        let mut y = r_screen.center().y - total_h * 0.5;
-                        let x = r_screen.right() + 2.0 * font_scale;
-                        for (galley, lh) in galleys {
-                            // draw at left-top; ensure we offset slightly from block on the right
-                            let pos = Pos2::new(x + 2.0 * font_scale, y);
-                            painter.galley(pos, galley, color);
-                            y += lh;
+                        crate::model::NameLocation::Top => {
+                            // Mirror of bottom: keep the first line closest to the block.
+                            let mut y = r_screen.top() - 2.0 * font_scale;
+                            // Reverse lines so the first line is highest (furthest from block)
+                            for line in best_lines.iter().rev() {
+                                let pos = Pos2::new(center_x, y);
+                                painter.text(pos, Align2::CENTER_BOTTOM, line, font.clone(), color);
+                                y -= line_height;
+                            }
+                        }
+                        crate::model::NameLocation::Left => {
+                            let total_h = (best_lines.len() as f32) * line_height;
+                            let mut y = r_screen.center().y - total_h * 0.5;
+                            let gap = 2.0 * font_scale;
+                            let x_right = r_screen.left() - gap;
+                            for line in &best_lines {
+                                let galley = painter.layout_no_wrap(line.to_string(), font.clone(), color);
+                                let pos = Pos2::new(x_right - galley.size().x, y);
+                                painter.galley(pos, galley, color);
+                                y += line_height;
+                            }
+                        }
+                        crate::model::NameLocation::Right => {
+                            let total_h = (best_lines.len() as f32) * line_height;
+                            let mut y = r_screen.center().y - total_h * 0.5;
+                            let x = r_screen.right() + 2.0 * font_scale;
+                            for line in &best_lines {
+                                let galley = painter.layout_no_wrap(line.to_string(), font.clone(), color);
+                                let pos = Pos2::new(x + 2.0 * font_scale, y);
+                                painter.galley(pos, galley, color);
+                                y += line_height;
+                            }
                         }
                     }
                 }
@@ -1685,36 +2023,16 @@ fn update_internal(
             if block.mask.is_some() {
                 continue;
             }
-            let cfg = get_block_type_cfg(&block.block_type);
+            let cfg = get_block_type_cfg(block);
             if (is_input && !cfg.show_input_port_labels)
                 || (!is_input && !cfg.show_output_port_labels)
             {
                 continue;
             }
-            // Swap label side if block is mirrored (inputs on right, outputs on left)
             let mirrored = block.block_mirror.unwrap_or(false);
-            let logical_is_input = if mirrored { !is_input } else { is_input };
-            let pname = block
-                .ports
-                .iter()
-                .filter(|p| {
-                    p.port_type == if logical_is_input { "in" } else { "out" }
-                        && p.index.unwrap_or(0) == index
-                })
-                .filter_map(|p| {
-                    p.properties
-                        .get("Name")
-                        .cloned()
-                        .or_else(|| p.properties.get("PropagatedSignals").cloned())
-                        .or_else(|| p.properties.get("name").cloned())
-                        .or_else(|| {
-                            Some(format!("{}{}", if is_input { "In" } else { "Out" }, index))
-                        })
-                })
-                .next()
-                .unwrap_or_else(|| format!("{}{}", if is_input { "In" } else { "Out" }, index));
+            let pname = port_label_display_name(block, index, is_input, &cfg);
             let galley = ui.painter().layout_no_wrap(
-                pname.clone(),
+                pname,
                 font_id.clone(),
                 Color32::from_rgb(40, 40, 40),
             );
@@ -1754,444 +2072,3 @@ fn update_internal(
     interaction
 }
 
-fn build_chart_view_for_block(
-    app: &SubsystemApp,
-    block: &crate::model::Block,
-) -> Option<ChartView> {
-    let is_chart_block = block.block_type == "MATLAB Function"
-        || (block.block_type == "SubSystem" && block.is_matlab_function);
-    if !is_chart_block {
-        return None;
-    }
-    let by_sid = block
-        .sid
-        .as_ref()
-        .and_then(|sid| app.chart_map.get(sid))
-        .cloned();
-    let mut instance_name = if app.path.is_empty() {
-        block.name.clone()
-    } else {
-        format!("{}/{}", app.path.join("/"), block.name)
-    };
-    instance_name = instance_name.trim_matches('/').to_string();
-    let cid_opt = by_sid.or_else(|| app.chart_map.get(&instance_name).cloned());
-    let chart = cid_opt.and_then(|cid| app.charts.get(&cid));
-    chart.map(|chart| ChartView {
-        title: chart
-            .name
-            .clone()
-            .or(chart.eml_name.clone())
-            .unwrap_or_else(|| block.name.clone()),
-        script: chart.script.clone().unwrap_or_default(),
-        open: true,
-    })
-}
-
-pub fn apply_update_response(app: &mut SubsystemApp, response: &UpdateResponse) {
-    match response {
-        UpdateResponse::None => {}
-        UpdateResponse::Signal {
-            line_idx,
-            line,
-            handled,
-            ..
-        } => {
-            if *handled {
-                return;
-            }
-            let title = line.name.clone().unwrap_or("<signal>".into());
-            app.signal_view = Some(SignalDialog {
-                title,
-                line_idx: *line_idx,
-                open: true,
-            });
-        }
-        UpdateResponse::Block { block, handled, .. } => {
-            if *handled {
-                return;
-            }
-            if is_block_subsystem(block) {
-                return;
-            }
-            if let Some(cv) = build_chart_view_for_block(app, block) {
-                app.chart_view = Some(cv);
-                let title_b = format!("{} ({})", block.name, block.block_type);
-                app.block_view = Some(BlockDialog {
-                    title: title_b,
-                    block: block.clone(),
-                    open: true,
-                });
-            } else {
-                let title = format!("{} ({})", block.name, block.block_type);
-                app.block_view = Some(BlockDialog {
-                    title,
-                    block: block.clone(),
-                    open: true,
-                });
-            }
-        }
-    }
-}
-
-fn show_chart_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
-    if let Some(cv) = &mut app.chart_view {
-        let mut open_flag = cv.open;
-        egui::Window::new(format!("Chart: {}", cv.title))
-            .open(&mut open_flag)
-            .resizable(true)
-            .vscroll(true)
-            .min_width(400.0)
-            .min_height(200.0)
-            .show(ui.ctx(), |ui| {
-                egui::ScrollArea::vertical()
-                    .auto_shrink([false; 2])
-                    .show(ui, |ui| {
-                        let job = matlab_syntax_job(&cv.script);
-                        ui.add(egui::Label::new(job).wrap());
-                    });
-            });
-        cv.open = open_flag;
-        if !cv.open {
-            app.chart_view = None;
-        }
-    }
-}
-
-fn show_signal_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
-    if let Some(sd) = &app.signal_view {
-        let mut open_flag = sd.open;
-        let title = format!("Signal: {}", sd.title);
-        let sys = app.current_system().map(|s| s.clone());
-        let line_idx = sd.line_idx;
-        egui::Window::new(title)
-            .open(&mut open_flag)
-            .resizable(true)
-            .vscroll(true)
-            .min_width(360.0)
-            .min_height(200.0)
-            .show(ui.ctx(), |ui| {
-                if let Some(sys) = &sys {
-                    if let Some(line) = sys.lines.get(line_idx) {
-                        ui.label(RichText::new("General").strong());
-                        ui.horizontal_wrapped(|ui| {
-                            ui.label(format!(
-                                "Name: {}",
-                                line.name.clone().unwrap_or("<unnamed>".into())
-                            ));
-                            if let Some(z) = &line.zorder {
-                                ui.label(format!("Z: {}", z));
-                            }
-                        });
-                        ui.separator();
-                        let mut outputs: Vec<EndpointRef> = Vec::new();
-                        fn collect_branch_dsts(
-                            br: &crate::model::Branch,
-                            out: &mut Vec<EndpointRef>,
-                        ) {
-                            if let Some(d) = &br.dst {
-                                out.push(d.clone());
-                            }
-                            for s in &br.branches {
-                                collect_branch_dsts(s, out);
-                            }
-                        }
-                        if let Some(d) = &line.dst {
-                            outputs.push(d.clone());
-                        }
-                        for b in &line.branches {
-                            collect_branch_dsts(b, &mut outputs);
-                        }
-                        egui::CollapsingHeader::new("Inputs")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                if let Some(src) = &line.src {
-                                    let bname = sys
-                                        .blocks
-                                        .iter()
-                                        .find(|b| b.sid.as_ref() == Some(&src.sid))
-                                        .map(|b| b.name.clone())
-                                        .unwrap_or_else(|| format!("SID{}", src.sid));
-                                    let pname = sys
-                                        .blocks
-                                        .iter()
-                                        .find(|b| b.sid.as_ref() == Some(&src.sid))
-                                        .and_then(|b| {
-                                            b.ports.iter().find(|p| {
-                                                p.port_type == src.port_type
-                                                    && p.index.unwrap_or(0) == src.port_index
-                                            })
-                                        })
-                                        .and_then(|p| {
-                                            p.properties
-                                                .get("Name")
-                                                .cloned()
-                                                .or_else(|| p.properties.get("name").cloned())
-                                        })
-                                        .unwrap_or_else(|| {
-                                            format!(
-                                                "{}{}",
-                                                if src.port_type == "in" { "In" } else { "Out" },
-                                                src.port_index
-                                            )
-                                        });
-                                    ui.label(format!(
-                                        "{} • {}{} ({}): {}",
-                                        bname,
-                                        if src.port_type == "in" { "In" } else { "Out" },
-                                        src.port_index,
-                                        src.port_type,
-                                        pname
-                                    ));
-                                } else {
-                                    ui.label("<no source>");
-                                }
-                            });
-                        egui::CollapsingHeader::new("Outputs")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                if outputs.is_empty() {
-                                    ui.label("<none>");
-                                }
-                                for d in outputs {
-                                    let bname = sys
-                                        .blocks
-                                        .iter()
-                                        .find(|b| b.sid.as_ref() == Some(&d.sid))
-                                        .map(|b| b.name.clone())
-                                        .unwrap_or_else(|| format!("SID{}", d.sid));
-                                    let pname = sys
-                                        .blocks
-                                        .iter()
-                                        .find(|b| b.sid.as_ref() == Some(&d.sid))
-                                        .and_then(|b| {
-                                            b.ports.iter().find(|p| {
-                                                p.port_type == d.port_type
-                                                    && p.index.unwrap_or(0) == d.port_index
-                                            })
-                                        })
-                                        .and_then(|p| {
-                                            p.properties
-                                                .get("Name")
-                                                .cloned()
-                                                .or_else(|| p.properties.get("name").cloned())
-                                        })
-                                        .unwrap_or_else(|| {
-                                            format!(
-                                                "{}{}",
-                                                if d.port_type == "in" { "In" } else { "Out" },
-                                                d.port_index
-                                            )
-                                        });
-                                    ui.label(format!(
-                                        "{} • {}{} ({}): {}",
-                                        bname,
-                                        if d.port_type == "in" { "In" } else { "Out" },
-                                        d.port_index,
-                                        d.port_type,
-                                        pname
-                                    ));
-                                }
-                            });
-                        if !app.signal_buttons.is_empty() {
-                            ui.separator();
-                            ui.label(RichText::new("Actions").strong());
-                            ui.horizontal_wrapped(|ui| {
-                                for btn in &app.signal_buttons {
-                                    if (btn.filter)(line) {
-                                        if ui.button(&btn.label).clicked() {
-                                            (btn.on_click)(line);
-                                        }
-                                    }
-                                }
-                            });
-                        }
-                    } else {
-                        ui.colored_label(
-                            Color32::RED,
-                            "Selected signal no longer exists in this view",
-                        );
-                    }
-                }
-            });
-        if let Some(sd_mut) = &mut app.signal_view {
-            sd_mut.open = open_flag;
-            if !sd_mut.open {
-                app.signal_view = None;
-            }
-        }
-    }
-}
-
-fn show_block_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
-    if let Some(bd) = &app.block_view {
-        let mut open_flag = bd.open;
-        let block = bd.block.clone();
-        egui::Window::new(format!("Block: {}", bd.title))
-            .open(&mut open_flag)
-            .resizable(true)
-            .vscroll(true)
-            .min_width(360.0)
-            .min_height(220.0)
-            .show(ui.ctx(), |ui| {
-                ui.label(RichText::new("General").strong());
-                ui.horizontal_wrapped(|ui| {
-                    ui.label(format!("Name: {}", block.name));
-                    ui.label(format!("Type: {}", block.block_type));
-                    if let Some(sid) = block.sid.as_ref() {
-                        ui.label(format!("SID: {}", sid));
-                    }
-                    if let Some(z) = &block.zorder {
-                        ui.label(format!("Z: {}", z));
-                    }
-                    if block.commented {
-                        ui.label("commented");
-                    }
-                });
-                ui.separator();
-                egui::CollapsingHeader::new("Properties")
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        if block.properties.is_empty() {
-                            ui.label("<none>");
-                        }
-                        for (k, v) in &block.properties {
-                            ui.horizontal(|ui| {
-                                ui.label(RichText::new(k).strong());
-                                ui.label(v);
-                            });
-                        }
-                    });
-                if block.block_type == "CFunction" {
-                    if let Some(cfg) = &block.c_function {
-                        ui.separator();
-                        egui::CollapsingHeader::new("C/C++ Code")
-                            .default_open(true)
-                            .show(ui, |ui| {
-                                if let Some(s) = &cfg.start_code {
-                                    ui.label(RichText::new("StartCode").strong());
-                                    ui.add(
-                                        egui::TextEdit::multiline(&mut s.clone())
-                                            .desired_width(f32::INFINITY),
-                                    );
-                                }
-                                if let Some(s) = &cfg.output_code {
-                                    ui.label(RichText::new("OutputCode").strong());
-                                    ui.add(
-                                        egui::TextEdit::multiline(&mut s.clone())
-                                            .desired_width(f32::INFINITY),
-                                    );
-                                }
-                                if let Some(s) = &cfg.terminate_code {
-                                    ui.label(RichText::new("TerminateCode").strong());
-                                    ui.add(
-                                        egui::TextEdit::multiline(&mut s.clone())
-                                            .desired_width(f32::INFINITY),
-                                    );
-                                }
-                                if let Some(s) = &cfg.codegen_start_code {
-                                    ui.label(RichText::new("CodegenStartCode").strong());
-                                    ui.add(
-                                        egui::TextEdit::multiline(&mut s.clone())
-                                            .desired_width(f32::INFINITY),
-                                    );
-                                }
-                                if let Some(s) = &cfg.codegen_output_code {
-                                    ui.label(RichText::new("CodegenOutputCode").strong());
-                                    ui.add(
-                                        egui::TextEdit::multiline(&mut s.clone())
-                                            .desired_width(f32::INFINITY),
-                                    );
-                                }
-                                if let Some(s) = &cfg.codegen_terminate_code {
-                                    ui.label(RichText::new("CodegenTerminateCode").strong());
-                                    ui.add(
-                                        egui::TextEdit::multiline(&mut s.clone())
-                                            .desired_width(f32::INFINITY),
-                                    );
-                                }
-                            });
-                    }
-                }
-                egui::CollapsingHeader::new("Ports")
-                    .default_open(true)
-                    .show(ui, |ui| {
-                        if block.ports.is_empty() {
-                            ui.label("<none>");
-                            return;
-                        }
-                        let mut ins: Vec<&crate::model::Port> =
-                            block.ports.iter().filter(|p| p.port_type == "in").collect();
-                        let mut outs: Vec<&crate::model::Port> = block
-                            .ports
-                            .iter()
-                            .filter(|p| p.port_type == "out")
-                            .collect();
-                        ins.sort_by_key(|p| p.index.unwrap_or(0));
-                        outs.sort_by_key(|p| p.index.unwrap_or(0));
-                        if !ins.is_empty() {
-                            ui.label(RichText::new("Inputs").strong());
-                        }
-                        for p in ins {
-                            let idx = p.index.unwrap_or(0);
-                            let name = p
-                                .properties
-                                .get("Name")
-                                .or_else(|| p.properties.get("name"))
-                                .cloned()
-                                .unwrap_or_else(|| format!("In{}", idx));
-                            ui.label(format!("{}{}: {}", "In", idx, name));
-                        }
-                        if !outs.is_empty() {
-                            ui.separator();
-                            ui.label(RichText::new("Outputs").strong());
-                        }
-                        for p in outs {
-                            let idx = p.index.unwrap_or(0);
-                            let name = p
-                                .properties
-                                .get("Name")
-                                .or_else(|| p.properties.get("name"))
-                                .cloned()
-                                .unwrap_or_else(|| format!("Out{}", idx));
-                            ui.label(format!("{}{}: {}", "Out", idx, name));
-                        }
-                    });
-                if !app.block_buttons.is_empty() {
-                    ui.separator();
-                    ui.label(RichText::new("Actions").strong());
-                    ui.horizontal_wrapped(|ui| {
-                        for btn in &app.block_buttons {
-                            if (btn.filter)(&block) {
-                                if ui.button(&btn.label).clicked() {
-                                    (btn.on_click)(&block);
-                                }
-                            }
-                        }
-                    });
-                }
-            });
-        if let Some(bd_mut) = &mut app.block_view {
-            bd_mut.open = open_flag;
-            if !bd_mut.open {
-                app.block_view = None;
-            }
-        }
-    }
-}
-
-pub fn show_info_windows(app: &mut SubsystemApp, ui: &mut egui::Ui) {
-    show_chart_window(app, ui);
-    show_signal_window(app, ui);
-    show_block_window(app, ui);
-}
-
-pub fn update(app: &mut SubsystemApp, ui: &mut egui::Ui) -> UpdateResponse {
-    update_internal(app, ui, false)
-}
-
-pub fn update_with_info(app: &mut SubsystemApp, ui: &mut egui::Ui) -> UpdateResponse {
-    let response = update_internal(app, ui, true);
-    apply_update_response(app, &response);
-    show_info_windows(app, ui);
-    response
-}

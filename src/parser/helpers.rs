@@ -45,6 +45,17 @@ pub fn parse_endpoint(s: &str) -> Result<EndpointRef> {
     })
 }
 
+/// Return a version of `s` with all whitespace collapsed and trimmed.
+///
+/// Leading/trailing whitespace is removed and any sequence of interior
+/// whitespace characters (spaces, tabs, newlines) is replaced by a single
+/// space.  This is handy for sanitising names that are displayed in log
+/// messages so that stray newlines or extra spaces cannot confuse a human
+/// reader.
+pub fn clean_whitespace(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Resolve a system reference like `"system_22"` to a full XML path.
 pub fn resolve_system_reference(reference: &str, base_dir: &Utf8Path) -> Utf8PathBuf {
     let mut candidate = Utf8PathBuf::from(reference);

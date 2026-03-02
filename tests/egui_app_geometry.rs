@@ -1,6 +1,6 @@
 #![cfg(feature = "egui")]
 
-use rustylink::egui_app::{PortSide, parse_block_rect, port_anchor_pos};
+use rustylink::egui_app::{PortSide, parse_block_rect, port_anchor_pos, port_indicator_positions};
 use rustylink::model::Block;
 
 #[test]
@@ -45,4 +45,55 @@ fn test_ports_and_rect() {
     let p_in = port_anchor_pos(r, PortSide::In, 1, Some(2));
     let p_out = port_anchor_pos(r, PortSide::Out, 2, Some(2));
     assert!(p_in.y < p_out.y && p_in.x < p_out.x);
+}
+
+#[test]
+fn test_port_indicator_positions_count_and_sides() {
+    let b = Block {
+        block_type: "Gain".into(),
+        name: "G".into(),
+        sid: None,
+        tag_name: "Block".into(),
+        position: Some("[10, 20, 50, 60]".into()),
+        zorder: None,
+        commented: false,
+        name_location: rustylink::model::NameLocation::Bottom,
+        is_matlab_function: false,
+        properties: Default::default(),
+        ref_properties: Default::default(),
+        port_counts: None,
+        ports: vec![],
+        c_function: None,
+        mask: None,
+        annotations: vec![],
+        subsystem: None,
+        system_ref: None,
+        instance_data: None,
+        link_data: None,
+        background_color: None,
+        show_name: None,
+        font_size: None,
+        font_weight: None,
+        mask_display_text: None,
+        value: None,
+        value_kind: rustylink::model::ValueKind::Unknown,
+        value_rows: None,
+        value_cols: None,
+        current_setting: None,
+        block_mirror: None,
+        library_source: None,
+        library_block_path: None,
+        child_order: vec![],
+    };
+    let r = parse_block_rect(&b).unwrap();
+
+    let (ins, outs) = port_indicator_positions(r, 2, 1, false);
+    assert_eq!(ins.len(), 2);
+    assert_eq!(outs.len(), 1);
+    assert!(ins.iter().all(|p| (p.x - r.left()).abs() < 1e-6));
+    assert!(outs.iter().all(|p| (p.x - r.right()).abs() < 1e-6));
+
+    let (ins_m, outs_m) = port_indicator_positions(r, 2, 1, true);
+    assert!(ins_m.iter().all(|p| (p.x - r.right()).abs() < 1e-6));
+    assert!(outs_m.iter().all(|p| (p.x - r.left()).abs() < 1e-6));
 }

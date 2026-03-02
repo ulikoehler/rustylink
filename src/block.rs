@@ -69,10 +69,7 @@ pub fn parse_mask_node(node: Node) -> Result<Mask> {
                 display = child.text().map(|s| s.to_string());
                 // Capture all attributes on <Display>
                 for attr in child.attributes() {
-                    display_attrs.insert(
-                        attr.name().to_string(),
-                        attr.value().to_string(),
-                    );
+                    display_attrs.insert(attr.name().to_string(), attr.value().to_string());
                 }
             }
             "Description" => description = child.text().map(|s| s.to_string()),
@@ -478,14 +475,13 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                             font_weight = Some(value);
                         }
                         "NameLocation" => {
-                            name_location =
-                                match value.trim().to_ascii_lowercase().as_str() {
-                                    "top" => NameLocation::Top,
-                                    "bottom" => NameLocation::Bottom,
-                                    "left" => NameLocation::Left,
-                                    "right" => NameLocation::Right,
-                                    _ => NameLocation::Bottom,
-                                };
+                            name_location = match value.trim().to_ascii_lowercase().as_str() {
+                                "top" => NameLocation::Top,
+                                "bottom" => NameLocation::Bottom,
+                                "left" => NameLocation::Left,
+                                "right" => NameLocation::Right,
+                                _ => NameLocation::Bottom,
+                            };
                         }
                         "Value" => {
                             block_value = Some(value);
@@ -498,12 +494,8 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                 }
             }
             "PortCounts" => {
-                let ins = child
-                    .attribute("in")
-                    .and_then(|s| s.parse::<u32>().ok());
-                let outs = child
-                    .attribute("out")
-                    .and_then(|s| s.parse::<u32>().ok());
+                let ins = child.attribute("in").and_then(|s| s.parse::<u32>().ok());
+                let outs = child.attribute("out").and_then(|s| s.parse::<u32>().ok());
                 port_counts = Some(PortCounts { ins, outs });
                 child_order.push(BlockChildKind::PortCounts);
             }
@@ -577,20 +569,26 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                     mask = Some(m);
                     child_order.push(BlockChildKind::Mask);
                 }
-                Err(err) => eprintln!(
-                    "[rustylink] Error parsing <Mask> in block '{}': {}",
-                    name, err
-                ),
+                Err(err) => {
+                    let name_clean = crate::parser::helpers::clean_whitespace(&name);
+                    eprintln!(
+                        "[rustylink] Error parsing <Mask> in block '{}': {}",
+                        name_clean, err
+                    );
+                }
             },
             "InstanceData" => match parse_instance_data_node(child) {
                 Ok(id) => {
                     instance_data = Some(id);
                     child_order.push(BlockChildKind::InstanceData);
                 }
-                Err(err) => eprintln!(
-                    "[rustylink] Warning: failed to parse <InstanceData> in block '{}': {}",
-                    name, err
-                ),
+                Err(err) => {
+                    let name_clean = crate::parser::helpers::clean_whitespace(&name);
+                    eprintln!(
+                        "[rustylink] Warning: failed to parse <InstanceData> in block '{}': {}",
+                        name_clean, err
+                    );
+                }
             },
             "Annotation" => match parse_annotation_node(child) {
                 Ok(a) => {
@@ -598,10 +596,13 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                     annotations.push(a);
                     child_order.push(BlockChildKind::Annotation(idx));
                 }
-                Err(err) => eprintln!(
-                    "[rustylink] Warning: failed to parse <Annotation> in block '{}': {}",
-                    name, err
-                ),
+                Err(err) => {
+                    let name_clean = crate::parser::helpers::clean_whitespace(&name);
+                    eprintln!(
+                        "[rustylink] Warning: failed to parse <Annotation> in block '{}': {}",
+                        name_clean, err
+                    );
+                }
             },
             _ => {}
         }
@@ -680,6 +681,49 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
     {
         crate::mask_eval::evaluate_mask_display(&mut blk);
     }
+
+    // Auto-detect port counts for native matrix-library blocks.
+    //
+    // Some blocks (e.g. IsTriangular, IsSymmetric, IsHermitian, ExpandScalar)
+    // appear directly in the SLX with their type-specific BlockType but without
+    // a SourceBlock property and without an explicit <PortCounts> element.  The
+    // library-resolution pass only processes blocks that carry a SourceBlock, so
+    // these native blocks would otherwise be left with port_counts = None and
+    // render as zero-port blocks.
+    //
+    // Here we fill in the library-defined defaults whenever the block has no
+    // port information of its own.
+    if blk.port_counts.is_none() && blk.ports.is_empty() {
+        if let Some((ins, outs)) =
+            crate::builtin_libraries::matrix_library::port_counts_if_known(&blk.block_type)
+        {
+            if ins > 0 || outs > 0 {
+                blk.port_counts = Some(crate::model::PortCounts {
+                    ins: Some(ins),
+                    outs: Some(outs),
+                });
+                for i in 1..=ins {
+                    let mut p = crate::model::Port {
+                        port_type: "in".to_string(),
+                        index: Some(i),
+                        properties: indexmap::IndexMap::new(),
+                    };
+                    p.properties.insert("Name".to_string(), String::new());
+                    blk.ports.push(p);
+                }
+                for i in 1..=outs {
+                    let mut p = crate::model::Port {
+                        port_type: "out".to_string(),
+                        index: Some(i),
+                        properties: indexmap::IndexMap::new(),
+                    };
+                    p.properties.insert("Name".to_string(), String::new());
+                    blk.ports.push(p);
+                }
+            }
+        }
+    }
+
     Ok(blk)
 }
 

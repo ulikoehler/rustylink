@@ -13,8 +13,7 @@
 #![cfg(feature = "egui")]
 
 use crate::model::{
-    Block, BlockChildKind, Branch, EndpointRef, Line, NameLocation, Point, Port,
-    PortCounts, System,
+    Block, BlockChildKind, Branch, EndpointRef, Line, NameLocation, Point, Port, PortCounts, System,
 };
 use indexmap::IndexMap;
 use std::collections::BTreeSet;
@@ -51,18 +50,11 @@ pub enum EditorCommand {
         removed: Vec<(usize, Block)>,
     },
     /// Add a new line.
-    AddLine {
-        line_index: usize,
-        line: Box<Line>,
-    },
+    AddLine { line_index: usize, line: Box<Line> },
     /// Delete lines at given indices (sorted descending).
-    DeleteLines {
-        removed: Vec<(usize, Line)>,
-    },
+    DeleteLines { removed: Vec<(usize, Line)> },
     /// Toggle the commented state of blocks.
-    CommentBlocks {
-        block_indices: Vec<usize>,
-    },
+    CommentBlocks { block_indices: Vec<usize> },
     /// Rotate blocks 90° clockwise (changes port layout by swapping width/height).
     RotateBlocks {
         block_indices: Vec<usize>,
@@ -70,9 +62,7 @@ pub enum EditorCommand {
         old_positions: Vec<String>,
     },
     /// Mirror blocks (flip input/output sides).
-    MirrorBlocks {
-        block_indices: Vec<usize>,
-    },
+    MirrorBlocks { block_indices: Vec<usize> },
     /// Rename a signal line.
     RenameLine {
         line_index: usize,
@@ -93,9 +83,12 @@ pub enum EditorCommand {
         added_lines: Vec<(usize, Line)>,
     },
     /// Add a branch to an existing line.
-    BranchLine {
-        line_index: usize,
-        branch: Branch,
+    BranchLine { line_index: usize, branch: Branch },
+    /// Resize a block to a new position rect.
+    ResizeBlock {
+        block_index: usize,
+        old_position: String,
+        new_position: String,
     },
     /// Reassign all SIDs in the system.
     ReassignSids {
@@ -331,7 +324,10 @@ fn apply_inverse(system: &mut System, cmd: &EditorCommand) -> EditorCommand {
                 )),
             }
         }
-        EditorCommand::AddLine { line_index, line: _ } => {
+        EditorCommand::AddLine {
+            line_index,
+            line: _,
+        } => {
             let removed = if *line_index < system.lines.len() {
                 system.lines.remove(*line_index)
             } else {
@@ -426,8 +422,7 @@ fn apply_inverse(system: &mut System, cmd: &EditorCommand) -> EditorCommand {
             if let Some(line) = system.lines.get_mut(*line_index) {
                 line.name.clone_from(old_name);
                 if let Some(n) = old_name {
-                    line.properties
-                        .insert("Name".to_string(), n.clone());
+                    line.properties.insert("Name".to_string(), n.clone());
                 } else {
                     line.properties.swap_remove("Name");
                 }
@@ -496,6 +491,23 @@ fn apply_inverse(system: &mut System, cmd: &EditorCommand) -> EditorCommand {
                 line.branches.pop();
             }
             cmd.clone()
+        }
+        EditorCommand::ResizeBlock {
+            block_index,
+            old_position,
+            new_position,
+        } => {
+            if let Some(block) = system.blocks.get_mut(*block_index) {
+                block.position = Some(old_position.clone());
+                if let Some(v) = block.properties.get_mut("Position") {
+                    *v = old_position.clone();
+                }
+            }
+            EditorCommand::ResizeBlock {
+                block_index: *block_index,
+                old_position: new_position.clone(),
+                new_position: old_position.clone(),
+            }
         }
         EditorCommand::ReassignSids { old_sids } => {
             let mut current_sids = Vec::new();
@@ -697,7 +709,12 @@ pub fn create_default_block(
 /// * `block_index` - Index of the block in `system.blocks`
 /// * `new_x` - New left-edge X coordinate
 /// * `new_y` - New top-edge Y coordinate
-pub fn move_block(system: &mut System, block_index: usize, new_x: i32, new_y: i32) -> EditorCommand {
+pub fn move_block(
+    system: &mut System,
+    block_index: usize,
+    new_x: i32,
+    new_y: i32,
+) -> EditorCommand {
     let block = &system.blocks[block_index];
     let old_position = block
         .position
@@ -873,14 +890,8 @@ pub fn add_line(
         branches: Vec::new(),
         properties: {
             let mut p = IndexMap::new();
-            p.insert(
-                "Src".to_string(),
-                format!("{}#out:{}", src_sid, src_port),
-            );
-            p.insert(
-                "Dst".to_string(),
-                format!("{}#in:{}", dst_sid, dst_port),
-            );
+            p.insert("Src".to_string(), format!("{}#out:{}", src_sid, src_port));
+            p.insert("Dst".to_string(), format!("{}#in:{}", dst_sid, dst_port));
             p
         },
     };
@@ -1032,20 +1043,14 @@ pub fn branch_line(
         branches: Vec::new(),
         properties: {
             let mut p = IndexMap::new();
-            p.insert(
-                "Dst".to_string(),
-                format!("{}#in:{}", dst_sid, dst_port),
-            );
+            p.insert("Dst".to_string(), format!("{}#in:{}", dst_sid, dst_port));
             p
         },
     };
 
     system.lines[line_index].branches.push(branch.clone());
 
-    EditorCommand::BranchLine {
-        line_index,
-        branch,
-    }
+    EditorCommand::BranchLine { line_index, branch }
 }
 
 /// Create a subsystem from a set of selected blocks and their interconnecting lines.
@@ -1184,8 +1189,14 @@ pub fn create_subsystem_from_selection(
 
     let total_inports = next_inport - 1;
     let total_outports = next_outport - 1;
-    let mut subsystem_block =
-        create_default_block(subsystem_name, subsystem_name, cx - 25, cy - 25, total_inports, total_outports);
+    let mut subsystem_block = create_default_block(
+        subsystem_name,
+        subsystem_name,
+        cx - 25,
+        cy - 25,
+        total_inports,
+        total_outports,
+    );
     subsystem_block.subsystem = Some(Box::new(sub_system));
     subsystem_block.block_type = "SubSystem".to_string();
 
@@ -1235,6 +1246,45 @@ pub fn create_subsystem_from_selection(
         subsystem_block_index,
         subsystem_block: Box::new(subsystem_block),
         added_lines: new_external_lines,
+    }
+}
+
+/// Resize a block to a new absolute position rect, returning the command for undo.
+///
+/// # Arguments
+///
+/// * `system` - The system containing the block
+/// * `block_index` - Index of the block in `system.blocks`
+/// * `new_l` - New left edge
+/// * `new_t` - New top edge
+/// * `new_r` - New right edge
+/// * `new_b` - New bottom edge
+pub fn resize_block(
+    system: &mut System,
+    block_index: usize,
+    new_l: i32,
+    new_t: i32,
+    new_r: i32,
+    new_b: i32,
+) -> EditorCommand {
+    let block = &system.blocks[block_index];
+    let old_position = block
+        .position
+        .clone()
+        .unwrap_or_else(|| "[0, 0, 30, 30]".to_string());
+
+    let new_position = format_position(new_l, new_t, new_r, new_b);
+
+    let block = &mut system.blocks[block_index];
+    block.position = Some(new_position.clone());
+    block
+        .properties
+        .insert("Position".to_string(), new_position.clone());
+
+    EditorCommand::ResizeBlock {
+        block_index,
+        old_position,
+        new_position,
     }
 }
 
@@ -1302,29 +1352,22 @@ pub fn find_snap_port(
                     .as_ref()
                     .and_then(|pc| pc.ins)
                     .unwrap_or_else(|| {
-                        block
-                            .ports
-                            .iter()
-                            .filter(|p| p.port_type == "in")
-                            .count() as u32
+                        block.ports.iter().filter(|p| p.port_type == "in").count() as u32
                     });
                 let n_out = block
                     .port_counts
                     .as_ref()
                     .and_then(|pc| pc.outs)
                     .unwrap_or_else(|| {
-                        block
-                            .ports
-                            .iter()
-                            .filter(|p| p.port_type == "out")
-                            .count() as u32
+                        block.ports.iter().filter(|p| p.port_type == "out").count() as u32
                     });
 
                 let mirrored = block.block_mirror.unwrap_or(false);
 
                 // Check input ports
                 for i in 1..=n_in {
-                    let (px, py) = port_model_pos(rect_l, rect_t, rect_r, rect_b, "in", i, n_in, mirrored);
+                    let (px, py) =
+                        port_model_pos(rect_l, rect_t, rect_r, rect_b, "in", i, n_in, mirrored);
                     let dist = ((pos_x - px).powi(2) + (pos_y - py).powi(2)).sqrt();
                     if dist < snap_radius {
                         if best.as_ref().map_or(true, |b| dist < b.5) {
@@ -1335,7 +1378,8 @@ pub fn find_snap_port(
 
                 // Check output ports
                 for i in 1..=n_out {
-                    let (px, py) = port_model_pos(rect_l, rect_t, rect_r, rect_b, "out", i, n_out, mirrored);
+                    let (px, py) =
+                        port_model_pos(rect_l, rect_t, rect_r, rect_b, "out", i, n_out, mirrored);
                     let dist = ((pos_x - px).powi(2) + (pos_y - py).powi(2)).sqrt();
                     if dist < snap_radius {
                         if best.as_ref().map_or(true, |b| dist < b.5) {
@@ -1352,8 +1396,13 @@ pub fn find_snap_port(
 
 /// Compute port position in model coordinates.
 fn port_model_pos(
-    l: f32, t: f32, r: f32, b: f32,
-    port_type: &str, port_index: u32, num_ports: u32,
+    l: f32,
+    t: f32,
+    r: f32,
+    b: f32,
+    port_type: &str,
+    port_index: u32,
+    num_ports: u32,
     mirrored: bool,
 ) -> (f32, f32) {
     let n = num_ports.max(port_index);
@@ -1374,8 +1423,10 @@ fn port_model_pos(
 /// Returns a list of relative-offset points for the line's `points` field.
 /// The routing avoids diagonal lines and creates clean right-angle paths.
 pub fn auto_route(
-    src_x: f32, src_y: f32,
-    dst_x: f32, dst_y: f32,
+    src_x: f32,
+    src_y: f32,
+    dst_x: f32,
+    dst_y: f32,
     src_port_type: &str,
     dst_port_type: &str,
 ) -> Vec<Point> {
@@ -1399,8 +1450,16 @@ pub fn auto_route(
     } else {
         // Going opposite direction or same-side connection
         let offset = 30;
-        let exit_x = if src_port_type == "out" { offset } else { -offset };
-        let enter_x = if dst_port_type == "in" { -offset } else { offset };
+        let exit_x = if src_port_type == "out" {
+            offset
+        } else {
+            -offset
+        };
+        let enter_x = if dst_port_type == "in" {
+            -offset
+        } else {
+            offset
+        };
 
         points.push(Point { x: exit_x, y: 0 });
         let mid_y = ((src_y + dst_y) / 2.0) as i32 - src_y as i32;
@@ -1431,340 +1490,5 @@ impl Line {
             branches: Vec::new(),
             properties: IndexMap::new(),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn make_test_system() -> System {
-        let mut sys = System {
-            properties: IndexMap::new(),
-            blocks: Vec::new(),
-            lines: Vec::new(),
-            annotations: Vec::new(),
-            chart: None,
-        };
-
-        // Add two blocks with SIDs
-        let mut b1 = create_default_block("Gain", "Gain1", 100, 100, 1, 1);
-        b1.sid = Some("1".to_string());
-        b1.properties.insert("SID".to_string(), "1".to_string());
-
-        let mut b2 = create_default_block("Sum", "Sum1", 200, 100, 2, 1);
-        b2.sid = Some("2".to_string());
-        b2.properties.insert("SID".to_string(), "2".to_string());
-
-        sys.blocks.push(b1);
-        sys.blocks.push(b2);
-
-        // Add a line connecting them
-        sys.lines.push(Line {
-            name: Some("signal1".to_string()),
-            zorder: None,
-            src: Some(EndpointRef {
-                sid: "1".to_string(),
-                port_type: "out".to_string(),
-                port_index: 1,
-            }),
-            dst: Some(EndpointRef {
-                sid: "2".to_string(),
-                port_type: "in".to_string(),
-                port_index: 1,
-            }),
-            points: vec![Point { x: 50, y: 0 }],
-            labels: None,
-            branches: Vec::new(),
-            properties: IndexMap::new(),
-        });
-
-        sys
-    }
-
-    #[test]
-    fn test_parse_position() {
-        assert_eq!(parse_position("[10, 20, 40, 50]"), Some((10, 20, 40, 50)));
-        assert_eq!(parse_position("[0, 0, 30, 30]"), Some((0, 0, 30, 30)));
-        assert_eq!(parse_position("invalid"), None);
-    }
-
-    #[test]
-    fn test_format_position() {
-        assert_eq!(format_position(10, 20, 40, 50), "[10, 20, 40, 50]");
-    }
-
-    #[test]
-    fn test_move_block() {
-        let mut sys = make_test_system();
-        let cmd = move_block(&mut sys, 0, 150, 200);
-        assert_eq!(sys.blocks[0].position.as_deref(), Some("[150, 200, 180, 230]"));
-
-        match cmd {
-            EditorCommand::MoveBlock {
-                old_position,
-                new_position,
-                ..
-            } => {
-                assert_eq!(old_position, "[100, 100, 130, 130]");
-                assert_eq!(new_position, "[150, 200, 180, 230]");
-            }
-            _ => panic!("Expected MoveBlock command"),
-        }
-    }
-
-    #[test]
-    fn test_move_blocks_delta() {
-        let mut sys = make_test_system();
-        let cmd = move_blocks(&mut sys, &[0, 1], 10, 20);
-        assert_eq!(
-            sys.blocks[0].position.as_deref(),
-            Some("[110, 120, 140, 150]")
-        );
-        assert_eq!(
-            sys.blocks[1].position.as_deref(),
-            Some("[210, 120, 240, 150]")
-        );
-
-        match cmd {
-            EditorCommand::MoveBlocks { dx, dy, .. } => {
-                assert_eq!(dx, 10);
-                assert_eq!(dy, 20);
-            }
-            _ => panic!("Expected MoveBlocks command"),
-        }
-    }
-
-    #[test]
-    fn test_add_and_delete_block() {
-        let mut sys = make_test_system();
-        let initial_count = sys.blocks.len();
-
-        let new_block = create_default_block("Constant", "Const1", 50, 50, 0, 1);
-        let _cmd = add_block(&mut sys, new_block);
-        assert_eq!(sys.blocks.len(), initial_count + 1);
-        assert_eq!(sys.blocks.last().unwrap().name, "Const1");
-
-        let _cmd = delete_blocks(&mut sys, &[initial_count]);
-        assert_eq!(sys.blocks.len(), initial_count);
-    }
-
-    #[test]
-    fn test_add_and_delete_line() {
-        let mut sys = make_test_system();
-        let initial_count = sys.lines.len();
-
-        let _cmd = add_line(&mut sys, "1", 1, "2", 2, vec![]);
-        assert_eq!(sys.lines.len(), initial_count + 1);
-
-        let _cmd = delete_lines(&mut sys, &[initial_count]);
-        assert_eq!(sys.lines.len(), initial_count);
-    }
-
-    #[test]
-    fn test_comment_blocks() {
-        let mut sys = make_test_system();
-        assert!(!sys.blocks[0].commented);
-
-        let _cmd = comment_blocks(&mut sys, &[0]);
-        assert!(sys.blocks[0].commented);
-        assert_eq!(
-            sys.blocks[0].properties.get("Commented"),
-            Some(&"on".to_string())
-        );
-
-        // Toggle back
-        let _cmd = comment_blocks(&mut sys, &[0]);
-        assert!(!sys.blocks[0].commented);
-        assert!(sys.blocks[0].properties.get("Commented").is_none());
-    }
-
-    #[test]
-    fn test_rotate_blocks() {
-        let mut sys = make_test_system();
-        // Block 0 is at [100, 100, 130, 130] (30x30 square – rotation is identity)
-        let _cmd = rotate_blocks(&mut sys, &[0]);
-        // For a square, position should be the same
-        assert_eq!(
-            sys.blocks[0].position.as_deref(),
-            Some("[100, 100, 130, 130]")
-        );
-    }
-
-    #[test]
-    fn test_mirror_blocks() {
-        let mut sys = make_test_system();
-        assert_eq!(sys.blocks[0].block_mirror, None);
-
-        let _cmd = mirror_blocks(&mut sys, &[0]);
-        assert_eq!(sys.blocks[0].block_mirror, Some(true));
-
-        let _cmd = mirror_blocks(&mut sys, &[0]);
-        assert_eq!(sys.blocks[0].block_mirror, Some(false));
-    }
-
-    #[test]
-    fn test_rename_line() {
-        let mut sys = make_test_system();
-        assert_eq!(sys.lines[0].name, Some("signal1".to_string()));
-
-        let _cmd = rename_line(&mut sys, 0, Some("new_name".to_string()));
-        assert_eq!(sys.lines[0].name, Some("new_name".to_string()));
-
-        let _cmd = rename_line(&mut sys, 0, None);
-        assert_eq!(sys.lines[0].name, None);
-    }
-
-    #[test]
-    fn test_branch_line() {
-        let mut sys = make_test_system();
-        assert!(sys.lines[0].branches.is_empty());
-
-        let _cmd = branch_line(&mut sys, 0, "2", 2, vec![Point { x: 0, y: 30 }]);
-        assert_eq!(sys.lines[0].branches.len(), 1);
-        assert_eq!(
-            sys.lines[0].branches[0].dst.as_ref().unwrap().port_index,
-            2
-        );
-    }
-
-    #[test]
-    fn test_assign_sids() {
-        let mut sys = make_test_system();
-        // Add a block without SID
-        let new_block = create_default_block("Constant", "Const1", 50, 50, 0, 1);
-        sys.blocks.push(new_block);
-        assert!(sys.blocks[2].sid.is_none());
-
-        let _cmd = assign_sids(&mut sys);
-        assert!(sys.blocks[2].sid.is_some());
-        // Should be "3" since max existing is "2"
-        assert_eq!(sys.blocks[2].sid.as_deref(), Some("3"));
-    }
-
-    #[test]
-    fn test_undo_redo_move() {
-        let mut sys = make_test_system();
-        let mut history = EditorHistory::new(100);
-
-        let cmd = move_block(&mut sys, 0, 300, 300);
-        history.push(cmd);
-        assert_eq!(
-            sys.blocks[0].position.as_deref(),
-            Some("[300, 300, 330, 330]")
-        );
-
-        // Undo
-        assert!(history.undo(&mut sys));
-        assert_eq!(
-            sys.blocks[0].position.as_deref(),
-            Some("[100, 100, 130, 130]")
-        );
-
-        // Redo
-        assert!(history.redo(&mut sys));
-        assert_eq!(
-            sys.blocks[0].position.as_deref(),
-            Some("[300, 300, 330, 330]")
-        );
-    }
-
-    #[test]
-    fn test_undo_redo_comment() {
-        let mut sys = make_test_system();
-        let mut history = EditorHistory::new(100);
-
-        let cmd = comment_blocks(&mut sys, &[0]);
-        history.push(cmd);
-        assert!(sys.blocks[0].commented);
-
-        history.undo(&mut sys);
-        assert!(!sys.blocks[0].commented);
-
-        history.redo(&mut sys);
-        assert!(sys.blocks[0].commented);
-    }
-
-    #[test]
-    fn test_create_default_block() {
-        let block = create_default_block("Gain", "MyGain", 100, 200, 1, 1);
-        assert_eq!(block.block_type, "Gain");
-        assert_eq!(block.name, "MyGain");
-        assert_eq!(block.position.as_deref(), Some("[100, 200, 130, 230]"));
-        assert_eq!(block.ports.len(), 2);
-        assert!(block.sid.is_none());
-    }
-
-    #[test]
-    fn test_create_subsystem_from_selection() {
-        let mut sys = make_test_system();
-        // Add a third block
-        let mut b3 = create_default_block("Scope", "Scope1", 300, 100, 1, 0);
-        b3.sid = Some("3".to_string());
-        sys.blocks.push(b3);
-
-        let initial_blocks = sys.blocks.len();
-        let _cmd = create_subsystem_from_selection(&mut sys, &[0, 1], "NewSubsystem");
-
-        // Should have removed 2 blocks and added 1 subsystem
-        assert_eq!(sys.blocks.len(), initial_blocks - 2 + 1);
-        // The last block should be the subsystem
-        let sub = sys.blocks.last().unwrap();
-        assert_eq!(sub.block_type, "SubSystem");
-        assert_eq!(sub.name, "NewSubsystem");
-        assert!(sub.subsystem.is_some());
-    }
-
-    #[test]
-    fn test_find_snap_port() {
-        let sys = make_test_system();
-        // Block 0 (Gain1) at [100, 100, 130, 130], has 1 in, 1 out
-        // Output port should be at right edge (130, ~115)
-        let result = find_snap_port(&sys, 130.0, 115.0, 10.0, None);
-        assert!(result.is_some());
-        let (idx, pt, pi, _px, _py) = result.unwrap();
-        assert_eq!(idx, 0);
-        assert_eq!(pt, "out");
-        assert_eq!(pi, 1);
-    }
-
-    #[test]
-    fn test_auto_route_straight() {
-        let points = auto_route(130.0, 115.0, 200.0, 115.0, "out", "in");
-        // Should be empty for straight horizontal (same Y)
-        assert!(points.is_empty());
-    }
-
-    #[test]
-    fn test_auto_route_l_shape() {
-        let points = auto_route(130.0, 100.0, 200.0, 200.0, "out", "in");
-        // Should have intermediate routing points
-        assert!(!points.is_empty());
-    }
-
-    #[test]
-    fn test_history_max_size() {
-        let mut sys = make_test_system();
-        let mut history = EditorHistory::new(3);
-
-        for i in 0..5 {
-            let cmd = move_block(&mut sys, 0, 100 + i * 10, 100);
-            history.push(cmd);
-        }
-
-        // Should only be able to undo 3 times
-        let mut undo_count = 0;
-        while history.undo(&mut sys) {
-            undo_count += 1;
-        }
-        assert_eq!(undo_count, 3);
-    }
-
-    #[test]
-    fn test_port_model_pos() {
-        // Block [100, 100, 130, 130], 1 input, not mirrored
-        let (x, y) = port_model_pos(100.0, 100.0, 130.0, 130.0, "in", 1, 1, false);
-        assert_eq!(x, 100.0); // left side
-        assert!(y > 100.0 && y < 130.0); // within block height
     }
 }

@@ -6,6 +6,7 @@
 #![cfg(feature = "egui")]
 
 mod geometry;
+pub mod icon_assets;
 mod navigation;
 mod render;
 mod state;
@@ -14,14 +15,17 @@ mod ui;
 
 // Re-export geometry items needed by the editor module
 pub use geometry::{
-    PortSide, endpoint_pos, endpoint_pos_maybe_mirrored,
-    endpoint_pos_with_target, endpoint_pos_with_target_maybe_mirrored,
-    parse_block_rect, parse_rect_str, port_anchor_pos,
+    PortSide, endpoint_pos, endpoint_pos_maybe_mirrored, endpoint_pos_with_target,
+    endpoint_pos_with_target_maybe_mirrored, parse_block_rect, parse_rect_str, port_anchor_pos,
+    port_indicator_positions,
 };
 pub use navigation::{
     collect_subsystems_paths, resolve_subsystem_by_path, resolve_subsystem_by_vec,
 };
-pub(crate) use render::{get_block_type_cfg, render_block_icon};
+pub use render::{get_block_type_cfg, render_block_icon, wrap_text_to_max_width};
+
+// Helpers which are useful for integration tests
+pub use render::{PortLabelMaxWidths, compute_icon_available_rect};
 pub use state::{
     BlockContextMenuItem, BlockDialog, BlockDialogButton, ChartView, SignalContextMenuItem,
     SignalDialog, SignalDialogButton, SubsystemApp, SubsystemEntities,
@@ -30,3 +34,8 @@ pub use text::{highlight_query_job, matlab_syntax_job};
 pub use ui::{
     ClickAction, UpdateResponse, apply_update_response, show_info_windows, update, update_with_info,
 };
+
+// Expose a couple of internal helpers for use by integration tests.
+pub use ui::helpers::{block_dialog_title, clean_display_string};
+// SVG parsing helper (also needed by some tests)
+pub use render::embedded_egui_sans_fontdb;

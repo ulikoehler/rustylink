@@ -10,6 +10,9 @@ pub mod label_place;
 pub mod model;
 pub mod parser;
 
+/// Definitions for built-in virtual libraries used by the parser and UI.
+pub mod builtin_libraries;
+
 /// SLX archive generator – regenerates `.slx` files from the parsed model.
 pub mod generator;
 
@@ -33,6 +36,12 @@ pub mod editor;
 // Re-export core API so downstream users can easily access/modify the registry
 #[cfg(feature = "egui")]
 pub use block_types::{
-    BlockTypeConfig, IconSpec, Rgb, get_block_type_config_map, set_block_type_config,
-    update_block_type_config,
+    BlockTypeConfig, IconSpec, Rgb, get_block_type_config_map, register_user_library_block_types,
+    set_block_type_config, update_block_type_config,
+};
+
+// Re-export user virtual library API for downstream registration
+pub use builtin_libraries::{
+    OwnedVirtualBlock, PortPlacement, PortPositionOverride, UserVirtualLibrarySpec,
+    register_virtual_library,
 };

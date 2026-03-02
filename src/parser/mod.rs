@@ -22,6 +22,7 @@ pub use helpers::{parse_endpoint, parse_points, resolve_system_reference};
 pub use library::*;
 pub use source::*;
 
+use crate::builtin_libraries::matrix_library;
 use crate::model::*;
 use anyhow::{Context, Result, anyhow};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -87,8 +88,8 @@ impl<S: ContentSource> SimulinkParser<S> {
     ) -> Result<GraphicalInterface> {
         let path = path.as_ref();
         let text = self.source.read_to_string(path)?;
-        let v: serde_json::Value =
-            serde_json::from_str(&text).with_context(|| format!("Failed to parse JSON {}", path))?;
+        let v: serde_json::Value = serde_json::from_str(&text)
+            .with_context(|| format!("Failed to parse JSON {}", path))?;
         let gi_value = v
             .get("GraphicalInterface")
             .ok_or_else(|| anyhow!("Missing top-level 'GraphicalInterface' object in {}", path))?;
@@ -106,6 +107,15 @@ impl<S: ContentSource> SimulinkParser<S> {
         Ok(gi.library_names())
     }
 
+    /// Return `LIBRARY_BLOCK` references from `graphicalInterface.json`, grouped by library name.
+    pub fn graphical_interface_library_block_references_by_library(
+        &mut self,
+        path: impl AsRef<Utf8Path>,
+    ) -> Result<std::collections::BTreeMap<String, Vec<ExternalFileReference>>> {
+        let gi = self.parse_graphical_interface_file(path)?;
+        Ok(gi.library_block_references_by_library())
+    }
+
     /// Resolve library references in a parsed system.
     pub fn resolve_library_references(
         system: &mut System,
@@ -114,41 +124,144 @@ impl<S: ContentSource> SimulinkParser<S> {
         use std::collections::HashMap;
         let mut library_cache: HashMap<String, System> = HashMap::new();
         let resolver = LibraryResolver::new(lib_paths.iter());
-        Self::resolve_library_references_recursive(system, &resolver, &mut library_cache)?;
+        let suppress_missing_external_warnings = lib_paths.is_empty();
+        Self::resolve_library_references_recursive(
+            system,
+            "",
+            &resolver,
+            &mut library_cache,
+            suppress_missing_external_warnings,
+        )?;
         Ok(())
     }
 
     fn resolve_library_references_recursive(
         system: &mut System,
+        system_path: &str,
         resolver: &LibraryResolver,
         cache: &mut std::collections::HashMap<String, System>,
+        suppress_missing_external_warnings: bool,
     ) -> Result<()> {
+        fn warn_yellow(msg: impl AsRef<str>) {
+            // ANSI yellow; printed to stderr.
+            eprintln!("\x1b[33m[rustylink] Warning: {}\x1b[0m", msg.as_ref());
+        }
+
+        fn empty_library_system() -> System {
+            System {
+                properties: indexmap::IndexMap::new(),
+                blocks: Vec::new(),
+                lines: Vec::new(),
+                annotations: Vec::new(),
+                chart: None,
+            }
+        }
+
         for block in &mut system.blocks {
+            let block_host_path = if system_path.is_empty() {
+                format!("/{}", block.name)
+            } else {
+                format!("{}/{}", system_path, block.name)
+            };
+
             if let Some(source_block) = block.properties.get("SourceBlock").cloned() {
-                if let Some((lib_name, block_path)) = source_block.split_once('/') {
+                if let Some((lib_name, block_path)) =
+                    crate::parser::library::split_source_block_reference(&source_block)
+                {
                     let lib_name = lib_name.trim();
                     let block_path = block_path.trim();
                     if !cache.contains_key(lib_name) {
-                        let lookup = resolver.locate(std::iter::once(lib_name));
-                        if let Some((_, lib_file)) = lookup.found.first() {
-                            match Self::parse_library_file(lib_file) {
-                                Ok(lib_system) => {
-                                    cache.insert(lib_name.to_string(), lib_system);
-                                }
-                                Err(e) => {
-                                    eprintln!(
-                                        "[rustylink] Warning: failed to parse library {}: {}",
-                                        lib_name, e
-                                    );
-                                    continue;
-                                }
+                        // Some virtual libraries include slashes in their logical name
+                        // (e.g. "simulink/Logic and Bit").  We therefore check both
+                        // the stripped library name and the full SourceBlock value.
+                        if crate::parser::library::is_virtual_library(lib_name)
+                            || crate::parser::library::is_virtual_library(&source_block)
+                        {
+                            // For most virtual libraries we just insert an empty system.
+                            // Some virtual libraries provide structured metadata so that
+                            // the UI can render reasonable placeholders (ports/icons).
+                            if let Some(sys) =
+                                crate::builtin_libraries::virtual_library_initial_system(lib_name)
+                            {
+                                cache.insert(lib_name.to_string(), sys);
+                            } else {
+                                cache.insert(lib_name.to_string(), empty_library_system());
                             }
                         } else {
-                            eprintln!(
-                                "[rustylink] Warning: library {} not found in search paths",
-                                lib_name
-                            );
-                            continue;
+                            let lookup = resolver.locate(std::iter::once(lib_name));
+                            if let Some((_, lib_file)) = lookup.found.first() {
+                                match Self::parse_library_file(lib_file) {
+                                    Ok(lib_system) => {
+                                        cache.insert(lib_name.to_string(), lib_system);
+                                    }
+                                    Err(e) => {
+                                        // sanitize each piece so stray whitespace doesn't
+                                        // create confusing log lines
+                                        let lib_name_clean =
+                                            crate::parser::helpers::clean_whitespace(lib_name);
+                                        let host_clean = crate::parser::helpers::clean_whitespace(
+                                            &block_host_path,
+                                        );
+                                        warn_yellow(format!(
+                                            "failed to parse library '{}' (requested by '{}'): {}",
+                                            lib_name_clean, host_clean, e
+                                        ));
+                                        continue;
+                                    }
+                                }
+                            } else {
+                                if !suppress_missing_external_warnings {
+                                    let lib_name_clean =
+                                        crate::parser::helpers::clean_whitespace(lib_name);
+                                    let host_clean =
+                                        crate::parser::helpers::clean_whitespace(&block_host_path);
+                                    warn_yellow(format!(
+                                        "library '{}' not found (requested by '{}')",
+                                        lib_name_clean, host_clean
+                                    ));
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                    // after ensuring the library system is cached, we may need to
+                    // add a matrix-specific stub block for an unknown name.
+                    if matrix_library::is_matrix_library_name(lib_name) {
+                        if let Some(lib_system) = cache.get_mut(lib_name) {
+                            // add missing stub if necessary
+                            if !lib_system.blocks.iter().any(|b| b.name == block_path) {
+                                lib_system
+                                    .blocks
+                                    .push(matrix_library::create_stub(block_path));
+                            }
+                        }
+                    }
+
+                    // For Simulink virtual libraries we want to be permissive: any
+                    // referenced `simulink/...` block should resolve to a stub even
+                    // if it is not explicitly listed in one of the built-in virtual
+                    // library metadata modules.
+                    if crate::parser::library::is_virtual_library(lib_name) {
+                        let lib_norm = lib_name.trim().to_ascii_lowercase();
+                        let is_simulink_namespace =
+                            lib_norm == "simulink" || lib_norm.starts_with("simulink/");
+                        if is_simulink_namespace {
+                            if let Some(lib_system) = cache.get_mut(lib_name) {
+                                if !lib_system.blocks.iter().any(|b| b.name == block_path) {
+                                    let ins =
+                                        block.port_counts.as_ref().and_then(|p| p.ins).unwrap_or(1);
+                                    let outs = block
+                                        .port_counts
+                                        .as_ref()
+                                        .and_then(|p| p.outs)
+                                        .unwrap_or(1);
+                                    lib_system.blocks.push(
+                                        crate::builtin_libraries::virtual_library::create_stub_block(
+                                            block_path, ins, outs,
+                                        ),
+                                    );
+                                }
+                            }
                         }
                     }
                     if let Some(lib_system) = cache.get(lib_name) {
@@ -156,19 +269,39 @@ impl<S: ContentSource> SimulinkParser<S> {
                             if let Some(ref lib_subsystem) = lib_block.subsystem {
                                 block.subsystem = Some(lib_subsystem.clone());
                             }
+                            // copy relevant metadata from the library stub so that the
+                            // host block can be rendered with proper ports, etc.
+                            block.port_counts = lib_block.port_counts.clone();
+                            block.ports = lib_block.ports.clone();
+
                             block.library_source = Some(lib_name.to_string());
                             block.library_block_path = Some(source_block.clone());
                         } else {
-                            eprintln!(
-                                "[rustylink] Warning: block '{}' not found in library '{}'",
-                                block_path, lib_name
-                            );
+                            let extra = if crate::parser::library::is_virtual_library(lib_name) {
+                                " (virtual library)"
+                            } else {
+                                ""
+                            };
+                            let source_clean =
+                                crate::parser::helpers::clean_whitespace(&source_block);
+                            let host_clean =
+                                crate::parser::helpers::clean_whitespace(&block_host_path);
+                            warn_yellow(format!(
+                                "library block '{}' not found{} (requested by '{}')",
+                                source_clean, extra, host_clean
+                            ));
                         }
                     }
                 }
             }
             if let Some(ref mut subsystem) = block.subsystem {
-                Self::resolve_library_references_recursive(subsystem, resolver, cache)?;
+                Self::resolve_library_references_recursive(
+                    subsystem,
+                    &block_host_path,
+                    resolver,
+                    cache,
+                    suppress_missing_external_warnings,
+                )?;
             }
         }
         Ok(())

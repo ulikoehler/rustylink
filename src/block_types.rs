@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+pub use crate::builtin_libraries::virtual_library::BlockShape;
 use once_cell::sync::OnceCell;
 
 /// Simple RGB color independent of egui types.
@@ -20,6 +21,7 @@ pub struct Rgb(pub u8, pub u8, pub u8);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IconSpec {
     Utf8(&'static str),
+    Svg(&'static str),
 }
 
 /// Configuration for a specific block type.
@@ -37,6 +39,28 @@ pub struct BlockTypeConfig {
     pub show_input_port_labels: bool,
     /// Whether to display output port labels inside the block. Default: true.
     pub show_output_port_labels: bool,
+    /// Rendering shape for this block's body.
+    pub shape: BlockShape,
+    /// Default number of input ports when `port_counts` is absent on the block.
+    pub default_ins: u32,
+    /// Default number of output ports when `port_counts` is absent on the block.
+    pub default_outs: u32,
+    /// `true` when this entry was explicitly registered (e.g. as a known
+    /// virtual-library block).  Blocks with `known = true` but `icon = None`
+    /// will silently render a `"?"` placeholder without emitting a terminal
+    /// warning – they are recognised block types that just lack a dedicated icon.
+    pub known: bool,
+    /// Optional overrides for individual port positions and placement sides.
+    ///
+    /// When non-empty, these override the default evenly-distributed port
+    /// layout for the specified ports.  Ports not listed here use the
+    /// standard positioning.
+    pub port_position_overrides:
+        Vec<crate::builtin_libraries::virtual_library::PortPositionOverride>,
+    /// Custom names for input ports
+    pub input_port_names: Vec<String>,
+    /// Custom names for output ports
+    pub output_port_names: Vec<String>,
 }
 
 impl Default for BlockTypeConfig {
@@ -47,7 +71,52 @@ impl Default for BlockTypeConfig {
             icon: None,
             show_input_port_labels: true,
             show_output_port_labels: true,
+            shape: BlockShape::Rectangle,
+            default_ins: 0,
+            default_outs: 0,
+            known: false,
+            port_position_overrides: Vec::new(),
+            input_port_names: Vec::new(),
+            output_port_names: Vec::new(),
         }
+    }
+}
+
+/// Register icon/config entries for one virtual-block name into the map.
+///
+/// Generates all useful key variants:
+/// - raw name and its whitespace-normalized lowercase form
+/// - CamelCase-humanized name and its normalized form
+/// - All of the above prefixed with `{lib_name}/`
+///
+/// Duplicate keys are silently skipped.
+fn register_virtual_keys(
+    m: &mut HashMap<String, BlockTypeConfig>,
+    lib_name: &str,
+    raw_name: &str,
+    cfg: BlockTypeConfig,
+) {
+    use crate::builtin_libraries::virtual_library::{humanize_camel_case, normalize_block_name};
+    let human = humanize_camel_case(raw_name);
+    let norm_raw = normalize_block_name(raw_name);
+    let norm_human = normalize_block_name(&human);
+    let mut keys: Vec<String> = vec![
+        raw_name.to_string(),
+        norm_raw.clone(),
+        human.clone(),
+        norm_human.clone(),
+        format!("{lib_name}/{raw_name}"),
+        format!("{lib_name}/{norm_raw}"),
+        format!("{lib_name}/{human}"),
+        format!("{lib_name}/{norm_human}"),
+    ];
+
+    // De-duplicate while preserving insertion order.
+    let mut seen = std::collections::HashSet::new();
+    keys.retain(|k| seen.insert(k.clone()));
+
+    for k in keys {
+        m.insert(k, cfg.clone());
     }
 }
 
@@ -149,6 +218,33 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
         },
     );
 
+    // Register icons advertised by built-in virtual libraries.
+    for lib in crate::builtin_libraries::VIRTUAL_LIBRARIES {
+        for b in (lib.get_blocks)() {
+            // Register canonical name and any aliases.
+            let mut names: Vec<&'static str> = Vec::with_capacity(1 + b.aliases.len());
+            names.push(b.name);
+            names.extend_from_slice(b.aliases);
+
+            for &n in &names {
+                // Always register, even when there is no dedicated SVG icon,
+                // so that `known = true` prevents spurious terminal warnings.
+                let cfg = BlockTypeConfig {
+                    icon: b.icon.map(IconSpec::Svg),
+                    known: true,
+                    shape: b.shape,
+                    default_ins: b.ins,
+                    default_outs: b.outs,
+                    port_position_overrides: b.port_position_overrides.to_vec(),
+                    input_port_names: b.input_port_names.iter().map(|s| s.to_string()).collect(),
+                    output_port_names: b.output_port_names.iter().map(|s| s.to_string()).collect(),
+                    ..Default::default()
+                };
+                register_virtual_keys(&mut m, lib.name, n, cfg);
+            }
+        }
+    }
+
     m
 }
 
@@ -184,3 +280,11 @@ where
         f(entry);
     }
 }
+
+/// Register icon configurations for all currently-registered user virtual
+/// libraries.
+///
+/// Currently a no-op: `OwnedVirtualBlock` carries no icon path, so all
+/// user-library blocks fall through to the `"?"` warning path in
+/// `render_block_icon`.  The function is kept for API compatibility.
+pub fn register_user_library_block_types() {}

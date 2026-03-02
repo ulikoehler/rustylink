@@ -25,7 +25,15 @@ indexmap = { version = "2", features = ["serde"] }
 [features]
 # Optional GUI visualization using egui/eframe
 highlight = ["dep:syntect", "dep:once_cell"]
-egui = ["dep:eframe", "dep:egui", "dep:syntect", "dep:once_cell"]
+egui = [
+	"dep:eframe",
+	"dep:egui",
+	"dep:egui_extras",
+	"dep:once_cell",
+	"dep:resvg",
+	"dep:rust-embed",
+	"dep:syntect",
+]
 ## Optional mask evaluation (parses very small subset of MATLAB mask scripts to show display text)
 mask = []
 
@@ -46,6 +54,23 @@ optional = true
 [dependencies.once_cell]
 version = "1.20"
 optional = true
+
+[dependencies.egui_extras]
+version = "0.33"
+optional = true
+default-features = false
+features = ["svg"]
+
+[dependencies.resvg]
+version = "0.45.1"
+optional = true
+default-features = false
+features = ["text", "system-fonts"]
+
+[dependencies.rust-embed]
+version = "8.11.0"
+optional = true
+features = ["compression"]
 
 [dev-dependencies]
 tempfile = "3.10"

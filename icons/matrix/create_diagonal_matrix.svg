@@ -1,0 +1,229 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   viewBox="0 0 244 144"
+   width="244"
+   height="144"
+   version="1.1"
+   id="svg46"
+   sodipodi:docname="create_diagonal_matrix.svg"
+   inkscape:version="1.2.2 (b0a8486541, 2022-12-01)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview38"
+     pagecolor="#ffffff"
+     bordercolor="#666666"
+     borderopacity="1.0"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     showgrid="false"
+     inkscape:zoom="1.6741769"
+     inkscape:cx="124.24016"
+     inkscape:cy="-17.321945"
+     inkscape:window-width="1920"
+     inkscape:window-height="1016"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="svg46" />
+  <defs
+     id="defs50" />
+  <!-- ===== INPUT VECTOR (left side) ===== -->
+  <!-- Vector left bracket -->
+  <path
+     d="M 12,2 H 2 v 140 h 10"
+     fill="none"
+     stroke="#333333"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="path3" />
+  <!-- Vector right bracket -->
+  <path
+     d="M 52,2 H 62 V 142 H 52"
+     fill="none"
+     stroke="#333333"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="path5" />
+  <!-- Vector cell 0 — lightest shade -->
+  <rect
+     x="14"
+     y="9"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#aaaaaa"
+     stroke="#777777"
+     stroke-width="1.5"
+     id="rect7" />
+  <!-- Vector cell 1 — medium shade -->
+  <rect
+     x="14"
+     y="53"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#666666"
+     stroke="#444444"
+     stroke-width="1.5"
+     id="rect9" />
+  <!-- Vector cell 2 — darkest shade -->
+  <rect
+     x="14"
+     y="97"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#222222"
+     stroke="#111111"
+     stroke-width="1.5"
+     id="rect11" />
+  <!-- ===== CHEVRON ===== -->
+  <path
+     d="M 70.955931,59.320708 85.044033,72 70.955931,84.679292"
+     fill="none"
+     stroke="#555555"
+     stroke-width="3.52203"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="path13" />
+  <!-- ===== OUTPUT MATRIX (right side) ===== -->
+  <!-- Matrix left bracket -->
+  <path
+     d="M 104,2 H 94 v 140 h 10"
+     fill="none"
+     stroke="#333333"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="path15" />
+  <!-- Matrix right bracket -->
+  <path
+     d="m 232,2 h 10 v 140 h -10"
+     fill="none"
+     stroke="#333333"
+     stroke-width="4"
+     stroke-linecap="round"
+     stroke-linejoin="round"
+     id="path17" />
+  <!-- Row 0 -->
+  <!-- Cell (0,0) — diagonal: lightest shade (matches vector cell 0) -->
+  <rect
+     x="106"
+     y="9"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#aaaaaa"
+     stroke="#777777"
+     stroke-width="1.5"
+     id="rect19" />
+  <!-- Cell (0,1) — zero / off-diagonal -->
+  <rect
+     x="150"
+     y="9"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#f0f0f0"
+     stroke="#cccccc"
+     stroke-width="1.5"
+     id="rect21" />
+  <!-- Cell (0,2) — zero / off-diagonal -->
+  <rect
+     x="194"
+     y="9"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#f0f0f0"
+     stroke="#cccccc"
+     stroke-width="1.5"
+     id="rect23" />
+  <!-- Row 1 -->
+  <!-- Cell (1,0) — zero / off-diagonal -->
+  <rect
+     x="106"
+     y="53"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#f0f0f0"
+     stroke="#cccccc"
+     stroke-width="1.5"
+     id="rect25" />
+  <!-- Cell (1,1) — diagonal: medium shade (matches vector cell 1) -->
+  <rect
+     x="150"
+     y="53"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#666666"
+     stroke="#444444"
+     stroke-width="1.5"
+     id="rect27" />
+  <!-- Cell (1,2) — zero / off-diagonal -->
+  <rect
+     x="194"
+     y="53"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#f0f0f0"
+     stroke="#cccccc"
+     stroke-width="1.5"
+     id="rect29" />
+  <!-- Row 2 -->
+  <!-- Cell (2,0) — zero / off-diagonal -->
+  <rect
+     x="106"
+     y="97"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#f0f0f0"
+     stroke="#cccccc"
+     stroke-width="1.5"
+     id="rect31" />
+  <!-- Cell (2,1) — zero / off-diagonal -->
+  <rect
+     x="150"
+     y="97"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#f0f0f0"
+     stroke="#cccccc"
+     stroke-width="1.5"
+     id="rect33" />
+  <!-- Cell (2,2) — diagonal: darkest shade (matches vector cell 2) -->
+  <rect
+     x="194"
+     y="97"
+     width="36"
+     height="36"
+     rx="6"
+     ry="6"
+     fill="#222222"
+     stroke="#111111"
+     stroke-width="1.5"
+     id="rect35" />
+</svg>

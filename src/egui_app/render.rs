@@ -2,47 +2,634 @@
 
 use crate::block_types::{self, BlockTypeConfig, Rgb};
 use crate::model::Block;
-use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke};
+use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Vec2};
+
+use super::icon_assets;
+use std::collections::HashSet;
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub(crate) fn rgb_to_color32(c: Rgb) -> Color32 {
     Color32::from_rgb(c.0, c.1, c.2)
 }
 
-pub(crate) fn get_block_type_cfg(block_type: &str) -> BlockTypeConfig {
-    let map = block_types::get_block_type_config_map();
-    if let Ok(g) = map.read() {
-        g.get(block_type).cloned().unwrap_or_default()
+fn normalize_library_block_path(path: &str) -> Option<String> {
+    let path = path.trim();
+    if path.is_empty() {
+        return None;
+    }
+
+    // SLX XML stores long block/path names split across multiple lines.  Replace
+    // the embedded newlines (and carriage-returns) with a space before any further
+    // processing so that e.g. "matrix_library/Compare\nTo Constant" becomes
+    // "matrix_library/Compare To Constant", which then matches the registry key.
+    // Newlines act as word-wrap separators in the XML, not as characters to delete.
+    let no_newlines;
+    let path = if path.contains(['\n', '\r']) {
+        no_newlines = path.replace(['\n', '\r'], " ");
+        no_newlines.as_str()
     } else {
-        BlockTypeConfig::default()
+        path
+    };
+
+    let path = path.replace('\\', "/");
+    let Some((lib, rest)) = path.split_once('/') else {
+        return Some(path);
+    };
+    // Some models use `Something.slx/BlockName` while our registry keys are
+    // typically stored without the `.slx` suffix.
+    let lib_norm = lib
+        .strip_suffix(".slx")
+        .or_else(|| lib.strip_suffix(".SLX"))
+        .unwrap_or(lib);
+    Some(format!("{lib_norm}/{rest}"))
+}
+
+pub fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
+    let map = block_types::get_block_type_config_map();
+    let Ok(g) = map.read() else {
+        return BlockTypeConfig::default();
+    };
+
+    if block.is_matlab_function {
+        return g.get("MATLAB Function").cloned().unwrap_or_default();
+    }
+
+    // Build library-specific candidates (library path / SourceBlock).  These are
+    // kept separate from `block_type` so that virtual-library icons always take
+    // priority over the generic block-kind icon (e.g. a "Product"-typed cross-
+    // product block should show the cross-product SVG, not the generic "×").
+    let mut lib_candidates: Vec<String> = Vec::new();
+
+    if let Some(ref lib_path) = block.library_block_path {
+        lib_candidates.push(lib_path.clone());
+        if let Some(n) = normalize_library_block_path(lib_path) {
+            if n != *lib_path {
+                lib_candidates.push(n);
+            }
+        }
+    }
+    // Always check SourceBlock as well (not only when library_block_path is absent),
+    // since library_block_path is derived from it and may carry the same casing issues.
+    if let Some(source_block) = block.properties.get("SourceBlock") {
+        if block.library_block_path.as_deref() != Some(source_block.as_str()) {
+            lib_candidates.push(source_block.clone());
+        }
+        if let Some(n) = normalize_library_block_path(source_block) {
+            if !lib_candidates.contains(&n) {
+                lib_candidates.push(n);
+            }
+        }
+    }
+
+    // Collect all unique last-path-segments from the library candidates.
+    let mut last_segments: Vec<String> = Vec::new();
+    for c in &lib_candidates {
+        if let Some((_, name)) = c.rsplit_once('/') {
+            let s = name.to_string();
+            if !last_segments.contains(&s) {
+                last_segments.push(s);
+            }
+        }
+    }
+
+    // Phase 1 – exact match against full library paths and their last segments.
+    // This intentionally runs BEFORE the block_type fallback so that virtual-
+    // library icons win over the generic kind icon.
+    for key in lib_candidates.iter().chain(last_segments.iter()) {
+        if let Some(cfg) = g.get(key.as_str()) {
+            return cfg.clone();
+        }
+    }
+
+    // Phase 2 – whitespace-normalized and CamelCase-humanized fallback on last
+    // segments.  Handles blocks where the SLX name differs from our registry
+    // key by whitespace collapsing or CamelCase spacing (e.g.
+    // "Create Diagonal\nMatrix" after newline removal → "CreateDiagonalMatrix"
+    // → normalize(humanize(…)) → "create diagonal matrix" → match).
+    //
+    // Because `register_virtual_keys` pre-registers all normalized forms, these
+    // are plain O(1) hash lookups – no linear scan needed.
+    for seg in &last_segments {
+        use crate::builtin_libraries::virtual_library::{
+            humanize_camel_case, normalize_block_name,
+        };
+        let seg_norm = normalize_block_name(seg);
+        if let Some(cfg) = g.get(seg_norm.as_str()) {
+            return cfg.clone();
+        }
+        let seg_human_norm = normalize_block_name(&humanize_camel_case(seg));
+        if seg_human_norm != seg_norm {
+            if let Some(cfg) = g.get(seg_human_norm.as_str()) {
+                return cfg.clone();
+            }
+        }
+    }
+
+    // Phase 3 – Simulink-semantic overrides that are expressed through block
+    // properties rather than via a SourceBlock/library path.
+    // A plain Product block with Multiplication="Matrix(*)" is the standard way
+    // Simulink encodes a matrix-multiply.  Show the dedicated SVG for it.
+    if block.block_type == "Product"
+        && block.properties.get("Multiplication").map(|v| v.trim()) == Some("Matrix(*)")
+    {
+        if let Some(cfg) = g.get("matrix multiply") {
+            return cfg.clone();
+        }
+    }
+
+    // Phase 4 – generic block-type fallback (lowest priority).
+    if let Some(cfg) = g.get(block.block_type.as_str()) {
+        return cfg.clone();
+    }
+
+    BlockTypeConfig::default()
+}
+
+/// Max measured width of port labels drawn *inside* the block on the left/right side.
+///
+/// This is used to keep the center icon from overlapping those labels.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PortLabelMaxWidths {
+    pub left: f32,
+    pub right: f32,
+}
+
+pub(crate) fn port_label_display_name(
+    block: &Block,
+    index: u32,
+    is_input: bool,
+    cfg: &BlockTypeConfig,
+) -> String {
+    // Note: The port-label drawing code treats mirroring as swapping the logical direction
+    // when looking up Port properties. Keep this logic in one place so icon sizing and
+    // label rendering stay consistent.
+    let mirrored = block.block_mirror.unwrap_or(false);
+    let logical_is_input = if mirrored { !is_input } else { is_input };
+
+    let fallback_name = || {
+        let names = if logical_is_input {
+            &cfg.input_port_names
+        } else {
+            &cfg.output_port_names
+        };
+        if index > 0 && (index as usize) <= names.len() {
+            names[(index - 1) as usize].clone()
+        } else {
+            format!("{}{}", if is_input { "In" } else { "Out" }, index)
+        }
+    };
+
+    block
+        .ports
+        .iter()
+        .filter(|p| {
+            p.port_type == if logical_is_input { "in" } else { "out" }
+                && p.index.unwrap_or(0) == index
+        })
+        .filter_map(|p| {
+            p.properties
+                .get("Name")
+                .cloned()
+                .or_else(|| p.properties.get("PropagatedSignals").cloned())
+                .or_else(|| p.properties.get("name").cloned())
+                .or_else(|| Some(fallback_name()))
+        })
+        .next()
+        .unwrap_or_else(fallback_name)
+}
+
+pub fn wrap_text_to_max_width(
+    painter: &egui::Painter,
+    text: &str,
+    font_id: egui::FontId,
+    max_width: f32,
+) -> Vec<String> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    if !max_width.is_finite() || max_width <= 1.0 {
+        return text.split('\n').map(|s| s.to_string()).collect();
+    }
+
+    fn measure_width(painter: &egui::Painter, s: &str, font_id: &egui::FontId) -> f32 {
+        painter
+            .layout_no_wrap(s.to_string(), font_id.clone(), Color32::TRANSPARENT)
+            .size()
+            .x
+    }
+
+    fn split_prefix_that_fits<'a>(
+        painter: &egui::Painter,
+        word: &'a str,
+        font_id: &egui::FontId,
+        max_width: f32,
+    ) -> (&'a str, &'a str) {
+        if word.is_empty() {
+            return ("", "");
+        }
+
+        let mut boundaries: Vec<usize> = word.char_indices().map(|(i, _)| i).collect();
+        boundaries.push(word.len());
+        if boundaries.len() <= 2 {
+            // One character (or empty) — must make progress.
+            return (word, "");
+        }
+
+        let mut best = 1usize; // at least one char
+        let mut lo = 1usize;
+        let mut hi = boundaries.len();
+        while lo < hi {
+            let mid = (lo + hi) / 2;
+            let idx = boundaries[mid];
+            let prefix = &word[..idx];
+            if measure_width(painter, prefix, font_id) <= max_width {
+                best = mid;
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+
+        let split_idx = boundaries[best];
+        (&word[..split_idx], &word[split_idx..])
+    }
+
+    let mut out: Vec<String> = Vec::new();
+    for para in text.split('\n') {
+        // Preserve explicit newlines.
+        if para.trim().is_empty() {
+            out.push(String::new());
+            continue;
+        }
+
+        let mut current = String::new();
+        for word in para.split_whitespace() {
+            if current.is_empty() {
+                if measure_width(painter, word, &font_id) <= max_width {
+                    current.push_str(word);
+                } else {
+                    // Extremely long word: split by character to guarantee progress.
+                    let mut rest = word;
+                    while !rest.is_empty() {
+                        let (prefix, new_rest) =
+                            split_prefix_that_fits(painter, rest, &font_id, max_width);
+                        out.push(prefix.to_string());
+                        rest = new_rest;
+                    }
+                }
+                continue;
+            }
+
+            let candidate = format!("{} {}", current, word);
+            if measure_width(painter, &candidate, &font_id) <= max_width {
+                current = candidate;
+            } else {
+                out.push(current);
+                current = String::new();
+
+                if measure_width(painter, word, &font_id) <= max_width {
+                    current.push_str(word);
+                } else {
+                    let mut rest = word;
+                    while !rest.is_empty() {
+                        let (prefix, new_rest) =
+                            split_prefix_that_fits(painter, rest, &font_id, max_width);
+                        out.push(prefix.to_string());
+                        rest = new_rest;
+                    }
+                }
+            }
+        }
+
+        if !current.is_empty() {
+            out.push(current);
+        }
+    }
+
+    out
+}
+
+pub fn compute_icon_available_rect(
+    rect: &Rect,
+    font_scale: f32,
+    port_label_widths: Option<PortLabelMaxWidths>,
+) -> Rect {
+    let margin_x = rect.width() * 0.10;
+    let margin_y = rect.height() * 0.10;
+
+    let mut left_inset = margin_x;
+    let mut right_inset = margin_x;
+
+    if let Some(w) = port_label_widths {
+        let label_pad = 4.0 * font_scale;
+        let label_gap = 2.0 * font_scale;
+        if w.left > 0.0 {
+            left_inset = left_inset.max(label_pad + w.left + label_gap);
+        }
+        if w.right > 0.0 {
+            right_inset = right_inset.max(label_pad + w.right + label_gap);
+        }
+    }
+
+    let mut min = Pos2::new(rect.left() + left_inset, rect.top() + margin_y);
+    let mut max = Pos2::new(rect.right() - right_inset, rect.bottom() - margin_y);
+    if min.x >= max.x {
+        let cx = rect.center().x;
+        min.x = cx;
+        max.x = cx;
+    }
+    if min.y >= max.y {
+        let cy = rect.center().y;
+        min.y = cy;
+        max.y = cy;
+    }
+    Rect::from_min_max(min, max)
+}
+
+fn maximize_glyph_font_px(painter: &egui::Painter, glyph: &str, avail: Vec2) -> f32 {
+    if avail.x <= 1.0 || avail.y <= 1.0 {
+        return 1.0;
+    }
+
+    // Measure once at a reference size and scale. This avoids per-block binary searches.
+    let ref_px = 100.0_f32;
+    let ref_galley = painter.layout_no_wrap(
+        glyph.to_string(),
+        egui::FontId::proportional(ref_px),
+        Color32::TRANSPARENT,
+    );
+    let ref_size = ref_galley.size();
+    if ref_size.x <= 1e-3 || ref_size.y <= 1e-3 {
+        return 1.0;
+    }
+
+    let mut font_px = (ref_px * (avail.x / ref_size.x).min(avail.y / ref_size.y)).max(1.0);
+
+    // Nudge up a tiny bit while still fitting, then nudge down if needed.
+    for _ in 0..6 {
+        let try_px = font_px * 1.02;
+        let g = painter.layout_no_wrap(
+            glyph.to_string(),
+            egui::FontId::proportional(try_px),
+            Color32::TRANSPARENT,
+        );
+        let s = g.size();
+        if s.x <= avail.x && s.y <= avail.y {
+            font_px = try_px;
+        } else {
+            break;
+        }
+    }
+    for _ in 0..8 {
+        let g = painter.layout_no_wrap(
+            glyph.to_string(),
+            egui::FontId::proportional(font_px),
+            Color32::TRANSPARENT,
+        );
+        let s = g.size();
+        if s.x <= avail.x && s.y <= avail.y {
+            break;
+        }
+        font_px *= 0.98;
+        if font_px <= 1.0 {
+            font_px = 1.0;
+            break;
+        }
+    }
+    font_px
+}
+
+pub fn render_center_glyph_maximized(
+    painter: &egui::Painter,
+    rect: &Rect,
+    font_scale: f32,
+    glyph: &str,
+    color: Color32,
+    port_label_widths: Option<PortLabelMaxWidths>,
+) {
+    let avail_rect = compute_icon_available_rect(rect, font_scale, port_label_widths);
+    let avail = avail_rect.size();
+    let font_px = maximize_glyph_font_px(painter, glyph, avail);
+    let font_id = egui::FontId::proportional(font_px);
+    painter.text(
+        avail_rect.center(),
+        Align2::CENTER_CENTER,
+        glyph,
+        font_id,
+        color,
+    );
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+struct SvgCacheKey {
+    path: &'static str,
+    request_w: usize,
+    request_h: usize,
+}
+
+#[derive(Clone)]
+struct SvgCachedTexture {
+    texture: egui::TextureHandle,
+    px_size: [usize; 2],
+}
+
+pub fn embedded_egui_sans_fontdb() -> Option<Arc<resvg::usvg::fontdb::Database>> {
+    static FONTDB: OnceLock<Option<Arc<resvg::usvg::fontdb::Database>>> = OnceLock::new();
+    FONTDB
+        .get_or_init(|| {
+            let font_defs = egui::FontDefinitions::default();
+            let ubuntu = font_defs.font_data.get("Ubuntu-Light")?;
+
+            let mut db = resvg::usvg::fontdb::Database::new();
+            db.load_font_data(ubuntu.as_ref().font.as_ref().to_vec());
+
+            // Ensure CSS generic `sans-serif` resolves to the embedded font.
+            // Use the actual family name declared in the font (typically "Ubuntu").
+            let family_name = db
+                .faces()
+                .next()
+                .and_then(|face| face.families.first().map(|(family, _lang)| family.clone()));
+            if let Some(family_name) = family_name {
+                db.set_sans_serif_family(family_name.clone());
+                // reasonable fallback for `serif` too, in case SVG uses it
+                db.set_serif_family(family_name);
+            }
+
+            Some(Arc::new(db))
+        })
+        .clone()
+}
+
+fn svg_dest_size_points(avail_points: Vec2, px_size: [usize; 2], pixels_per_point: f32) -> Vec2 {
+    if pixels_per_point <= 0.0 {
+        return Vec2::ZERO;
+    }
+
+    let w_points = px_size[0] as f32 / pixels_per_point;
+    let h_points = px_size[1] as f32 / pixels_per_point;
+    if w_points <= 0.0 || h_points <= 0.0 {
+        return Vec2::ZERO;
+    }
+
+    let scale = (avail_points.x / w_points)
+        .min(avail_points.y / h_points)
+        .min(1.0)
+        .max(0.0);
+    Vec2::new(w_points * scale, h_points * scale)
+}
+
+fn get_or_create_svg_texture(
+    ctx: &egui::Context,
+    path: &'static str,
+    request_px: [usize; 2],
+) -> Option<SvgCachedTexture> {
+    let cache_id = egui::Id::new("rustylink_svg_icon_cache");
+    let key = SvgCacheKey {
+        path,
+        request_w: request_px[0],
+        request_h: request_px[1],
+    };
+
+    // IMPORTANT: never call `ctx.load_texture` inside `ctx.data_mut`, since both
+    // take a write lock on the same internal context lock, which will deadlock.
+    if let Some(hit) = ctx.data_mut(|d| {
+        d.get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
+            cache_id,
+        )
+        .get(&key)
+        .cloned()
+    }) {
+        return Some(hit);
+    }
+
+    let bytes = icon_assets::get(path)?;
+    let mut options = resvg::usvg::Options::default();
+    // usvg's font database is empty by default; populate it from egui's embedded fonts.
+    // This avoids relying on system-installed fonts.
+    if let Some(db) = embedded_egui_sans_fontdb() {
+        options.fontdb = db;
+        options.font_family = "sans-serif".to_owned();
+    }
+
+    let image = egui_extras::image::load_svg_bytes_with_size(
+        &bytes,
+        egui::SizeHint::Size {
+            width: request_px[0].min(u32::MAX as usize) as u32,
+            height: request_px[1].min(u32::MAX as usize) as u32,
+            maintain_aspect_ratio: true,
+        },
+        &options,
+    )
+    .ok()?;
+    let px_size = image.size;
+
+    let texture = ctx.load_texture(
+        format!("rustylink_svg:{path}:{}x{}", request_px[0], request_px[1]),
+        image,
+        egui::TextureOptions::LINEAR,
+    );
+    let value = SvgCachedTexture { texture, px_size };
+
+    // Insert after creating the texture (to avoid deadlock), then return the stored value.
+    Some(ctx.data_mut(|d| {
+        let cache = d
+            .get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
+                cache_id,
+            );
+        cache.entry(key).or_insert_with(|| value.clone()).clone()
+    }))
+}
+
+/// Emit a one-time-per-block-type warning when no icon can be resolved.
+static ICON_WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn warn_missing_icon(block_type: &str, block_path: &str) {
+    let warned = ICON_WARNED.get_or_init(|| Mutex::new(HashSet::new()));
+    if let Ok(mut set) = warned.lock() {
+        if set.insert(block_type.to_string()) {
+            eprintln!(
+                "\x1b[33m[rustylink] WARNING: {} at {} does not have a corresponding virtual library block\x1b[0m",
+                block_type, block_path
+            );
+        }
     }
 }
 
 /// Render an icon in the center of the block according to its type.
 ///
-/// The `font_scale` parameter scales the icon size relative to the baseline size
-/// (baseline is 24.0 at 400% zoom; caller should pass zoom/4.0).
-pub fn render_block_icon(painter: &egui::Painter, block: &Block, rect: &Rect, font_scale: f32) {
-    let icon_size = 24.0 * font_scale.max(0.01);
-    let icon_center = rect.center();
-    // Use default egui font (proportional) for UTF-8 icons
-    let font = egui::FontId::proportional(icon_size);
+/// The rendered glyph is maximized to fill the available center area while:
+/// - leaving at least 10% margin to the block border on all sides
+/// - avoiding overlap with optional inside-block port labels (left/right)
+pub fn render_block_icon(
+    painter: &egui::Painter,
+    block: &Block,
+    rect: &Rect,
+    font_scale: f32,
+    port_label_widths: Option<PortLabelMaxWidths>,
+) {
     let dark_icon = Color32::from_rgb(40, 40, 40); // dark color for icons
-    // Lookup icon from centralized registry
-    let effective_type = if block.is_matlab_function {
-        "MATLAB Function"
-    } else {
-        &block.block_type
-    };
-    let cfg = get_block_type_cfg(effective_type);
+    // Always prefer library-specific identifiers (library path / SourceBlock)
+    // over generic `block_type` mappings.
+    let cfg = get_block_type_cfg(block);
     if let Some(icon) = cfg.icon {
         match icon {
             block_types::IconSpec::Utf8(glyph) => {
-                painter.text(icon_center, Align2::CENTER_CENTER, glyph, font, dark_icon);
+                render_center_glyph_maximized(
+                    painter,
+                    rect,
+                    font_scale,
+                    glyph,
+                    dark_icon,
+                    port_label_widths,
+                );
+            }
+            block_types::IconSpec::Svg(path) => {
+                let avail_rect = compute_icon_available_rect(rect, font_scale, port_label_widths);
+                let avail_points = avail_rect.size();
+                if avail_points.x <= 1.0 || avail_points.y <= 1.0 {
+                    return;
+                }
+
+                let ctx = painter.ctx();
+                let pixels_per_point = ctx.pixels_per_point();
+                let request_px = [
+                    (avail_points.x * pixels_per_point).round().max(1.0) as usize,
+                    (avail_points.y * pixels_per_point).round().max(1.0) as usize,
+                ];
+
+                let Some(svg) = get_or_create_svg_texture(ctx, path, request_px) else {
+                    return;
+                };
+
+                let dest_size = svg_dest_size_points(avail_points, svg.px_size, pixels_per_point);
+                if dest_size.x <= 1.0 || dest_size.y <= 1.0 {
+                    return;
+                }
+
+                let dest_rect = Rect::from_center_size(avail_rect.center(), dest_size);
+                let uv = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
+                painter.image(svg.texture.id(), dest_rect, uv, Color32::WHITE);
             }
         }
+    } else {
+        // No icon for this block.  Only warn for truly unknown blocks.
+        // Known virtual-library blocks that simply lack a dedicated SVG
+        // (e.g. "Is Hermitian", "Permute Matrix") are silently rendered
+        // as "?" without a terminal warning.
+        if !cfg.known {
+            let raw_path = block
+                .library_block_path
+                .as_deref()
+                .or_else(|| block.properties.get("SourceBlock").map(|s| s.as_str()))
+                .unwrap_or("<unknown>");
+            // Normalize the path for display: replace newlines with spaces so the
+            // warning message is readable (SLX paths are word-wrapped with newlines).
+            let block_path_display = raw_path.replace(['\n', '\r'], " ").replace('\\', "/");
+            warn_missing_icon(&block.block_type, &block_path_display);
+        }
+        render_center_glyph_maximized(painter, rect, font_scale, "?", dark_icon, port_label_widths);
     }
 }
-
 /// Screen-space Y coordinates computed for a block's ports (as used by the UI when placing
 /// port labels and clamped within the block rect). Keys are 1-based port indices.
 #[derive(Clone, Debug, Default)]
@@ -265,6 +852,80 @@ pub fn render_manual_switch(
         let end = Pos2::new(out_edge_right + stub, out_center.y);
         painter.line_segment([start, end], Stroke::new(stroke_w, col_active));
     }
+}
+
+/// Function type for custom block-interior renderers.
+///
+/// A renderer receives the egui painter, the block data, the block's screen
+/// rectangle, and the current font scale factor.
+pub type InteriorRendererFn = fn(&egui::Painter, &Block, &Rect, f32);
+
+fn interior_renderer_registry() -> &'static std::collections::HashMap<&'static str, InteriorRendererFn> {
+    static REG: OnceLock<std::collections::HashMap<&'static str, InteriorRendererFn>> =
+        OnceLock::new();
+    REG.get_or_init(|| {
+        let mut m: std::collections::HashMap<&'static str, InteriorRendererFn> =
+            std::collections::HashMap::new();
+        m.insert("Sum", render_sum_block);
+        m
+    })
+}
+
+/// Look up a custom interior renderer for the given block type, if any.
+///
+/// Returns `None` for block types that use the standard icon / label rendering.
+pub fn get_interior_renderer(block_type: &str) -> Option<InteriorRendererFn> {
+    interior_renderer_registry().get(block_type).copied()
+}
+
+/// Draw the interior labels (+/-) for a Sum block.
+///
+/// The surrounding circle fill and stroke are drawn in the main ui loop's
+/// background-fill and border-stroke passes.  This function only adds the
+/// operator characters at their respective input-port positions inside the
+/// circle – the left-edge operator for input 1 and the bottom-edge operator
+/// for input 2.
+///
+/// The `Inputs` property format used by Simulink is e.g. `|++`: the first
+/// character is an ignored spacer, the subsequent characters are the per-port
+/// operators in order ('+' or '-').
+pub fn render_sum_block(
+    painter: &egui::Painter,
+    block: &Block,
+    rect: &Rect,
+    font_scale: f32,
+) {
+    let operators: Vec<char> = block
+        .properties
+        .get("Inputs")
+        .map(|s| s.chars().skip(1).collect())
+        .unwrap_or_default();
+    let left_op = operators.first().copied().unwrap_or('+');
+    let bottom_op = operators.get(1).copied().unwrap_or('+');
+
+    let font_size = (rect.height() * 0.32).clamp(8.0, 22.0) * font_scale;
+    let color = Color32::from_rgb(32, 32, 32);
+    let font_id = egui::FontId::monospace(font_size);
+
+    // Left input operator – left quarter of the circle, vertically centred
+    let left_pos = Pos2::new(rect.left() + rect.width() * 0.22, rect.center().y);
+    painter.text(
+        left_pos,
+        egui::Align2::CENTER_CENTER,
+        left_op.to_string(),
+        font_id.clone(),
+        color,
+    );
+
+    // Bottom input operator – horizontally centred, bottom quarter of the circle
+    let bottom_pos = Pos2::new(rect.center().x, rect.bottom() - rect.height() * 0.22);
+    painter.text(
+        bottom_pos,
+        egui::Align2::CENTER_CENTER,
+        bottom_op.to_string(),
+        font_id,
+        color,
+    );
 }
 
 // no re-exports; keep this module focused on rendering helpers

@@ -1,6 +1,6 @@
+use indexmap::IndexMap;
 use rustylink::mask_eval::evaluate_mask_display;
 use rustylink::model::{Block, Mask, MaskParamType, MaskParameter};
-use indexmap::IndexMap;
 
 #[test]
 fn test_eval_simple() {

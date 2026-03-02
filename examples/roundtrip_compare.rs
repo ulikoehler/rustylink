@@ -63,8 +63,8 @@ fn main() -> Result<()> {
 /// Returns a list of difference descriptions, empty if everything matches.
 fn compare_roundtrip(path: &str) -> Result<Vec<String>> {
     // Read the original
-    let archive = SlxArchive::from_file(path)
-        .with_context(|| format!("Failed to read {}", path))?;
+    let archive =
+        SlxArchive::from_file(path).with_context(|| format!("Failed to read {}", path))?;
 
     // Write to a memory buffer
     let mut buf = std::io::Cursor::new(Vec::new());

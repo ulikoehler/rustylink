@@ -118,12 +118,9 @@ pub fn parse_chart_from_text(text: &str, path_hint: Option<&str>) -> Result<Char
                                             "method" => method = Some(val),
                                             "primitive" => primitive = Some(val),
                                             "isSigned" => {
-                                                is_signed =
-                                                    val.parse::<i32>().ok().map(|v| v != 0)
+                                                is_signed = val.parse::<i32>().ok().map(|v| v != 0)
                                             }
-                                            "wordLength" => {
-                                                word_length = val.parse::<u32>().ok()
-                                            }
+                                            "wordLength" => word_length = val.parse::<u32>().ok(),
                                             _ => {}
                                         }
                                     }

@@ -10,7 +10,7 @@ use crate::generator::system_xml;
 use crate::model::*;
 use anyhow::{Context, Result, anyhow};
 use roxmltree::Document;
-use std::io::{Read, Write, Seek};
+use std::io::{Read, Seek, Write};
 
 /// Returns `true` if the given path is a system XML file that should be parsed.
 fn is_system_xml(path: &str) -> bool {

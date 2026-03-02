@@ -122,4 +122,91 @@ pub fn endpoint_pos_with_target_maybe_mirrored(
     p
 }
 
+/// Compute the positions of port indicators to draw for a block.
+///
+/// These indicators are purely visual (useful even when the model has no
+/// connected lines) and are derived from the block's port counts.
+pub fn port_indicator_positions(
+    r: Rect,
+    in_count: u32,
+    out_count: u32,
+    mirrored: bool,
+) -> (Vec<Pos2>, Vec<Pos2>) {
+    port_indicator_positions_with_overrides(r, in_count, out_count, mirrored, &[])
+}
+
+/// Like [`port_indicator_positions`], but honours [`PortPositionOverride`] entries.
+///
+/// Ports that have an override are placed on the specified side at the given
+/// fraction.  Ports without an override use the standard evenly-distributed
+/// layout.
+pub fn port_indicator_positions_with_overrides(
+    r: Rect,
+    in_count: u32,
+    out_count: u32,
+    mirrored: bool,
+    overrides: &[crate::builtin_libraries::virtual_library::PortPositionOverride],
+) -> (Vec<Pos2>, Vec<Pos2>) {
+    let (in_side, out_side) = if mirrored {
+        (PortSide::Out, PortSide::In)
+    } else {
+        (PortSide::In, PortSide::Out)
+    };
+
+    let mut ins = Vec::new();
+    for i in 1..=in_count {
+        if let Some(ovr) = overrides.iter().find(|o| o.is_input && o.port_index == i) {
+            ins.push(placement_pos(r, ovr.placement, ovr.fraction));
+        } else {
+            ins.push(port_anchor_pos(r, in_side, i, Some(in_count.max(1))));
+        }
+    }
+    let mut outs = Vec::new();
+    for i in 1..=out_count {
+        if let Some(ovr) = overrides.iter().find(|o| !o.is_input && o.port_index == i) {
+            outs.push(placement_pos(r, ovr.placement, ovr.fraction));
+        } else {
+            outs.push(port_anchor_pos(r, out_side, i, Some(out_count.max(1))));
+        }
+    }
+    (ins, outs)
+}
+
+/// Convert a [`PortPlacement`] + fraction to a concrete position on a block rect.
+fn placement_pos(
+    r: Rect,
+    placement: crate::builtin_libraries::virtual_library::PortPlacement,
+    fraction: f32,
+) -> Pos2 {
+    use crate::builtin_libraries::virtual_library::PortPlacement;
+    let f = fraction.clamp(0.0, 1.0);
+    match placement {
+        PortPlacement::Left => Pos2::new(r.left(), r.top() + f * r.height()),
+        PortPlacement::Right => Pos2::new(r.right(), r.top() + f * r.height()),
+        PortPlacement::Top => Pos2::new(r.left() + f * r.width(), r.top()),
+        PortPlacement::Bottom => Pos2::new(r.left() + f * r.width(), r.bottom()),
+    }
+}
+
+/// Determine the chevron direction for an overridden port.
+///
+/// Returns `true` when the chevron tip should point **into** the block
+/// (i.e. the port is on the same side as the block's left edge when not
+/// mirrored).  The caller can use this to mirror the chevron shape.
+///
+/// For standard Left/Right placements the result is the same as the
+/// `is_left_side` flag used for the default layout.  For Top/Bottom
+/// overrides the value is always `true` (the chevron faces inward).
+pub fn port_override_is_left_side(
+    placement: crate::builtin_libraries::virtual_library::PortPlacement,
+    _mirrored: bool,
+) -> bool {
+    use crate::builtin_libraries::virtual_library::PortPlacement;
+    match placement {
+        PortPlacement::Left => true,
+        PortPlacement::Right => false,
+        PortPlacement::Top | PortPlacement::Bottom => true,
+    }
+}
+
 // tests moved to tests/ module

@@ -101,10 +101,8 @@ impl GraphicalInterface {
             if r.r#type != ExternalFileReferenceType::LibraryBlock {
                 continue;
             }
-            let lib = r
-                .reference
-                .split_once('/')
-                .map(|(a, _)| a.trim().to_string())
+            let lib = crate::parser::library::split_source_block_reference(&r.reference)
+                .map(|(l, _)| l)
                 .unwrap_or_else(|| r.reference.trim().to_string());
             if lib.is_empty() {
                 continue;
@@ -112,6 +110,34 @@ impl GraphicalInterface {
             if seen.insert(lib.clone()) {
                 out.push(lib);
             }
+        }
+        out
+    }
+
+    /// Group all `LIBRARY_BLOCK` external file references by library name.
+    ///
+    /// The library name is taken as the first segment of `ExternalFileReference.reference`
+    /// (split at the first `/`). Entries whose `Type` is not `LIBRARY_BLOCK` are ignored.
+    ///
+    /// The returned map is a `BTreeMap` for deterministic key ordering. Within each library,
+    /// references are kept in encounter order.
+    pub fn library_block_references_by_library(
+        &self,
+    ) -> std::collections::BTreeMap<String, Vec<ExternalFileReference>> {
+        use std::collections::BTreeMap;
+
+        let mut out: BTreeMap<String, Vec<ExternalFileReference>> = BTreeMap::new();
+        for r in &self.external_file_references {
+            if r.r#type != ExternalFileReferenceType::LibraryBlock {
+                continue;
+            }
+            let lib = crate::parser::library::split_source_block_reference(&r.reference)
+                .map(|(l, _)| l)
+                .unwrap_or_else(|| r.reference.trim().to_string());
+            if lib.is_empty() {
+                continue;
+            }
+            out.entry(lib).or_default().push(r.clone());
         }
         out
     }
