@@ -218,6 +218,165 @@ fn default_registry() -> HashMap<String, BlockTypeConfig> {
         },
     );
 
+    // ── Dashboard / UI blocks ──────────────────────────────────────────
+    m.insert(
+        "Display".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("📟")),
+            show_input_port_labels: false,
+            show_output_port_labels: false,
+            known: true,
+            default_ins: 1,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "DisplayBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("📟")),
+            show_input_port_labels: false,
+            show_output_port_labels: false,
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "Checkbox".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("☑")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "ComboBox".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("▾")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "EditField".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("✎")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "PushButtonBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("⏻")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "RadioButtonGroup".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("◉")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "SliderBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("⎯●")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "SliderSwitchBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("⇅")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "ToggleSwitchBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("⏼")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "RockerSwitchBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("⏻")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "RotarySwitchBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("◎")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "KnobBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("◎")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "CircularGaugeBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("◔")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "SemiCircularGaugeBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("◑")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "LinearGaugeBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("▮")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "QuarterGaugeBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("◕")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "LampBlock".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("💡")),
+            known: true,
+            ..Default::default()
+        },
+    );
+    m.insert(
+        "DashboardScope".to_string(),
+        BlockTypeConfig {
+            icon: Some(IconSpec::Utf8("〰")),
+            known: true,
+            ..Default::default()
+        },
+    );
+
     // Register icons advertised by built-in virtual libraries.
     for lib in crate::builtin_libraries::VIRTUAL_LIBRARIES {
         for b in (lib.get_blocks)() {

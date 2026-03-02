@@ -7,6 +7,7 @@
 pub mod virtual_library;
 
 pub mod matrix_library;
+pub mod simulink_dashboard;
 pub mod simulink_discrete;
 pub mod simulink_logic_and_bit_ops;
 pub mod simulink_math_operations;
@@ -49,6 +50,11 @@ pub const VIRTUAL_LIBRARIES: &[VirtualLibrarySpec] = &[
         name: simulink_signal_routing::LIB_NAME,
         matches_name: simulink_signal_routing::is_simulink_signal_routing_name,
         get_blocks: simulink_signal_routing::get_blocks,
+    },
+    VirtualLibrarySpec {
+        name: simulink_dashboard::LIB_NAME,
+        matches_name: simulink_dashboard::is_simulink_dashboard_name,
+        get_blocks: simulink_dashboard::get_blocks,
     },
 ];
 

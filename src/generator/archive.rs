@@ -10,6 +10,7 @@ use crate::generator::system_xml;
 use crate::model::*;
 use anyhow::{Context, Result, anyhow};
 use roxmltree::Document;
+use std::collections::BTreeMap;
 use std::io::{Read, Seek, Write};
 
 /// Returns `true` if the given path is a system XML file that should be parsed.
@@ -71,7 +72,13 @@ impl SlxArchive {
             }
         }
 
-        Ok(SlxArchive { entries })
+        // Parse blockdiagram.xml.rels if present.
+        let relationships = Self::parse_rels_from_entries(&entries);
+
+        Ok(SlxArchive {
+            entries,
+            relationships,
+        })
     }
 
     /// Read an SLX file from disk.
@@ -161,5 +168,65 @@ impl SlxArchive {
     /// List all entry paths in the archive.
     pub fn entry_paths(&self) -> Vec<&str> {
         self.entries.iter().map(|e| e.path.as_str()).collect()
+    }
+
+    /// Resolve a `Ref="bdmxdata:…"` style reference to a file path within the
+    /// archive, using the parsed relationships from `blockdiagram.xml.rels`.
+    ///
+    /// For example, `"bdmxdata:BindingPersistence_151"` resolves to
+    /// `"simulink/bdmxdata/BindingPersistence_151.mxarray"` when the rels
+    /// file maps the id `BindingPersistence_151` to
+    /// `"bdmxdata/BindingPersistence_151.mxarray"`.
+    ///
+    /// Returns `None` if the reference format is invalid or the relationship
+    /// id is not found.
+    pub fn resolve_ref(&self, ref_value: &str) -> Option<String> {
+        let id = ref_value.strip_prefix("bdmxdata:")?;
+        let rel = self.relationships.get(id)?;
+        // The target in blockdiagram.xml.rels is relative to `simulink/`.
+        Some(format!("simulink/{}", rel.target))
+    }
+
+    /// Get the raw bytes of an entry by its archive path.
+    pub fn get_raw(&self, path: &str) -> Option<&[u8]> {
+        self.entries.iter().find_map(|e| {
+            if e.path == path {
+                if let SlxContent::Raw(ref data) = e.content {
+                    Some(data.as_slice())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Look up a BindingPersistence ref and return the raw `.mxarray` bytes.
+    ///
+    /// The `ref_value` should be of the form `"bdmxdata:BindingPersistence_NNN"`.
+    pub fn resolve_binding_persistence(&self, ref_value: &str) -> Option<&[u8]> {
+        let archive_path = self.resolve_ref(ref_value)?;
+        self.get_raw(&archive_path)
+    }
+
+    // ── Internal helpers ────────────────────────────────────────────────
+
+    /// Scan entries for `simulink/_rels/blockdiagram.xml.rels` and parse it.
+    fn parse_rels_from_entries(entries: &[SlxArchiveEntry]) -> BTreeMap<String, Relationship> {
+        const RELS_PATH: &str = "simulink/_rels/blockdiagram.xml.rels";
+        let mut map = BTreeMap::new();
+        for entry in entries {
+            if entry.path == RELS_PATH {
+                if let SlxContent::Raw(ref data) = entry.content {
+                    if let Ok(xml) = std::str::from_utf8(data) {
+                        for rel in parse_rels_xml(xml) {
+                            map.insert(rel.id.clone(), rel);
+                        }
+                    }
+                }
+            }
+        }
+        map
     }
 }

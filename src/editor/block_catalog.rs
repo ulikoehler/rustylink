@@ -6032,6 +6032,153 @@ fn build_catalog() -> Vec<BlockCatalogEntry> {
         "Thermal resistance element",
     ));
 
+    // ── Dashboard / UI Blocks ──────────────────────────────────────────
+    let cat = "Dashboard";
+    c.push(entry(
+        "Checkbox",
+        "Checkbox",
+        cat,
+        0,
+        0,
+        "Boolean checkbox UI control",
+    ));
+    c.push(entry(
+        "ComboBox",
+        "Combo Box",
+        cat,
+        0,
+        0,
+        "Dropdown selection UI control",
+    ));
+    c.push(entry(
+        "DashboardScope",
+        "Dashboard Scope",
+        cat,
+        0,
+        0,
+        "Dashboard waveform scope for signal visualization",
+    ));
+    c.push(entry(
+        "DisplayBlock",
+        "Dashboard Display",
+        cat,
+        0,
+        0,
+        "Dashboard numeric display widget",
+    ));
+    c.push(entry(
+        "EditField",
+        "Edit Field",
+        cat,
+        0,
+        0,
+        "Text/number input field UI control",
+    ));
+    c.push(entry(
+        "CircularGaugeBlock",
+        "Circular Gauge",
+        cat,
+        0,
+        0,
+        "Circular gauge indicator",
+    ));
+    c.push(entry(
+        "SemiCircularGaugeBlock",
+        "Semi-Circular Gauge",
+        cat,
+        0,
+        0,
+        "Half-circle gauge indicator",
+    ));
+    c.push(entry(
+        "KnobBlock",
+        "Knob",
+        cat,
+        0,
+        0,
+        "Rotary knob input control",
+    ));
+    c.push(entry(
+        "LampBlock",
+        "Lamp",
+        cat,
+        0,
+        0,
+        "LED lamp indicator (on/off or multi-state)",
+    ));
+    c.push(entry(
+        "LinearGaugeBlock",
+        "Linear Gauge",
+        cat,
+        0,
+        0,
+        "Linear/horizontal gauge indicator",
+    ));
+    c.push(entry(
+        "PushButtonBlock",
+        "Push Button",
+        cat,
+        0,
+        0,
+        "Momentary push button UI control",
+    ));
+    c.push(entry(
+        "QuarterGaugeBlock",
+        "Quarter Gauge",
+        cat,
+        0,
+        0,
+        "Quarter-circle gauge indicator",
+    ));
+    c.push(entry(
+        "RadioButtonGroup",
+        "Radio Button Group",
+        cat,
+        0,
+        0,
+        "Radio button selection group",
+    ));
+    c.push(entry(
+        "RockerSwitchBlock",
+        "Rocker Switch",
+        cat,
+        0,
+        0,
+        "Rocker-style on/off switch",
+    ));
+    c.push(entry(
+        "RotarySwitchBlock",
+        "Rotary Switch",
+        cat,
+        0,
+        0,
+        "Multi-position rotary switch",
+    ));
+    c.push(entry(
+        "SliderBlock",
+        "Slider",
+        cat,
+        0,
+        0,
+        "Continuous value slider control",
+    ));
+    c.push(entry(
+        "SliderSwitchBlock",
+        "Slider Switch",
+        cat,
+        0,
+        0,
+        "Two-position slider switch",
+    ));
+    c.push(entry(
+        "ToggleSwitchBlock",
+        "Toggle Switch",
+        cat,
+        0,
+        0,
+        "Two-position toggle switch",
+    ));
+
     // Ensure at least 750
     debug_assert!(
         c.len() >= 750,

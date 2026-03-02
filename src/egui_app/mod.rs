@@ -9,6 +9,7 @@ mod geometry;
 pub mod icon_assets;
 mod navigation;
 mod render;
+pub mod scope_widget;
 mod state;
 pub mod text;
 mod ui;

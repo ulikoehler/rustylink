@@ -724,6 +724,38 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
         }
     }
 
+    // Auto-detect port counts for native dashboard / UI blocks.
+    //
+    // Dashboard blocks (Checkbox, DashboardScope, SliderBlock, etc.) appear
+    // directly in the SLX with their type-specific BlockType but typically
+    // have no SourceBlock and no <PortCounts> element.  The "Display" block
+    // type is special: it has exactly 1 input and 0 outputs.  All other
+    // dashboard blocks have 0 ports (they bind to signals through
+    // BindingPersistence metadata rather than signal lines).
+    if blk.port_counts.is_none()
+        && blk.ports.is_empty()
+        && crate::builtin_libraries::simulink_dashboard::is_dashboard_block_type(&blk.block_type)
+    {
+        let (ins, outs) = if blk.block_type == "Display" {
+            (1u32, 0u32)
+        } else {
+            (0u32, 0u32)
+        };
+        blk.port_counts = Some(crate::model::PortCounts {
+            ins: Some(ins),
+            outs: Some(outs),
+        });
+        for i in 1..=ins {
+            let mut p = crate::model::Port {
+                port_type: "in".to_string(),
+                index: Some(i),
+                properties: indexmap::IndexMap::new(),
+            };
+            p.properties.insert("Name".to_string(), String::new());
+            blk.ports.push(p);
+        }
+    }
+
     Ok(blk)
 }
 

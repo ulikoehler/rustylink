@@ -455,6 +455,55 @@ pub struct Annotation {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
+// Relationship (from blockdiagram.xml.rels)
+// ────────────────────────────────────────────────────────────────────────────
+
+/// A relationship entry parsed from an OPC-style `.rels` file such as
+/// `simulink/_rels/blockdiagram.xml.rels`.
+///
+/// Each relationship maps an `Id` to a `Target` path within the archive.
+/// The `relationship_type` URI classifies the kind of linked resource (e.g.,
+/// `modelMxArray`, `system`, `graphicalInterface`, …).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Relationship {
+    /// Identifier for this relationship (e.g. `"BindingPersistence_151"`).
+    pub id: String,
+    /// Target path relative to the containing directory (e.g.
+    /// `"bdmxdata/BindingPersistence_151.mxarray"`).
+    pub target: String,
+    /// Full relationship type URI.
+    pub relationship_type: String,
+}
+
+/// Parse an OPC-style `_rels/*.rels` XML string into a list of
+/// [`Relationship`] entries.
+///
+/// The XML uses the namespace
+/// `http://schemas.openxmlformats.org/package/2006/relationships` with
+/// `<Relationship Id="…" Target="…" Type="…"/>` children.
+pub fn parse_rels_xml(xml: &str) -> Vec<Relationship> {
+    let mut rels = Vec::new();
+    // Use roxmltree for namespace-aware parsing.
+    if let Ok(doc) = roxmltree::Document::parse(xml) {
+        for node in doc.descendants() {
+            if node.is_element() && node.tag_name().name() == "Relationship" {
+                let id = node.attribute("Id").unwrap_or("").to_string();
+                let target = node.attribute("Target").unwrap_or("").to_string();
+                let rel_type = node.attribute("Type").unwrap_or("").to_string();
+                if !id.is_empty() {
+                    rels.push(Relationship {
+                        id,
+                        target,
+                        relationship_type: rel_type,
+                    });
+                }
+            }
+        }
+    }
+    rels
+}
+
+// ────────────────────────────────────────────────────────────────────────────
 // System walk helpers
 // ────────────────────────────────────────────────────────────────────────────
 
@@ -504,6 +553,11 @@ impl System {
 pub struct SlxArchive {
     /// All entries in the archive, in their original ZIP order.
     pub entries: Vec<SlxArchiveEntry>,
+    /// Parsed relationships from `simulink/_rels/blockdiagram.xml.rels`.
+    ///
+    /// Keys are the `Id` attribute values (e.g. `"BindingPersistence_151"`),
+    /// values are [`Relationship`] structs holding the target path and type URI.
+    pub relationships: std::collections::BTreeMap<String, Relationship>,
 }
 
 /// A single entry in an SLX ZIP archive.
