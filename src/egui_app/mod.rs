@@ -10,6 +10,7 @@ pub mod icon_assets;
 mod navigation;
 mod render;
 pub mod scope_widget;
+pub mod dashboard_widgets;
 mod state;
 pub mod text;
 mod ui;
@@ -27,6 +28,8 @@ pub use render::{get_block_type_cfg, render_block_icon, wrap_text_to_max_width};
 
 // Helpers which are useful for integration tests
 pub use render::{PortLabelMaxWidths, compute_icon_available_rect};
+// Interior renderer registry access (needed by dashboard visualization tests)
+pub use render::{get_interior_renderer, InteriorRendererFn};
 pub use state::{
     BlockContextMenuItem, BlockDialog, BlockDialogButton, ChartView, SignalContextMenuItem,
     SignalDialog, SignalDialogButton, SubsystemApp, SubsystemEntities,

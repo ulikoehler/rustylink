@@ -116,6 +116,19 @@ fn register_virtual_keys(
     keys.retain(|k| seen.insert(k.clone()));
 
     for k in keys {
+        // When the new entry has no icon, preserve an existing icon if one was
+        // previously registered (e.g. dashboard blocks with UTF-8 glyph icons
+        // that are later overwritten by virtual-library entries with icon=None).
+        if cfg.icon.is_none() {
+            if let Some(existing) = m.get(&k) {
+                if existing.icon.is_some() {
+                    let mut merged = cfg.clone();
+                    merged.icon = existing.icon;
+                    m.insert(k, merged);
+                    continue;
+                }
+            }
+        }
         m.insert(k, cfg.clone());
     }
 }

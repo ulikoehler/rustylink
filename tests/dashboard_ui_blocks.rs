@@ -512,3 +512,215 @@ fn dashboard_virtual_library_is_recognized() {
     assert!(is_virtual_library("simulink/dashboard"));
     assert!(is_virtual_library("Simulink/Dashboard/Foo"));
 }
+// ── Visualization: custom renderers registered for all dashboard blocks ────
+
+#[cfg(feature = "egui")]
+mod visualization_tests {
+    use rustylink::egui_app::dashboard_widgets;
+
+    /// All dashboard block types that are "UI elements" (i.e. should have a
+    /// dedicated custom renderer instead of displaying a "?" fallback).
+    const UI_BLOCK_TYPES: &[&str] = &[
+        "PushButtonBlock",
+        "SliderSwitchBlock",
+        "RadioButtonGroup",
+        "ComboBox",
+        "Checkbox",
+        "SliderBlock",
+        "EditField",
+        "ToggleSwitchBlock",
+        "KnobBlock",
+        "RockerSwitchBlock",
+        "RotarySwitchBlock",
+        "QuarterGaugeBlock",
+        "SemiCircularGaugeBlock",
+        "LinearGaugeBlock",
+        "DashboardScope",
+        "DisplayBlock",
+        "CircularGaugeBlock",
+        "LampBlock",
+    ];
+
+    #[test]
+    fn all_ui_block_types_have_custom_renderer() {
+        for &bt in UI_BLOCK_TYPES {
+            assert!(
+                dashboard_widgets::is_dashboard_rendered(bt),
+                "Block type '{}' should have a custom dashboard renderer but none is registered",
+                bt
+            );
+        }
+    }
+
+    #[test]
+    fn all_ui_block_types_registered_in_interior_registry() {
+        use rustylink::egui_app::get_interior_renderer;
+        for &bt in UI_BLOCK_TYPES {
+            assert!(
+                get_interior_renderer(bt).is_some(),
+                "Block type '{}' should be in the interior renderer registry",
+                bt
+            );
+        }
+    }
+
+    #[test]
+    fn dashboard_renderers_table_has_correct_count() {
+        // We expect exactly 18 dashboard renderers (all UI block types above)
+        assert_eq!(
+            dashboard_widgets::DASHBOARD_RENDERERS.len(),
+            UI_BLOCK_TYPES.len(),
+            "DASHBOARD_RENDERERS should contain exactly {} entries (one per UI block type)",
+            UI_BLOCK_TYPES.len()
+        );
+    }
+
+    #[test]
+    fn all_declared_renderers_match_known_block_types() {
+        // Every entry in DASHBOARD_RENDERERS should be a known dashboard block type
+        for &(bt, _) in dashboard_widgets::DASHBOARD_RENDERERS {
+            assert!(
+                rustylink::builtin_libraries::simulink_dashboard::is_dashboard_block_type(bt),
+                "Renderer registered for '{}' but it's not a known dashboard block type",
+                bt
+            );
+        }
+    }
+
+    #[test]
+    fn block_type_config_has_known_true_for_all_dashboard_types() {
+        let map = rustylink::block_types::get_block_type_config_map();
+        let guard = map.read().unwrap();
+        for &bt in UI_BLOCK_TYPES {
+            let cfg = guard.get(bt);
+            assert!(
+                cfg.is_some(),
+                "Block type '{}' should be in the config map",
+                bt
+            );
+            assert!(
+                cfg.unwrap().known,
+                "Block type '{}' should have known=true in config map",
+                bt
+            );
+        }
+    }
+
+    #[test]
+    fn block_type_config_preserves_icon_after_virtual_lib_registration() {
+        // This tests the icon overwrite fix: dashboard blocks have UTF-8 icons
+        // set in default_registry, and the virtual library registration loop
+        // should preserve them instead of overwriting with None.
+        let map = rustylink::block_types::get_block_type_config_map();
+        let guard = map.read().unwrap();
+
+        // All dashboard blocks (except Display which has separate special handling)
+        // should still have their UTF-8 icon set from the default_registry.
+        for &bt in UI_BLOCK_TYPES {
+            let cfg = guard.get(bt);
+            assert!(
+                cfg.is_some(),
+                "Block type '{}' should be in the config map",
+                bt
+            );
+            let cfg = cfg.unwrap();
+            assert!(
+                cfg.icon.is_some(),
+                "Block type '{}' should still have an icon (the virtual library registration should not have overwritten it with None)",
+                bt
+            );
+        }
+    }
+
+    #[test]
+    fn no_dashboard_block_renders_as_question_mark() {
+        // Build a fake block for each dashboard type and verify it would not
+        // use the "?" fallback path in the rendering logic.
+        //
+        // The "?" path is reached when:
+        //   1. The block is not Constant / masked / has value / Display
+        //   2. The block type has no custom interior renderer
+        //   3. render_block_icon finds no icon in the config
+        //
+        // With our changes, all dashboard types have both:
+        //   - A custom interior renderer (checked above)
+        //   - A non-None icon in the config (checked above)
+        //
+        // This is a structural check: verify both conditions hold.
+        use rustylink::egui_app::get_interior_renderer;
+        let map = rustylink::block_types::get_block_type_config_map();
+        let guard = map.read().unwrap();
+
+        for &bt in UI_BLOCK_TYPES {
+            let has_renderer = get_interior_renderer(bt).is_some();
+            let has_icon = guard.get(bt).and_then(|c| c.icon.as_ref()).is_some();
+
+            assert!(
+                has_renderer || has_icon,
+                "Block type '{}' would render as '?' - it has neither a custom renderer nor an icon",
+                bt
+            );
+            // Prefer renderer (our primary fix)
+            assert!(
+                has_renderer,
+                "Block type '{}' should have a custom interior renderer for proper visualization",
+                bt
+            );
+        }
+    }
+
+    #[test]
+    fn display_block_type_also_has_icon() {
+        // The standard "Display" block (not DisplayBlock) has special handling
+        // in update.rs that shows the connected signal label, but it should
+        // still have a fallback icon.
+        let map = rustylink::block_types::get_block_type_config_map();
+        let guard = map.read().unwrap();
+        let cfg = guard.get("Display").expect("Display should be in config map");
+        assert!(cfg.icon.is_some(), "Display should have an icon");
+        assert!(cfg.known, "Display should be known");
+        assert_eq!(cfg.default_ins, 1, "Display should have 1 default input");
+    }
+
+    #[test]
+    fn sum_block_renderer_still_works() {
+        // Sanity: the pre-existing Sum renderer should not be affected
+        // by adding dashboard renderers.
+        use rustylink::egui_app::get_interior_renderer;
+        assert!(
+            get_interior_renderer("Sum").is_some(),
+            "Sum block should still have its custom interior renderer"
+        );
+    }
+
+    /// Verify that the model's actual block types from the SLX file will
+    /// go through the custom renderer path (not the "?" path) by checking
+    /// all dashboard blocks parsed from the model.
+    #[test]
+    fn parsed_model_blocks_have_renderers() {
+        use rustylink::egui_app::get_interior_renderer;
+
+        let path = std::path::Path::new("Simulink_UI_Test.slx");
+        if !path.exists() {
+            return;
+        }
+        let archive = rustylink::model::SlxArchive::from_file(path)
+            .expect("failed to load SLX");
+        let system = archive.root_system().expect("no root system");
+
+        for blk in &system.blocks {
+            if rustylink::builtin_libraries::simulink_dashboard::is_dashboard_block_type(
+                &blk.block_type,
+            ) && blk.block_type != "Display"
+            {
+                assert!(
+                    get_interior_renderer(&blk.block_type).is_some(),
+                    "Model block '{}' (type={}) should have a custom renderer, \
+                     but none is registered. It will render as '?'!",
+                    blk.name,
+                    blk.block_type
+                );
+            }
+        }
+    }
+}

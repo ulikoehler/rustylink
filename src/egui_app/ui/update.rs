@@ -388,6 +388,12 @@ pub(crate) fn update_internal(
                 block_action = Some(ClickAction::Secondary);
             } else if resp.clicked() {
                 println!("Block {} clicked", b.name);
+                // Dashboard / UI block click: print connected block and signal info.
+                if crate::builtin_libraries::simulink_dashboard::is_dashboard_block_type(
+                    &b.block_type,
+                ) {
+                    print_dashboard_connected_signals(b, entities);
+                }
                 block_action = Some(ClickAction::Primary);
             }
 
@@ -2072,3 +2078,116 @@ pub(crate) fn update_internal(
     interaction
 }
 
+/// Print connected block/signal information for a dashboard UI block.
+///
+/// When a dashboard block is clicked, this function finds all lines (signals)
+/// that connect to or from that block and prints the connected partner block
+/// name and signal name.
+fn print_dashboard_connected_signals(
+    block: &crate::model::Block,
+    entities: &crate::egui_app::state::SubsystemEntities,
+) {
+    let Some(sid) = &block.sid else {
+        println!("  [Dashboard UI] Block '{}' has no SID", block.name);
+        return;
+    };
+    println!(
+        "  [Dashboard UI] Block '{}' (type: {})",
+        block.name, block.block_type
+    );
+
+    let mut found_any = false;
+
+    // Helper: check if a branch tree touches this block's SID.
+    fn branch_touches(br: &crate::model::Branch, sid: &str) -> bool {
+        if br.dst.as_ref().map_or(false, |d| d.sid == sid) {
+            return true;
+        }
+        br.branches.iter().any(|sub| branch_touches(sub, sid))
+    }
+
+    // Helper: find the block name for a given SID.
+    let name_for_sid = |target_sid: &str| -> String {
+        entities
+            .blocks
+            .iter()
+            .find(|b| b.sid.as_deref() == Some(target_sid))
+            .map(|b| b.name.clone())
+            .unwrap_or_else(|| format!("<SID:{}>", target_sid))
+    };
+
+    for line in &entities.lines {
+        let signal_name = line
+            .name
+            .as_ref()
+            .map(|s| s.as_str())
+            .unwrap_or("<unnamed>");
+
+        // Check if this block is the source of a line.
+        if let Some(src) = &line.src {
+            if src.sid == *sid {
+                // Find destination(s)
+                if let Some(dst) = &line.dst {
+                    let dst_name = name_for_sid(&dst.sid);
+                    println!(
+                        "    → signal '{}' → block '{}'",
+                        signal_name, dst_name
+                    );
+                    found_any = true;
+                }
+                for br in &line.branches {
+                    fn print_branch_dsts(
+                        br: &crate::model::Branch,
+                        signal_name: &str,
+                        entities: &crate::egui_app::state::SubsystemEntities,
+                    ) {
+                        if let Some(dst) = &br.dst {
+                            let name = entities
+                                .blocks
+                                .iter()
+                                .find(|b| b.sid.as_deref() == Some(&dst.sid))
+                                .map(|b| b.name.clone())
+                                .unwrap_or_else(|| format!("<SID:{}>", dst.sid));
+                            println!("    → signal '{}' → block '{}'", signal_name, name);
+                        }
+                        for sub in &br.branches {
+                            print_branch_dsts(sub, signal_name, entities);
+                        }
+                    }
+                    print_branch_dsts(br, signal_name, entities);
+                    found_any = true;
+                }
+            }
+        }
+
+        // Check if this block is the destination of a line.
+        if let Some(dst) = &line.dst {
+            if dst.sid == *sid {
+                if let Some(src) = &line.src {
+                    let src_name = name_for_sid(&src.sid);
+                    println!(
+                        "    ← signal '{}' ← block '{}'",
+                        signal_name, src_name
+                    );
+                    found_any = true;
+                }
+            }
+        }
+
+        // Check branches targeting this block.
+        if line.branches.iter().any(|br| branch_touches(br, sid)) {
+            if let Some(src) = &line.src {
+                let src_name = name_for_sid(&src.sid);
+                println!(
+                    "    ← signal '{}' ← block '{}' (via branch)",
+                    signal_name, src_name
+                );
+                found_any = true;
+            }
+        }
+    }
+
+    if !found_any {
+        println!("    (no connected signals found)");
+    }
+}

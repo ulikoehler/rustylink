@@ -867,6 +867,10 @@ fn interior_renderer_registry() -> &'static std::collections::HashMap<&'static s
         let mut m: std::collections::HashMap<&'static str, InteriorRendererFn> =
             std::collections::HashMap::new();
         m.insert("Sum", render_sum_block);
+        // Register all dashboard / UI block custom renderers.
+        for &(block_type, renderer) in super::dashboard_widgets::DASHBOARD_RENDERERS {
+            m.insert(block_type, renderer);
+        }
         m
     })
 }
