@@ -192,6 +192,12 @@ pub struct Block {
     /// Full library block path.
     #[serde(default)]
     pub library_block_path: Option<String>,
+    /// Parsed dashboard binding from a `BindingPersistence` `.mxarray` file.
+    ///
+    /// Present only for Dashboard / HMI blocks that carry a `BindingPersistence`
+    /// property in the SLX archive.
+    #[serde(default)]
+    pub dashboard_binding: Option<DashboardBinding>,
 
     /// Order of child XML elements inside this block, used for round-trip
     /// XML generation. When empty, a default order is used.
@@ -452,6 +458,174 @@ pub struct Annotation {
     pub zorder: Option<String>,
     pub interpreter: Option<String>,
     pub properties: IndexMap<String, String>,
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Dashboard binding (from BindingPersistence mxarray files)
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Describes how a Simulink Dashboard / HMI block is bound to a model signal
+/// or parameter.
+///
+/// Dashboard blocks do **not** use traditional signal lines. Instead they carry
+/// a `BindingPersistence` property whose `Ref` attribute points to a binary
+/// `.mxarray` file inside the SLX archive. This struct holds the information
+/// extracted from that file.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum DashboardBinding {
+    /// The dashboard block **writes** to a block parameter (input widget).
+    ///
+    /// Used by `Checkbox`, `ComboBox`, `PushButton`, `Slider`, `Knob`,
+    /// `ToggleSwitchBlock`, etc.
+    ParamSource {
+        /// Name (or path) of the target block whose parameter is written
+        /// (e.g. `"CheckBox"`).
+        block_path: String,
+        /// Parameter name that is written (typically `"Value"`).
+        param_name: String,
+        /// Unique identifier for this binding.
+        uuid: String,
+    },
+    /// The dashboard block **reads** a signal from another block (output widget).
+    ///
+    /// Used by `DashboardScope`, `DisplayBlock`, `CircularGaugeBlock`,
+    /// `LampBlock`, etc.
+    SignalSpec {
+        /// Name (or path) of the source block producing the signal
+        /// (e.g. `"Edit"`).
+        block_path: String,
+        /// Name of the signal (e.g. `"Edit_signal"`).
+        signal_name: String,
+        /// Unique identifier for this binding.
+        uuid: String,
+    },
+}
+
+/// Extract readable ASCII strings (length ≥ 3) from raw binary data.
+fn extract_ascii_strings(data: &[u8], min_len: usize) -> Vec<(usize, String)> {
+    let mut results = Vec::new();
+    let mut start = None;
+    for (i, &b) in data.iter().enumerate() {
+        if b >= 0x20 && b <= 0x7e {
+            if start.is_none() {
+                start = Some(i);
+            }
+        } else if let Some(s) = start.take() {
+            if i - s >= min_len {
+                if let Ok(text) = std::str::from_utf8(&data[s..i]) {
+                    results.push((s, text.to_string()));
+                }
+            }
+        }
+    }
+    // Handle string at end of data
+    if let Some(s) = start {
+        let i = data.len();
+        if i - s >= min_len {
+            if let Ok(text) = std::str::from_utf8(&data[s..i]) {
+                results.push((s, text.to_string()));
+            }
+        }
+    }
+    results
+}
+
+/// Field names that appear in the schema section of mxarray files and should
+/// be excluded when looking for data values.
+const MXARRAY_FIELD_NAMES: &[&str] = &[
+    "MCOS",
+    "FileWrapper__",
+    "Simulink.HMI.ParamSourceInfo",
+    "Simulink.HMI.SignalSpecification",
+    "Simulink.HMI",
+    "Simulink",
+    "ParamSourceInfo",
+    "SignalSpecification",
+    "BlockPath_",
+    "BlockPath",
+    "path",
+    "ssid",
+    "sub_path",
+    "ParamName_",
+    "UUID",
+    "Label_",
+    "VarName_",
+    "Element_",
+    "ElementRawInput_",
+    "WksType_",
+    "SID_",
+    "SignalName_",
+    "SubPath_",
+    "OutputPortIndex_",
+    "LogicalPortIndex_",
+    "SubSysPath_",
+    "Decimation_",
+    "MaxPoints_",
+    "TargetBufferedStreaming_",
+    "IsFrameBased_",
+    "HideInSDI_",
+    "DomainType_",
+    "VisualType_",
+    "DomainParams_",
+];
+
+/// Parse a raw `.mxarray` binary blob from a `BindingPersistence` entry into a
+/// [`DashboardBinding`].
+///
+/// The function extracts readable ASCII strings from the binary data, identifies
+/// the binding type (`ParamSourceInfo` or `SignalSpecification`), then pulls out
+/// the data values (block path, parameter/signal name, UUID).
+///
+/// Returns `None` if the data does not contain a recognised binding pattern.
+pub fn parse_mxarray_binding(data: &[u8]) -> Option<DashboardBinding> {
+    let strings = extract_ascii_strings(data, 3);
+
+    // Determine binding type from class name.
+    let is_param = strings
+        .iter()
+        .any(|(_, s)| s == "Simulink.HMI.ParamSourceInfo");
+    let is_signal = strings
+        .iter()
+        .any(|(_, s)| s == "Simulink.HMI.SignalSpecification");
+
+    if !is_param && !is_signal {
+        return None;
+    }
+
+    // Collect data-value strings: those that are NOT known field names and
+    // appear in the data region (offset > 900) of the first instance. The
+    // field names repeat a second time further in the file; we stop before
+    // that second copy by limiting offset.
+    let field_set: std::collections::HashSet<&str> =
+        MXARRAY_FIELD_NAMES.iter().copied().collect();
+
+    let data_strings: Vec<&str> = strings
+        .iter()
+        .filter(|(offset, s)| *offset > 900 && *offset < 1800 && !field_set.contains(s.as_str()))
+        .map(|(_, s)| s.as_str())
+        .collect();
+
+    if is_param {
+        // ParamSourceInfo data layout: [block_path, sid, param_name, uuid]
+        let block_path = data_strings.first()?.to_string();
+        let param_name = data_strings.get(2).unwrap_or(&"Value").to_string();
+        let uuid = data_strings.get(3).unwrap_or(&"").to_string();
+        Some(DashboardBinding::ParamSource {
+            block_path,
+            param_name,
+            uuid,
+        })
+    } else {
+        // SignalSpecification data layout: [uuid, block_path, sid, signal_name]
+        let uuid = data_strings.first()?.to_string();
+        let block_path = data_strings.get(1)?.to_string();
+        let signal_name = data_strings.get(3).unwrap_or(&"").to_string();
+        Some(DashboardBinding::SignalSpec {
+            block_path,
+            signal_name,
+            uuid,
+        })
+    }
 }
 
 // ────────────────────────────────────────────────────────────────────────────

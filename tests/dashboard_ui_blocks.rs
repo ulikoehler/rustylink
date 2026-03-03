@@ -10,7 +10,7 @@
 use rustylink::builtin_libraries::simulink_dashboard::{
     is_dashboard_block_type, is_simulink_dashboard_name, DASHBOARD_BLOCK_TYPES,
 };
-use rustylink::model::{parse_rels_xml, SlxArchive};
+use rustylink::model::{parse_mxarray_binding, parse_rels_xml, DashboardBinding, SlxArchive};
 use rustylink::parser::{SimulinkParser, ZipSource};
 
 // ── is_dashboard_block_type ────────────────────────────────────────────────
@@ -721,6 +721,229 @@ mod visualization_tests {
                     blk.block_type
                 );
             }
+        }
+    }
+} // end mod visualization_tests
+
+// ── BindingPersistence / mxarray binding resolution ────────────────────────
+
+/// Every dashboard block that has a BindingPersistence ref must have a resolved binding.
+#[test]
+fn all_dashboard_blocks_have_bindings() {
+    let path = std::path::Path::new("Simulink_UI_Test.slx");
+    if !path.exists() {
+        return;
+    }
+    let archive = SlxArchive::from_file(path).expect("failed to load SLX");
+    let system = archive.root_system().expect("no root system");
+
+    let mut checked = 0u32;
+    for blk in &system.blocks {
+        // Only check blocks that have BindingPersistence (true dashboard HMI blocks).
+        if blk.ref_properties.contains("BindingPersistence") {
+            assert!(
+                blk.dashboard_binding.is_some(),
+                "Dashboard block '{}' (type={}) has BindingPersistence ref but \
+                 no resolved dashboard_binding.",
+                blk.name,
+                blk.block_type
+            );
+            checked += 1;
+        }
+    }
+    // The test model has 18 blocks with BindingPersistence.
+    assert!(
+        checked >= 18,
+        "Expected at least 18 dashboard blocks with BindingPersistence, found {}",
+        checked
+    );
+}
+
+/// ParamSourceInfo bindings carry a block_path and param_name.
+#[test]
+fn param_source_bindings_have_correct_fields() {
+    let path = std::path::Path::new("Simulink_UI_Test.slx");
+    if !path.exists() {
+        return;
+    }
+    let archive = SlxArchive::from_file(path).expect("failed to load SLX");
+    let system = archive.root_system().expect("no root system");
+
+    // These blocks are verified as ParamSourceInfo in the test model.
+    let expected_param_blocks: &[(&str, &str)] = &[
+        ("CheckBox UI", "CheckBox"),
+        ("ComboBox UI", "ComboBox"),
+        ("PushButton UI", "Button"),
+        ("Slider UI", "Slider"),
+        ("Knob UI", "Knob"),
+        ("ToggleSwitch UI", "ToogleSwitch"),
+    ];
+
+    for &(block_name, expected_target) in expected_param_blocks {
+        let blk = system
+            .blocks
+            .iter()
+            .find(|b| b.name == block_name)
+            .unwrap_or_else(|| panic!("block '{}' not found", block_name));
+
+        match &blk.dashboard_binding {
+            Some(DashboardBinding::ParamSource {
+                block_path,
+                param_name,
+                uuid,
+            }) => {
+                assert_eq!(
+                    block_path, expected_target,
+                    "block '{}' should target '{}'",
+                    block_name, expected_target
+                );
+                assert_eq!(
+                    param_name, "Value",
+                    "block '{}' should write param 'Value'",
+                    block_name
+                );
+                assert!(
+                    !uuid.is_empty(),
+                    "block '{}' should have a non-empty UUID",
+                    block_name
+                );
+            }
+            other => panic!(
+                "block '{}' expected ParamSource binding, got {:?}",
+                block_name, other
+            ),
+        }
+    }
+}
+
+/// SignalSpecification bindings carry a block_path and signal_name.
+#[test]
+fn signal_spec_bindings_have_correct_fields() {
+    let path = std::path::Path::new("Simulink_UI_Test.slx");
+    if !path.exists() {
+        return;
+    }
+    let archive = SlxArchive::from_file(path).expect("failed to load SLX");
+    let system = archive.root_system().expect("no root system");
+
+    // These blocks are verified as SignalSpecification in the test model.
+    let expected_signal_blocks: &[(&str, &str, &str)] = &[
+        ("Dashboard Scope", "Edit", "Edit_signal"),
+        ("Display6", "Slider", "Slider_signal"),
+        ("Gauge", "ComboBox", "ComboBox_signal"),
+        ("Half Gauge", "RockerSwitch", "RockerSwitch_signal"),
+        ("Lamp", "Button", "Button_signal"),
+        ("Linear Gauge", "Knob", "Knob_signal"),
+        ("Quarter Gauge", "RotarySwitch", "RotarySwitch_signal"),
+    ];
+
+    for &(block_name, expected_source, expected_signal) in expected_signal_blocks {
+        let blk = system
+            .blocks
+            .iter()
+            .find(|b| b.name == block_name)
+            .unwrap_or_else(|| panic!("block '{}' not found", block_name));
+
+        match &blk.dashboard_binding {
+            Some(DashboardBinding::SignalSpec {
+                block_path,
+                signal_name,
+                uuid,
+            }) => {
+                assert_eq!(
+                    block_path, expected_source,
+                    "block '{}' should read from '{}'",
+                    block_name, expected_source
+                );
+                assert_eq!(
+                    signal_name, expected_signal,
+                    "block '{}' signal name should be '{}'",
+                    block_name, expected_signal
+                );
+                assert!(
+                    !uuid.is_empty(),
+                    "block '{}' should have a non-empty UUID",
+                    block_name
+                );
+            }
+            other => panic!(
+                "block '{}' expected SignalSpec binding, got {:?}",
+                block_name, other
+            ),
+        }
+    }
+}
+
+/// Verify that `parse_mxarray_binding` returns `None` for non-binding data.
+#[test]
+fn parse_mxarray_binding_returns_none_for_garbage() {
+    assert!(parse_mxarray_binding(b"").is_none());
+    assert!(parse_mxarray_binding(b"hello world random data").is_none());
+    assert!(parse_mxarray_binding(&[0u8; 256]).is_none());
+}
+
+/// Raw `.mxarray` bytes from the SLX resolve to the correct binding type.
+#[test]
+fn raw_mxarray_bytes_parse_correctly() {
+    let path = std::path::Path::new("Simulink_UI_Test.slx");
+    if !path.exists() {
+        return;
+    }
+    let archive = SlxArchive::from_file(path).expect("failed to load SLX");
+
+    // BindingPersistence_151 → ParamSourceInfo for CheckBox
+    let raw = archive
+        .resolve_binding_persistence("bdmxdata:BindingPersistence_151")
+        .expect("should resolve BindingPersistence_151");
+    let binding = parse_mxarray_binding(raw).expect("should parse as binding");
+    match binding {
+        DashboardBinding::ParamSource {
+            block_path,
+            param_name,
+            ..
+        } => {
+            assert_eq!(block_path, "CheckBox");
+            assert_eq!(param_name, "Value");
+        }
+        other => panic!("expected ParamSource, got {:?}", other),
+    }
+
+    // BindingPersistence_167 → SignalSpecification for DashboardScope
+    let raw = archive
+        .resolve_binding_persistence("bdmxdata:BindingPersistence_167")
+        .expect("should resolve BindingPersistence_167");
+    let binding = parse_mxarray_binding(raw).expect("should parse as binding");
+    match binding {
+        DashboardBinding::SignalSpec {
+            block_path,
+            signal_name,
+            ..
+        } => {
+            assert_eq!(block_path, "Edit");
+            assert_eq!(signal_name, "Edit_signal");
+        }
+        other => panic!("expected SignalSpec, got {:?}", other),
+    }
+}
+
+/// Blocks without a BindingPersistence ref must NOT have a dashboard_binding.
+#[test]
+fn non_dashboard_blocks_have_no_binding() {
+    let path = std::path::Path::new("Simulink_UI_Test.slx");
+    if !path.exists() {
+        return;
+    }
+    let archive = SlxArchive::from_file(path).expect("failed to load SLX");
+    let system = archive.root_system().expect("no root system");
+
+    for blk in &system.blocks {
+        if !blk.ref_properties.contains("BindingPersistence") {
+            assert!(
+                blk.dashboard_binding.is_none(),
+                "Block '{}' (type={}) has no BindingPersistence but got a dashboard_binding",
+                blk.name,
+                blk.block_type
+            );
         }
     }
 }

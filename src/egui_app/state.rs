@@ -142,6 +142,13 @@ pub struct SubsystemApp {
 
     /// Selected block SIDs in the current view (supports multi-selection).
     pub selected_block_sids: BTreeSet<String>,
+
+    /// Per-block `MiniScope` instances for interactive liveplot rendering.
+    ///
+    /// Keyed by a stable block identifier (SID or name). Scope instances are
+    /// lazily created the first time a Scope/DashboardScope block is rendered.
+    pub scope_instances:
+        Arc<std::sync::Mutex<std::collections::HashMap<String, super::scope_widget::MiniScope>>>,
 }
 
 impl SubsystemApp {
@@ -181,6 +188,7 @@ impl SubsystemApp {
             block_name_min_font_factor: 0.5,
             block_name_color: egui::Color32::from_rgb(40, 40, 40),
             selected_block_sids: BTreeSet::new(),
+            scope_instances: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
     }
 

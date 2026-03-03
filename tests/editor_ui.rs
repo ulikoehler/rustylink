@@ -71,6 +71,7 @@ fn test_is_code_block() {
         current_setting: None,
         library_source: None,
         library_block_path: None,
+        dashboard_binding: None,
     };
     assert!(is_code_block(&block));
     block.is_matlab_function = false;
@@ -122,6 +123,7 @@ fn test_is_subsystem_block() {
         current_setting: None,
         library_source: None,
         library_block_path: None,
+        dashboard_binding: None,
     };
     assert!(is_subsystem_block(&block));
     block.subsystem = None;

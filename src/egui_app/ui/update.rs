@@ -365,6 +365,9 @@ pub(crate) fn update_internal(
             }
         }
 
+        // Collect scope blocks for deferred liveplot rendering (after painter borrow ends).
+        let mut deferred_scope_rects: Vec<(String, Rect)> = Vec::new();
+
         for (b, r) in &blocks {
             if let Some(sid) = &b.sid {
                 sid_map.insert(sid.clone(), *r);
@@ -389,9 +392,11 @@ pub(crate) fn update_internal(
             } else if resp.clicked() {
                 println!("Block {} clicked", b.name);
                 // Dashboard / UI block click: print connected block and signal info.
+                // Also handle traditional signal-line blocks like Scope and Display.
                 if crate::builtin_libraries::simulink_dashboard::is_dashboard_block_type(
                     &b.block_type,
-                ) {
+                ) || matches!(b.block_type.as_str(), "Scope" | "Display")
+                {
                     print_dashboard_connected_signals(b, entities);
                 }
                 block_action = Some(ClickAction::Primary);
@@ -981,7 +986,7 @@ pub(crate) fn update_internal(
         }
 
         // Draw lines and branches
-        let painter = ui.painter();
+        let painter = ui.painter().clone();
         fn draw_arrow_with_trim(
             painter: &egui::Painter,
             tail: Pos2,
@@ -1704,7 +1709,7 @@ pub(crate) fn update_internal(
                         .map(|pl| crate::egui_app::geometry::port_override_is_left_side(pl, mirrored))
                         .unwrap_or(ins_left_side);
                     paint_port_chevron_placed(
-                        painter,
+                        &painter,
                         *p,
                         left_side,
                         ovr_placement,
@@ -1726,7 +1731,7 @@ pub(crate) fn update_internal(
                         .map(|pl| crate::egui_app::geometry::port_override_is_left_side(pl, mirrored))
                         .unwrap_or(outs_left_side);
                     paint_port_chevron_placed(
-                        painter,
+                        &painter,
                         *p,
                         left_side,
                         ovr_placement,
@@ -1818,6 +1823,41 @@ pub(crate) fn update_internal(
             } else if b.block_type == "ManualSwitch" {
                 let coords_ref = b.sid.as_ref().and_then(|sid| block_port_y_map.get(sid));
                 render_manual_switch(&painter, b, r_screen, font_scale, coords_ref);
+            } else if matches!(b.block_type.as_str(), "Scope" | "DashboardScope") {
+                // Interactive liveplot scope: paint a dark background now and
+                // defer the actual liveplot rendering to a second pass (after the
+                // painter borrow is released) so we can use `ui` mutably.
+                let scope_rect = r_screen.shrink(4.0);
+                if scope_rect.width() > 20.0 && scope_rect.height() > 20.0 {
+                    painter.rect_filled(scope_rect, 2.0, Color32::from_rgb(30, 30, 30));
+                    let key = b
+                        .sid
+                        .clone()
+                        .unwrap_or_else(|| format!("__scope_{}", b.name));
+                    deferred_scope_rects.push((key, scope_rect));
+                } else {
+                    // Too small for liveplot — draw a simple waveform glyph
+                    let inner = r_screen.shrink(6.0);
+                    if inner.width() >= 10.0 && inner.height() >= 10.0 {
+                        painter.rect_filled(inner, 2.0, Color32::from_rgb(30, 30, 30));
+                        let color = Color32::from_rgb(50, 200, 50);
+                        let stroke = Stroke::new(1.5, color);
+                        let n = 40;
+                        let mut pts = Vec::with_capacity(n);
+                        for i in 0..n {
+                            let t = i as f32 / (n - 1) as f32;
+                            let x = inner.left() + t * inner.width();
+                            let y = inner.center().y
+                                - (t * 2.0 * std::f32::consts::PI * 2.0).sin()
+                                    * inner.height()
+                                    * 0.35;
+                            pts.push(Pos2::new(x, y));
+                        }
+                        for w in pts.windows(2) {
+                            painter.line_segment([w[0], w[1]], stroke);
+                        }
+                    }
+                }
             } else if let Some(renderer) = get_interior_renderer(&b.block_type) {
                 renderer(&painter, b, r_screen, font_scale);
             } else if cfg.shape == BlockShape::FilledBlack {
@@ -1886,7 +1926,7 @@ pub(crate) fn update_internal(
                 loop {
                     let font = egui::FontId::proportional(current_font_px);
                     let line_height = (current_font_px * 1.2).max(1.0);
-                    let lines = wrap_text_to_max_width(painter, &b.name, font.clone(), max_label_w);
+                    let lines = wrap_text_to_max_width(&painter, &b.name, font.clone(), max_label_w);
                     if lines.is_empty() {
                         break;
                     }
@@ -2057,6 +2097,22 @@ pub(crate) fn update_internal(
                 painter.galley(pos, galley, Color32::from_rgb(40, 40, 40));
             }
         }
+
+        // Deferred liveplot rendering for Scope/DashboardScope blocks.
+        // This runs after the painter borrow is no longer needed so we can
+        // use `ui` mutably via `scope_builder`.
+        for (scope_key, scope_rect) in &deferred_scope_rects {
+            let mut scopes = app.scope_instances.lock().unwrap();
+            let scope = scopes
+                .entry(scope_key.clone())
+                .or_insert_with(|| crate::egui_app::scope_widget::MiniScope::new(scope_key));
+            ui.scope_builder(
+                egui::UiBuilder::new().max_rect(*scope_rect),
+                |child_ui| {
+                    scope.show(child_ui);
+                },
+            );
+        }
     });
 
     // After the UI closure, call open_block_if_subsystem if needed
@@ -2080,107 +2136,119 @@ pub(crate) fn update_internal(
 
 /// Print connected block/signal information for a dashboard UI block.
 ///
-/// When a dashboard block is clicked, this function finds all lines (signals)
-/// that connect to or from that block and prints the connected partner block
-/// name and signal name.
+/// Dashboard blocks do not use traditional signal lines; they use
+/// `BindingPersistence` references to `.mxarray` files that describe
+/// which block parameter they write to or which signal they read.
+///
+/// The resolved binding is stored in `Block::dashboard_binding` during
+/// archive loading.
+///
+/// For blocks that use traditional signal lines instead of BindingPersistence
+/// (e.g., `Display`, `Scope`), this function falls back to scanning the
+/// current subsystem's lines for connections to/from this block.
 fn print_dashboard_connected_signals(
     block: &crate::model::Block,
     entities: &crate::egui_app::state::SubsystemEntities,
 ) {
-    let Some(sid) = &block.sid else {
-        println!("  [Dashboard UI] Block '{}' has no SID", block.name);
-        return;
-    };
     println!(
         "  [Dashboard UI] Block '{}' (type: {})",
         block.name, block.block_type
     );
 
-    let mut found_any = false;
-
-    // Helper: check if a branch tree touches this block's SID.
-    fn branch_touches(br: &crate::model::Branch, sid: &str) -> bool {
-        if br.dst.as_ref().map_or(false, |d| d.sid == sid) {
-            return true;
+    match &block.dashboard_binding {
+        Some(crate::model::DashboardBinding::ParamSource {
+            block_path,
+            param_name,
+            uuid,
+        }) => {
+            println!(
+                "    → writes param '{}' on block '{}' (uuid: {})",
+                param_name, block_path, uuid
+            );
         }
-        br.branches.iter().any(|sub| branch_touches(sub, sid))
+        Some(crate::model::DashboardBinding::SignalSpec {
+            block_path,
+            signal_name,
+            uuid,
+        }) => {
+            println!(
+                "    ← reads signal '{}' from block '{}' (uuid: {})",
+                signal_name, block_path, uuid
+            );
+        }
+        None => {
+            // Fall back to line-based connection scanning
+            print_line_based_connections(block, entities);
+        }
     }
+}
 
-    // Helper: find the block name for a given SID.
-    let name_for_sid = |target_sid: &str| -> String {
-        entities
-            .blocks
-            .iter()
-            .find(|b| b.sid.as_deref() == Some(target_sid))
-            .map(|b| b.name.clone())
-            .unwrap_or_else(|| format!("<SID:{}>", target_sid))
+/// Scan lines in the current subsystem for connections to/from the given block.
+fn print_line_based_connections(
+    block: &crate::model::Block,
+    entities: &crate::egui_app::state::SubsystemEntities,
+) {
+    let block_sid = match &block.sid {
+        Some(s) => s.as_str(),
+        None => {
+            println!("    (no SID — cannot scan line connections)");
+            return;
+        }
     };
 
+    // Helper: collect all destination SIDs from a line (including branches).
+    fn collect_dst_sids(line: &crate::model::Line) -> Vec<&str> {
+        let mut sids = Vec::new();
+        if let Some(ref dst) = line.dst {
+            sids.push(dst.sid.as_str());
+        }
+        fn branch_dsts<'a>(branches: &'a [crate::model::Branch], acc: &mut Vec<&'a str>) {
+            for b in branches {
+                if let Some(ref dst) = b.dst {
+                    acc.push(dst.sid.as_str());
+                }
+                branch_dsts(&b.branches, acc);
+            }
+        }
+        branch_dsts(&line.branches, &mut sids);
+        sids
+    }
+
+    // Build a SID→name lookup for blocks in this subsystem.
+    let block_name_by_sid: std::collections::HashMap<&str, &str> = entities
+        .blocks
+        .iter()
+        .filter_map(|b| b.sid.as_deref().map(|s| (s, b.name.as_str())))
+        .collect();
+
+    let mut found_any = false;
+
     for line in &entities.lines {
-        let signal_name = line
-            .name
-            .as_ref()
-            .map(|s| s.as_str())
-            .unwrap_or("<unnamed>");
+        let signal_name = line.name.as_deref().unwrap_or("<unnamed>");
 
-        // Check if this block is the source of a line.
-        if let Some(src) = &line.src {
-            if src.sid == *sid {
-                // Find destination(s)
-                if let Some(dst) = &line.dst {
-                    let dst_name = name_for_sid(&dst.sid);
+        // Check if this block is a source of the line
+        if let Some(ref src) = line.src {
+            if src.sid == block_sid {
+                let dst_sids = collect_dst_sids(line);
+                for dsid in &dst_sids {
+                    let dst_name = block_name_by_sid.get(dsid).copied().unwrap_or("?");
                     println!(
-                        "    → signal '{}' → block '{}'",
-                        signal_name, dst_name
-                    );
-                    found_any = true;
-                }
-                for br in &line.branches {
-                    fn print_branch_dsts(
-                        br: &crate::model::Branch,
-                        signal_name: &str,
-                        entities: &crate::egui_app::state::SubsystemEntities,
-                    ) {
-                        if let Some(dst) = &br.dst {
-                            let name = entities
-                                .blocks
-                                .iter()
-                                .find(|b| b.sid.as_deref() == Some(&dst.sid))
-                                .map(|b| b.name.clone())
-                                .unwrap_or_else(|| format!("<SID:{}>", dst.sid));
-                            println!("    → signal '{}' → block '{}'", signal_name, name);
-                        }
-                        for sub in &br.branches {
-                            print_branch_dsts(sub, signal_name, entities);
-                        }
-                    }
-                    print_branch_dsts(br, signal_name, entities);
-                    found_any = true;
-                }
-            }
-        }
-
-        // Check if this block is the destination of a line.
-        if let Some(dst) = &line.dst {
-            if dst.sid == *sid {
-                if let Some(src) = &line.src {
-                    let src_name = name_for_sid(&src.sid);
-                    println!(
-                        "    ← signal '{}' ← block '{}'",
-                        signal_name, src_name
+                        "    → drives signal '{}' to block '{}' (dst SID {})",
+                        signal_name, dst_name, dsid
                     );
                     found_any = true;
                 }
             }
         }
 
-        // Check branches targeting this block.
-        if line.branches.iter().any(|br| branch_touches(br, sid)) {
-            if let Some(src) = &line.src {
-                let src_name = name_for_sid(&src.sid);
+        // Check if this block is a destination of the line
+        let all_dsts = collect_dst_sids(line);
+        if all_dsts.iter().any(|d| *d == block_sid) {
+            if let Some(ref src) = line.src {
+                let src_name = block_name_by_sid.get(src.sid.as_str()).copied().unwrap_or("?");
                 println!(
-                    "    ← signal '{}' ← block '{}' (via branch)",
-                    signal_name, src_name
+                    "    ← receives signal '{}' from block '{}' (src SID {})",
+                    signal_name, src_name, src.sid
                 );
                 found_any = true;
             }
@@ -2188,6 +2256,6 @@ fn print_dashboard_connected_signals(
     }
 
     if !found_any {
-        println!("    (no connected signals found)");
+        println!("    (no signal-line connections found in current subsystem)");
     }
 }

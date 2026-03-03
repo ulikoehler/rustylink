@@ -227,6 +227,7 @@ fn resolve_virtual_simulink_logic_and_bit() {
             block_mirror: None,
             library_source: None,
             library_block_path: None,
+            dashboard_binding: None,
             child_order: vec![],
         }],
         lines: Vec::new(),
@@ -437,6 +438,7 @@ fn resolve_virtual_matrix_library_blocks() {
                 block_mirror: None,
                 library_source: None,
                 library_block_path: None,
+                dashboard_binding: None,
                 child_order: vec![],
             },
             Block {
@@ -480,6 +482,7 @@ fn resolve_virtual_matrix_library_blocks() {
                 block_mirror: None,
                 library_source: None,
                 library_block_path: None,
+                dashboard_binding: None,
                 child_order: vec![],
             },
             Block {
@@ -523,6 +526,7 @@ fn resolve_virtual_matrix_library_blocks() {
                 block_mirror: None,
                 library_source: None,
                 library_block_path: None,
+                dashboard_binding: None,
                 child_order: vec![],
             },
         ],

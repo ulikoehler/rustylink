@@ -14,8 +14,9 @@ use eframe::egui;
 #[cfg(feature = "egui")]
 use rustylink::{
     egui_app,
+    model::SlxArchive,
     parser::{
-        FsSource, LibraryResolver, SimulinkParser, ZipSource, helpers::clean_whitespace,
+        FsSource, LibraryResolver, SimulinkParser, helpers::clean_whitespace,
         is_virtual_library,
     },
 };
@@ -60,9 +61,10 @@ fn main() -> Result<()> {
     let (root_system, charts, chart_map) = if path.extension() == Some("slx") {
         let file = std::fs::File::open(&path).with_context(|| format!("Open {}", path))?;
         let reader = std::io::BufReader::new(file);
-        let mut parser = SimulinkParser::new("", ZipSource::new(reader)?);
-        let root = Utf8PathBuf::from("simulink/systems/system_root.xml");
-        let mut sys = parser.parse_system_file(&root)?;
+        let archive = SlxArchive::from_reader(reader)?;
+
+        // Assemble full system tree (resolves subsystem references within the archive)
+        let mut sys = archive.assembled_root_system()?;
 
         // Resolve library references (including virtual libraries like `matrix_library`)
         SimulinkParser::<FsSource>::resolve_library_references(&mut sys, &lib_paths)
@@ -87,25 +89,19 @@ fn main() -> Result<()> {
         collect_sys_libs(&sys, &mut referenced_lib_names);
 
         // Also include library names from graphicalInterface.json where present
-        if let Ok(names) = parser.graphical_interface_library_names(Utf8PathBuf::from(
-            "simulink/graphicalInterface.json",
-        )) {
+        if let Ok(names) = archive.graphical_interface_library_names() {
             for n in names {
                 referenced_lib_names.insert(n);
             }
         }
 
-        let charts = parser.get_charts().clone();
-        // Build combined chart map: prefer SID-based keys, also include name-based keys
-        let mut chart_map: std::collections::BTreeMap<String, u32> = parser
-            .get_sid_to_chart_map()
-            .iter()
-            .map(|(sid, cid)| (sid.to_string(), *cid))
-            .collect();
-        for (name, cid) in parser.get_system_to_chart_map().iter() {
-            chart_map.entry(name.clone()).or_insert(*cid);
-        }
-        (sys, charts, chart_map)
+        // Parse stateflow charts from the archive
+        let (charts_by_id, name_map) = archive.parse_charts();
+
+        // Build combined chart map: include name-based keys
+        let chart_map: std::collections::BTreeMap<String, u32> = name_map;
+
+        (sys, charts_by_id, chart_map)
     } else {
         let root_dir = Utf8PathBuf::from(".");
         let mut parser = SimulinkParser::new(&root_dir, FsSource);

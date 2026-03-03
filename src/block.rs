@@ -673,6 +673,7 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
         block_mirror,
         library_source: None,
         library_block_path: None,
+        dashboard_binding: None,
         child_order,
     };
 

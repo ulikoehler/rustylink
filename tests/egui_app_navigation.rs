@@ -47,6 +47,7 @@ fn simple_system() -> System {
         block_mirror: None,
         library_source: None,
         library_block_path: None,
+        dashboard_binding: None,
         child_order: vec![],
     };
     System {

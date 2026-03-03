@@ -75,10 +75,15 @@ impl SlxArchive {
         // Parse blockdiagram.xml.rels if present.
         let relationships = Self::parse_rels_from_entries(&entries);
 
-        Ok(SlxArchive {
+        let mut archive = SlxArchive {
             entries,
             relationships,
-        })
+        };
+
+        // Resolve BindingPersistence refs for dashboard/HMI blocks.
+        archive.resolve_dashboard_bindings();
+
+        Ok(archive)
     }
 
     /// Read an SLX file from disk.
@@ -208,6 +213,229 @@ impl SlxArchive {
     pub fn resolve_binding_persistence(&self, ref_value: &str) -> Option<&[u8]> {
         let archive_path = self.resolve_ref(ref_value)?;
         self.get_raw(&archive_path)
+    }
+
+    /// Walk every block in the archive and, for those that have a
+    /// `BindingPersistence` property, resolve the reference to its
+    /// `.mxarray` file, parse the binary data, and populate the
+    /// `dashboard_binding` field on the block.
+    fn resolve_dashboard_bindings(&mut self) {
+        // First collect the binding data we need: for each system entry index,
+        // collect (block_index_path, ref_value) pairs.  Because we cannot
+        // borrow `self` mutably while also reading raw entries, we first
+        // gather the parsed bindings into a temporary map keyed on the
+        // ref-value string.
+        let mut binding_cache: BTreeMap<String, crate::model::DashboardBinding> = BTreeMap::new();
+
+        // Pre-populate the cache with all resolvable bindings.
+        for entry in &self.entries {
+            if let SlxContent::SystemXml(system) = &entry.content {
+                Self::collect_binding_refs(system, &mut |ref_value| {
+                    if !binding_cache.contains_key(ref_value) {
+                        if let Some(archive_path) = {
+                            let id = ref_value.strip_prefix("bdmxdata:");
+                            id.and_then(|id| self.relationships.get(id))
+                                .map(|rel| format!("simulink/{}", rel.target))
+                        } {
+                            if let Some(raw) = self.entries.iter().find_map(|e| {
+                                if e.path == archive_path {
+                                    if let SlxContent::Raw(ref data) = e.content {
+                                        Some(data.as_slice())
+                                    } else {
+                                        None
+                                    }
+                                } else {
+                                    None
+                                }
+                            }) {
+                                if let Some(binding) =
+                                    crate::model::parse_mxarray_binding(raw)
+                                {
+                                    binding_cache.insert(ref_value.to_string(), binding);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        // Now apply the cached bindings to mutable blocks.
+        for entry in &mut self.entries {
+            if let SlxContent::SystemXml(ref mut system) = entry.content {
+                Self::apply_bindings(system, &binding_cache);
+            }
+        }
+    }
+
+    /// Recursively collect all `BindingPersistence` ref values from a system.
+    fn collect_binding_refs<F: FnMut(&str)>(system: &System, cb: &mut F) {
+        for block in &system.blocks {
+            if block.ref_properties.contains("BindingPersistence") {
+                if let Some(ref_val) = block.properties.get("BindingPersistence") {
+                    cb(ref_val);
+                }
+            }
+            if let Some(sub) = &block.subsystem {
+                Self::collect_binding_refs(sub, cb);
+            }
+        }
+    }
+
+    /// Recursively apply parsed bindings to blocks that have matching
+    /// `BindingPersistence` ref values.
+    fn apply_bindings(
+        system: &mut System,
+        cache: &BTreeMap<String, crate::model::DashboardBinding>,
+    ) {
+        for block in &mut system.blocks {
+            if block.ref_properties.contains("BindingPersistence") {
+                if let Some(ref_val) = block.properties.get("BindingPersistence") {
+                    if let Some(binding) = cache.get(ref_val) {
+                        block.dashboard_binding = Some(binding.clone());
+                    }
+                }
+            }
+            if let Some(sub) = &mut block.subsystem {
+                Self::apply_bindings(sub, cache);
+            }
+        }
+    }
+
+    // ── High-level assembly helpers ─────────────────────────────────────
+
+    /// Assemble the full system tree rooted at `system_root.xml`.
+    ///
+    /// This replicates the logic of `SimulinkParser::link_system_refs` +
+    /// `try_preload_systems_for` but operates entirely on the already-parsed
+    /// archive entries, so no ZIP or filesystem access is needed afterwards.
+    pub fn assembled_root_system(&self) -> Result<System> {
+        let root = self
+            .root_system()
+            .ok_or_else(|| anyhow!("No root system in archive"))?
+            .clone();
+
+        // Build lookup: path → &System  (for all system XML entries)
+        let systems_by_path: BTreeMap<&str, &System> = self
+            .entries
+            .iter()
+            .filter_map(|e| {
+                if let SlxContent::SystemXml(ref sys) = e.content {
+                    Some((e.path.as_str(), sys))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let mut assembled = root;
+        let base = camino::Utf8Path::new("simulink/systems");
+        Self::link_system_refs_recursive(&mut assembled, base, &systems_by_path);
+
+        Ok(assembled)
+    }
+
+    /// Recursively resolve `system_ref` fields using the pre-parsed entries.
+    fn link_system_refs_recursive(
+        system: &mut System,
+        current_base: &camino::Utf8Path,
+        lookup: &BTreeMap<&str, &System>,
+    ) {
+        for blk in &mut system.blocks {
+            if let Some(ref ref_name) = blk.system_ref {
+                let ref_path =
+                    crate::parser::helpers::resolve_system_reference(ref_name, current_base);
+                if let Some(sub) = lookup.get(ref_path.as_str()) {
+                    let mut sub_cloned = (*sub).clone();
+                    let sub_base =
+                        ref_path.parent().unwrap_or(current_base);
+                    Self::link_system_refs_recursive(&mut sub_cloned, sub_base, lookup);
+                    blk.subsystem = Some(Box::new(sub_cloned));
+                }
+            }
+            if let Some(ref mut sub) = blk.subsystem {
+                Self::link_system_refs_recursive(sub, current_base, lookup);
+            }
+        }
+    }
+
+    /// Parse all stateflow charts found in the archive.
+    ///
+    /// Returns `(charts_by_id, chart_map)` where `chart_map` maps chart names
+    /// and SID strings to chart IDs, suitable for passing to `SubsystemApp`.
+    pub fn parse_charts(
+        &self,
+    ) -> (
+        BTreeMap<u32, crate::model::Chart>,
+        BTreeMap<String, u32>,
+    ) {
+        use rayon::prelude::*;
+
+        // Collect all stateflow chart XML entries
+        let chart_texts: Vec<(&str, String)> = self
+            .entries
+            .iter()
+            .filter(|e| {
+                let norm = e.path.trim_start_matches("./").trim_start_matches('/');
+                if let Some(rest) = norm.strip_prefix("simulink/stateflow/") {
+                    rest.starts_with("chart_") && rest.ends_with(".xml") && !rest.contains('/')
+                } else {
+                    false
+                }
+            })
+            .filter_map(|e| {
+                if let SlxContent::Raw(ref data) = e.content {
+                    std::str::from_utf8(data)
+                        .ok()
+                        .map(|s| (e.path.as_str(), s.to_string()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        let parsed: Vec<crate::model::Chart> = chart_texts
+            .par_iter()
+            .filter_map(|(path, text)| {
+                crate::parser::chart::parse_chart_from_text(text, Some(path)).ok()
+            })
+            .collect();
+
+        let mut charts_by_id: BTreeMap<u32, crate::model::Chart> = BTreeMap::new();
+        let mut chart_map: BTreeMap<String, u32> = BTreeMap::new();
+
+        for chart in parsed {
+            if let Some(id) = chart.id {
+                let ch = charts_by_id.entry(id).or_insert(chart);
+                if let Some(nm) = ch.name.clone() {
+                    chart_map.entry(nm).or_insert(id);
+                }
+            }
+        }
+
+        (charts_by_id, chart_map)
+    }
+
+    /// Return library names from `simulink/graphicalInterface.json`.
+    ///
+    /// Reads the raw entry, deserializes the JSON, and extracts library names
+    /// from `ExternalFileReferences` of type `LIBRARY_BLOCK`.
+    pub fn graphical_interface_library_names(&self) -> Result<Vec<String>> {
+        const GI_PATH: &str = "simulink/graphicalInterface.json";
+        let raw = self
+            .get_raw(GI_PATH)
+            .ok_or_else(|| anyhow!("{} not found in archive", GI_PATH))?;
+        let text = std::str::from_utf8(raw)
+            .with_context(|| format!("Non-UTF8 content in {}", GI_PATH))?;
+        let v: serde_json::Value = serde_json::from_str(text)
+            .with_context(|| format!("Failed to parse JSON {}", GI_PATH))?;
+        let gi_value = v
+            .get("GraphicalInterface")
+            .ok_or_else(|| anyhow!("Missing 'GraphicalInterface' in {}", GI_PATH))?;
+        let gi: crate::parser::graphical_interface::GraphicalInterface =
+            serde_json::from_value(gi_value.clone())
+                .with_context(|| format!("Failed to deserialize GraphicalInterface in {}", GI_PATH))?;
+        Ok(gi.library_names())
     }
 
     // ── Internal helpers ────────────────────────────────────────────────

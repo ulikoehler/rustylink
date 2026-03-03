@@ -68,6 +68,7 @@ fn test_block_with_port_counts() {
             block_mirror: None,
             library_source: None,
             library_block_path: None,
+            dashboard_binding: None,
             child_order: vec![],
         }],
         lines: vec![],

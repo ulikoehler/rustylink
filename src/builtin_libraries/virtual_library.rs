@@ -271,6 +271,7 @@ pub fn create_stub_block(name: &str, ins: u32, outs: u32) -> Block {
         block_mirror: None,
         library_source: None,
         library_block_path: None,
+        dashboard_binding: None,
         child_order,
     }
 }

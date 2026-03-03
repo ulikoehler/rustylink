@@ -56,6 +56,7 @@ fn test_eval_simple() {
         block_mirror: None,
         library_source: None,
         library_block_path: None,
+        dashboard_binding: None,
         child_order: vec![],
     };
     evaluate_mask_display(&mut block);
