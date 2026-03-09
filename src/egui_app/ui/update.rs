@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
 use crate::egui_app::state::SubsystemApp;
 use crate::block_types::BlockShape;
-use crate::egui_app::render::{get_block_type_cfg, render_block_icon, render_center_glyph_maximized, render_manual_switch, get_interior_renderer, wrap_text_to_max_width};
+use crate::egui_app::render::{get_block_type_cfg, render_block_icon, render_manual_switch, get_interior_renderer, wrap_text_to_max_width};
 use crate::egui_app::text::highlight_query_job;
 use crate::egui_app::navigation::resolve_subsystem_by_vec;
 use crate::egui_app::geometry::{parse_rect_str, parse_block_rect};
@@ -366,7 +366,12 @@ pub(crate) fn update_internal(
         }
 
         // Collect scope blocks for deferred liveplot rendering (after painter borrow ends).
+        #[cfg(feature = "dashboard")]
         let mut deferred_scope_rects: Vec<(String, Rect)> = Vec::new();
+
+        // Collect Constant blocks for deferred TextEdit rendering.
+        #[cfg(feature = "dashboard")]
+        let mut deferred_constant_edits: Vec<(String, Rect)> = Vec::new();
 
         for (b, r) in &blocks {
             if let Some(sid) = &b.sid {
@@ -398,6 +403,19 @@ pub(crate) fn update_internal(
                 ) || matches!(b.block_type.as_str(), "Scope" | "Display")
                 {
                     print_dashboard_connected_signals(b, entities);
+                }
+                // Open a scope popout window when a Scope/DashboardScope is clicked.
+                #[cfg(feature = "dashboard")]
+                if matches!(b.block_type.as_str(), "Scope" | "DashboardScope") {
+                    let key = b
+                        .sid
+                        .clone()
+                        .unwrap_or_else(|| format!("__scope_{}", b.name));
+                    app.scope_popout = Some(crate::egui_app::state::ScopePopout {
+                        title: b.name.clone(),
+                        scope_key: key,
+                        open: true,
+                    });
                 }
                 block_action = Some(ClickAction::Primary);
             }
@@ -508,6 +526,19 @@ pub(crate) fn update_internal(
                     if let Some(handler) = block_click_handler_snapshot.as_ref() {
                         handled = handler(app, b);
                     }
+                    // Double-click on Constant block opens inline editor.
+                    #[cfg(feature = "dashboard")]
+                    if !handled && b.block_type == "Constant" {
+                        if let Some(sid) = &b.sid {
+                            // Seed the edit buffer with the current value if not yet present.
+                            if !app.constant_edits.contains_key(sid.as_str()) {
+                                let val = b.value.clone().unwrap_or_else(|| "1".to_string());
+                                app.constant_edits.insert(sid.clone(), val);
+                            }
+                            deferred_constant_edits.push((sid.clone(), r_screen));
+                            handled = true;
+                        }
+                    }
                     if !handled && is_block_subsystem(b) {
                         // Normal subsystem open
                         block_to_open_subsystem = Some((*b).clone());
@@ -561,7 +592,7 @@ pub(crate) fn update_internal(
             } else {
                 job.wrap.max_width = r_screen.width();
                 let job_for_wrap = job.clone();
-                ui.allocate_new_ui(egui::UiBuilder::new().max_rect(r_screen), |child_ui| {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(r_screen), |child_ui| {
                     let wrapped = child_ui.painter().layout_job(job_for_wrap);
                     child_ui
                         .painter()
@@ -1772,14 +1803,23 @@ pub(crate) fn update_internal(
                 .copied();
             // Icon/value rendering with precedence: mask > value > custom/icon
             if b.block_type == "Constant" {
-                render_center_glyph_maximized(
-                    &painter,
-                    r_screen,
-                    font_scale,
-                    "C",
-                    fg,
-                    icon_port_label_widths,
-                );
+                #[cfg(feature = "dashboard")]
+                let display_text = {
+                    let sid = b.sid.clone().unwrap_or_default();
+                    app.constant_edits
+                        .get(&sid)
+                        .cloned()
+                        .or_else(|| b.value.clone())
+                        .unwrap_or_else(|| "1".to_string())
+                };
+                #[cfg(not(feature = "dashboard"))]
+                let display_text = b.value.clone().unwrap_or_else(|| "1".to_string());
+
+                let beneath_font_px = 10.0 * font_scale;
+                let font_id = egui::FontId::proportional(beneath_font_px);
+                let galley = painter.layout_no_wrap(display_text, font_id.clone(), fg);
+                let pos = r_screen.center() - galley.size() * 0.5;
+                painter.galley(pos, galley, fg);
             } else if b.mask.is_some() {
                 if let Some(text) = b.mask_display_text.as_ref() {
                     let font_size = (b.font_size.unwrap_or(14) as f32) * font_scale;
@@ -1824,39 +1864,26 @@ pub(crate) fn update_internal(
                 let coords_ref = b.sid.as_ref().and_then(|sid| block_port_y_map.get(sid));
                 render_manual_switch(&painter, b, r_screen, font_scale, coords_ref);
             } else if matches!(b.block_type.as_str(), "Scope" | "DashboardScope") {
-                // Interactive liveplot scope: paint a dark background now and
-                // defer the actual liveplot rendering to a second pass (after the
-                // painter borrow is released) so we can use `ui` mutably.
-                let scope_rect = r_screen.shrink(4.0);
-                if scope_rect.width() > 20.0 && scope_rect.height() > 20.0 {
-                    painter.rect_filled(scope_rect, 2.0, Color32::from_rgb(30, 30, 30));
-                    let key = b
-                        .sid
-                        .clone()
-                        .unwrap_or_else(|| format!("__scope_{}", b.name));
-                    deferred_scope_rects.push((key, scope_rect));
-                } else {
-                    // Too small for liveplot — draw a simple waveform glyph
-                    let inner = r_screen.shrink(6.0);
-                    if inner.width() >= 10.0 && inner.height() >= 10.0 {
-                        painter.rect_filled(inner, 2.0, Color32::from_rgb(30, 30, 30));
-                        let color = Color32::from_rgb(50, 200, 50);
-                        let stroke = Stroke::new(1.5, color);
-                        let n = 40;
-                        let mut pts = Vec::with_capacity(n);
-                        for i in 0..n {
-                            let t = i as f32 / (n - 1) as f32;
-                            let x = inner.left() + t * inner.width();
-                            let y = inner.center().y
-                                - (t * 2.0 * std::f32::consts::PI * 2.0).sin()
-                                    * inner.height()
-                                    * 0.35;
-                            pts.push(Pos2::new(x, y));
-                        }
-                        for w in pts.windows(2) {
-                            painter.line_segment([w[0], w[1]], stroke);
-                        }
+                // With the `dashboard` feature: interactive liveplot scope.
+                // Without: simple static waveform glyph.
+                #[cfg(feature = "dashboard")]
+                {
+                    let scope_rect = r_screen.shrink(4.0);
+                    if scope_rect.width() > 20.0 && scope_rect.height() > 20.0 {
+                        painter.rect_filled(scope_rect, 2.0, Color32::from_rgb(30, 30, 30));
+                        let key = b
+                            .sid
+                            .clone()
+                            .unwrap_or_else(|| format!("__scope_{}", b.name));
+                        deferred_scope_rects.push((key, scope_rect));
+                    } else {
+                        // Too small for liveplot — draw a simple waveform glyph
+                        paint_scope_glyph(&painter, r_screen);
                     }
+                }
+                #[cfg(not(feature = "dashboard"))]
+                {
+                    paint_scope_glyph(&painter, r_screen);
                 }
             } else if let Some(renderer) = get_interior_renderer(&b.block_type) {
                 renderer(&painter, b, r_screen, font_scale);
@@ -2101,6 +2128,7 @@ pub(crate) fn update_internal(
         // Deferred liveplot rendering for Scope/DashboardScope blocks.
         // This runs after the painter borrow is no longer needed so we can
         // use `ui` mutably via `scope_builder`.
+        #[cfg(feature = "dashboard")]
         for (scope_key, scope_rect) in &deferred_scope_rects {
             let mut scopes = app.scope_instances.lock().unwrap();
             let scope = scopes
@@ -2112,6 +2140,24 @@ pub(crate) fn update_internal(
                     scope.show(child_ui);
                 },
             );
+        }
+
+        // Deferred inline TextEdit for Constant blocks (after painter borrow ends).
+        #[cfg(feature = "dashboard")]
+        for (sid, edit_rect) in &deferred_constant_edits {
+            if let Some(val) = app.constant_edits.get_mut(sid) {
+                let inner = edit_rect.shrink(2.0);
+                ui.scope_builder(
+                    egui::UiBuilder::new().max_rect(inner),
+                    |child_ui| {
+                        let te = egui::TextEdit::singleline(val)
+                            .desired_width(inner.width())
+                            .horizontal_align(egui::Align::Center)
+                            .font(egui::TextStyle::Body);
+                        child_ui.add(te);
+                    },
+                );
+            }
         }
     });
 
@@ -2132,6 +2178,29 @@ pub(crate) fn update_internal(
     }
 
     interaction
+}
+
+/// Draw a lightweight static sine waveform glyph inside a block rectangle.
+fn paint_scope_glyph(painter: &egui::Painter, rect: &Rect) {
+    let inner = rect.shrink(6.0);
+    if inner.width() < 10.0 || inner.height() < 10.0 {
+        return;
+    }
+    painter.rect_filled(inner, 2.0, Color32::from_rgb(30, 30, 30));
+    let color = Color32::from_rgb(50, 200, 50);
+    let stroke = Stroke::new(1.5, color);
+    let n = 40;
+    let mut pts = Vec::with_capacity(n);
+    for i in 0..n {
+        let t = i as f32 / (n - 1) as f32;
+        let x = inner.left() + t * inner.width();
+        let y = inner.center().y
+            - (t * 2.0 * std::f32::consts::PI * 2.0).sin() * inner.height() * 0.35;
+        pts.push(Pos2::new(x, y));
+    }
+    for w in pts.windows(2) {
+        painter.line_segment([w[0], w[1]], stroke);
+    }
 }
 
 /// Print connected block/signal information for a dashboard UI block.

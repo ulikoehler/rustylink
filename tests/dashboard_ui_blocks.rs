@@ -773,7 +773,7 @@ fn param_source_bindings_have_correct_fields() {
     let expected_param_blocks: &[(&str, &str)] = &[
         ("CheckBox UI", "CheckBox"),
         ("ComboBox UI", "ComboBox"),
-        ("PushButton UI", "Button"),
+        ("PushButton UI", "PushButton"),
         ("Slider UI", "Slider"),
         ("Knob UI", "Knob"),
         ("ToggleSwitch UI", "ToogleSwitch"),
@@ -832,7 +832,7 @@ fn signal_spec_bindings_have_correct_fields() {
         ("Display6", "Slider", "Slider_signal"),
         ("Gauge", "ComboBox", "ComboBox_signal"),
         ("Half Gauge", "RockerSwitch", "RockerSwitch_signal"),
-        ("Lamp", "Button", "Button_signal"),
+        ("Lamp", "PushButton", "Button_signal"),
         ("Linear Gauge", "Knob", "Knob_signal"),
         ("Quarter Gauge", "RotarySwitch", "RotarySwitch_signal"),
     ];

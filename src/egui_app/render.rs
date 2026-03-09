@@ -8,6 +8,7 @@ use super::icon_assets;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock};
 
+#[allow(dead_code)]
 pub(crate) fn rgb_to_color32(c: Rgb) -> Color32 {
     Color32::from_rgb(c.0, c.1, c.2)
 }
@@ -867,7 +868,9 @@ fn interior_renderer_registry() -> &'static std::collections::HashMap<&'static s
         let mut m: std::collections::HashMap<&'static str, InteriorRendererFn> =
             std::collections::HashMap::new();
         m.insert("Sum", render_sum_block);
-        // Register all dashboard / UI block custom renderers.
+        // Register dashboard / UI block renderers for all egui builds so
+        // non-dashboard mode still shows the same visuals, only without the
+        // interactive/editable behavior.
         for &(block_type, renderer) in super::dashboard_widgets::DASHBOARD_RENDERERS {
             m.insert(block_type, renderer);
         }

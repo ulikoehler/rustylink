@@ -78,6 +78,18 @@ pub struct SubsystemEntities {
     pub annotations: Vec<Annotation>,
 }
 
+/// State for a scope popout window.
+#[cfg(feature = "dashboard")]
+#[derive(Clone)]
+pub struct ScopePopout {
+    /// Window title (e.g. "Scope: MyScope").
+    pub title: String,
+    /// Key into `scope_instances` for the liveplot data.
+    pub scope_key: String,
+    /// Whether the window is still open.
+    pub open: bool,
+}
+
 /// Interactive Egui application that displays and navigates a Simulink subsystem tree.
 #[derive(Clone)]
 pub struct SubsystemApp {
@@ -147,8 +159,22 @@ pub struct SubsystemApp {
     ///
     /// Keyed by a stable block identifier (SID or name). Scope instances are
     /// lazily created the first time a Scope/DashboardScope block is rendered.
+    #[cfg(feature = "dashboard")]
     pub scope_instances:
         Arc<std::sync::Mutex<std::collections::HashMap<String, super::scope_widget::MiniScope>>>,
+
+    /// Scope popup window state.  When set, an `egui::Window` is opened
+    /// showing a full-size liveplot for the given scope block.
+    #[cfg(feature = "dashboard")]
+    pub scope_popout: Option<ScopePopout>,
+
+    /// Per-block editable value overrides for Constant blocks.
+    ///
+    /// Keyed by block SID. When the user edits a Constant block's value in
+    /// the viewer, the edited text is stored here. If a block's SID is not
+    /// present, the original `block.value` is used.
+    #[cfg(feature = "dashboard")]
+    pub constant_edits: std::collections::HashMap<String, String>,
 }
 
 impl SubsystemApp {
@@ -188,7 +214,12 @@ impl SubsystemApp {
             block_name_min_font_factor: 0.5,
             block_name_color: egui::Color32::from_rgb(40, 40, 40),
             selected_block_sids: BTreeSet::new(),
+            #[cfg(feature = "dashboard")]
             scope_instances: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+            #[cfg(feature = "dashboard")]
+            scope_popout: None,
+            #[cfg(feature = "dashboard")]
+            constant_edits: std::collections::HashMap::new(),
         }
     }
 

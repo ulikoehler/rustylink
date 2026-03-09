@@ -463,9 +463,37 @@ fn show_block_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
     }
 }
 
+/// Show a scope popout window with an interactive liveplot.
+#[cfg(feature = "dashboard")]
+fn show_scope_popout_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
+    if let Some(popout) = &mut app.scope_popout {
+        let mut open_flag = popout.open;
+        let scope_key = popout.scope_key.clone();
+        egui::Window::new(format!("Scope: {}", popout.title))
+            .open(&mut open_flag)
+            .resizable(true)
+            .default_size([400.0, 300.0])
+            .min_width(200.0)
+            .min_height(150.0)
+            .show(ui.ctx(), |ui| {
+                let mut scopes = app.scope_instances.lock().unwrap();
+                let scope = scopes
+                    .entry(scope_key.clone())
+                    .or_insert_with(|| crate::egui_app::scope_widget::MiniScope::new(&scope_key));
+                scope.show(ui);
+            });
+        popout.open = open_flag;
+        if !popout.open {
+            app.scope_popout = None;
+        }
+    }
+}
+
 pub fn show_info_windows(app: &mut SubsystemApp, ui: &mut egui::Ui) {
     show_chart_window(app, ui);
     show_signal_window(app, ui);
     show_block_window(app, ui);
+    #[cfg(feature = "dashboard")]
+    show_scope_popout_window(app, ui);
 }
 

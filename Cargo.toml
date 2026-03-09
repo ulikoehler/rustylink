@@ -37,6 +37,9 @@ egui = [
 ]
 ## Optional mask evaluation (parses very small subset of MATLAB mask scripts to show display text)
 mask = []
+## Enable interactive dashboard elements (custom widget renderers, liveplot scopes, editable constants).
+## Without this feature, dashboard blocks render with simple icons only.
+dashboard = ["egui"]
 
 [dependencies.egui]
 version = "0.33"
@@ -74,6 +77,8 @@ optional = true
 features = ["compression"]
 
 [dependencies.liveplot]
+#git = "https://github.com/ulikoehler/liveplot-rs"
+#branch = "master"
 version = "2.0"
 optional = true
 default-features = false

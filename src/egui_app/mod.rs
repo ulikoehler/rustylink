@@ -34,6 +34,8 @@ pub use state::{
     BlockContextMenuItem, BlockDialog, BlockDialogButton, ChartView, SignalContextMenuItem,
     SignalDialog, SignalDialogButton, SubsystemApp, SubsystemEntities,
 };
+#[cfg(feature = "dashboard")]
+pub use state::ScopePopout;
 pub use text::{highlight_query_job, matlab_syntax_job};
 pub use ui::{
     ClickAction, UpdateResponse, apply_update_response, show_info_windows, update, update_with_info,
