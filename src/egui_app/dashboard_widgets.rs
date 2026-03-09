@@ -478,41 +478,41 @@ pub fn render_rocker_switch(
     font_scale: f32,
 ) {
     let inner = inner_rect(rect, 0.80);
-    let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.18);
+    let fsz = font_for_rect(rect, font_scale).min(inner.width().min(inner.height()) * 0.18);
     let font = egui::FontId::proportional(fsz);
 
     let cx = inner.center().x;
     let cy = inner.center().y;
-    let w = (inner.width() * 0.5).clamp(14.0, 50.0);
-    let h = (inner.height() * 0.35).clamp(10.0, 30.0);
+    let w = (inner.width() * 0.28).clamp(10.0, 30.0);
+    let h = (inner.height() * 0.55).clamp(18.0, 56.0);
 
-    // Rocker housing (rounded rect)
+    // Rocker housing (vertical rounded rect)
     let housing = Rect::from_center_size(Pos2::new(cx, cy), Vec2::new(w, h));
-    painter.rect_filled(housing, h * 0.3, Color32::from_rgb(200, 200, 205));
-    painter.rect_stroke(housing, h * 0.3, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
+    painter.rect_filled(housing, w * 0.4, Color32::from_rgb(200, 200, 205));
+    painter.rect_stroke(housing, w * 0.4, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
 
-    // Rocker element (tilted to left = Off)
-    let rocker_w = w * 0.55;
-    let rocker_h = h * 0.85;
+    // Rocker element (tilted down = Off)
+    let rocker_w = w * 0.85;
+    let rocker_h = h * 0.55;
     let rocker = Rect::from_min_max(
-        Pos2::new(housing.left() + 1.0, cy - rocker_h / 2.0),
-        Pos2::new(housing.left() + 1.0 + rocker_w, cy + rocker_h / 2.0),
+        Pos2::new(cx - rocker_w / 2.0, housing.bottom() - rocker_h - 1.0),
+        Pos2::new(cx + rocker_w / 2.0, housing.bottom() - 1.0),
     );
     painter.rect_filled(rocker, 3.0, Color32::from_rgb(230, 230, 235));
     painter.rect_stroke(rocker, 3.0, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
 
     // Labels
     painter.text(
-        Pos2::new(housing.left() - 4.0, cy),
-        Align2::RIGHT_CENTER,
-        "Off",
+        Pos2::new(cx, housing.top() - 4.0),
+        Align2::CENTER_BOTTOM,
+        "On",
         font.clone(),
         TEXT_DARK,
     );
     painter.text(
-        Pos2::new(housing.right() + 4.0, cy),
-        Align2::LEFT_CENTER,
-        "On",
+        Pos2::new(cx, housing.bottom() + 4.0),
+        Align2::CENTER_TOP,
+        "Off",
         font,
         TEXT_DARK,
     );
@@ -977,13 +977,13 @@ pub fn render_lamp(
 /// icon path.
 pub const DASHBOARD_RENDERERS: &[(&str, super::render::InteriorRendererFn)] = &[
     ("PushButtonBlock", render_push_button),
-    ("SliderSwitchBlock", render_slider_switch),
+    ("SliderSwitchBlock", render_toggle_switch),
     ("RadioButtonGroup", render_radio_button),
     ("ComboBox", render_combo_box),
     ("Checkbox", render_checkbox),
     ("SliderBlock", render_slider),
     ("EditField", render_edit_field),
-    ("ToggleSwitchBlock", render_toggle_switch),
+    ("ToggleSwitchBlock", render_slider_switch),
     ("KnobBlock", render_knob),
     ("RockerSwitchBlock", render_rocker_switch),
     ("RotarySwitchBlock", render_rotary_switch),

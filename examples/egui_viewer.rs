@@ -176,6 +176,7 @@ fn main() -> Result<()> {
     };
 
     let mut app = egui_app::SubsystemApp::new(root_system.clone(), initial_path, charts, chart_map);
+    app.set_layout_source_path(path.clone());
 
     // Propagate library search paths (if any) into the app so the UI can report them
     app.library_search_paths = lib_paths.clone();

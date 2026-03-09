@@ -8,6 +8,12 @@ use eframe::egui::{self, Vec2};
 
 use crate::model::{Annotation, Block, Chart, Line, System};
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct LayoutSnapshot {
+    version: u32,
+    root: System,
+}
+
 // use super::geometry::parse_block_rect;
 use super::navigation::{collect_subsystems_paths, resolve_subsystem_by_vec};
 // use super::render::get_block_type_cfg;
@@ -90,6 +96,27 @@ pub struct ScopePopout {
     pub open: bool,
 }
 
+/// Active drag interaction inside the viewer move mode.
+#[derive(Clone, Default)]
+pub enum ViewerDragState {
+    #[default]
+    None,
+    Blocks {
+        current_dx: i32,
+        current_dy: i32,
+    },
+    Resize {
+        sid: String,
+        handle: u8,
+        original_l: i32,
+        original_t: i32,
+        original_r: i32,
+        original_b: i32,
+        current_dx: i32,
+        current_dy: i32,
+    },
+}
+
 /// Interactive Egui application that displays and navigates a Simulink subsystem tree.
 #[derive(Clone)]
 pub struct SubsystemApp {
@@ -155,6 +182,27 @@ pub struct SubsystemApp {
     /// Selected block SIDs in the current view (supports multi-selection).
     pub selected_block_sids: BTreeSet<String>,
 
+    /// Selected line indices in the current subsystem view.
+    pub selected_line_indices: BTreeSet<usize>,
+
+    /// Whether interactive move/resize mode is enabled.
+    pub move_mode_enabled: bool,
+
+    /// Default path used to save/load viewer layout overrides.
+    pub layout_file_path: Option<Utf8PathBuf>,
+
+    /// Whether the in-memory layout differs from the last loaded/saved layout.
+    pub layout_dirty: bool,
+
+    /// Persistent model-space bounds used for viewer auto-fit.
+    ///
+    /// This avoids recomputing the fit from edited block positions every frame,
+    /// which would otherwise make moved/resized blocks appear to snap back.
+    pub view_bounds: Option<egui::Rect>,
+
+    /// Active move/resize gesture in viewer move mode.
+    pub viewer_drag_state: ViewerDragState,
+
     /// Per-block `MiniScope` instances for interactive liveplot rendering.
     ///
     /// Keyed by a stable block identifier (SID or name). Scope instances are
@@ -214,6 +262,12 @@ impl SubsystemApp {
             block_name_min_font_factor: 0.5,
             block_name_color: egui::Color32::from_rgb(40, 40, 40),
             selected_block_sids: BTreeSet::new(),
+            selected_line_indices: BTreeSet::new(),
+            move_mode_enabled: false,
+            layout_file_path: None,
+            layout_dirty: false,
+            view_bounds: None,
+            viewer_drag_state: ViewerDragState::None,
             #[cfg(feature = "dashboard")]
             scope_instances: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             #[cfg(feature = "dashboard")]
@@ -360,12 +414,69 @@ impl SubsystemApp {
         resolve_subsystem_by_vec(&self.root, &self.path)
     }
 
+    /// Get the current subsystem mutably based on `self.path`.
+    pub fn current_system_mut(&mut self) -> Option<&mut System> {
+        resolve_subsystem_by_vec_mut(&mut self.root, &self.path)
+    }
+
+    /// Configure the default layout file path from the original model path.
+    pub fn set_layout_source_path(&mut self, source_path: impl Into<Utf8PathBuf>) {
+        let source_path = source_path.into();
+        self.layout_file_path = Some(Utf8PathBuf::from(format!(
+            "{}.rustylink-layout.json",
+            source_path
+        )));
+    }
+
+    /// Save the current viewer layout to the configured layout file.
+    pub fn save_layout_to_default_path(&mut self) -> anyhow::Result<()> {
+        let Some(path) = self.layout_file_path.clone() else {
+            anyhow::bail!("No layout file path configured");
+        };
+        let snapshot = LayoutSnapshot {
+            version: 1,
+            root: self.root.clone(),
+        };
+        let text = serde_json::to_string_pretty(&snapshot)?;
+        std::fs::write(path.as_str(), text)?;
+        self.layout_dirty = false;
+        Ok(())
+    }
+
+    /// Load the viewer layout from the configured layout file.
+    pub fn load_layout_from_default_path(&mut self) -> anyhow::Result<()> {
+        let Some(path) = self.layout_file_path.clone() else {
+            anyhow::bail!("No layout file path configured");
+        };
+        let text = std::fs::read_to_string(path.as_str())?;
+        let snapshot: LayoutSnapshot = serde_json::from_str(&text)?;
+        if snapshot.version != 1 {
+            anyhow::bail!("Unsupported layout version {}", snapshot.version);
+        }
+        self.root = snapshot.root;
+        self.all_subsystems = collect_subsystems_paths(&self.root);
+        if resolve_subsystem_by_vec(&self.root, &self.path).is_none() {
+            self.path.clear();
+        }
+        self.reset_view = true;
+        self.view_bounds = None;
+        self.selected_block_sids.clear();
+        self.selected_line_indices.clear();
+        self.viewer_drag_state = ViewerDragState::None;
+        self.layout_dirty = false;
+        self.notify_subsystem_changed();
+        Ok(())
+    }
+
     /// Navigate one level up, if possible.
     pub fn go_up(&mut self) {
         if !self.path.is_empty() {
             self.path.pop();
             self.reset_view = true;
+            self.view_bounds = None;
             self.selected_block_sids.clear();
+            self.selected_line_indices.clear();
+            self.viewer_drag_state = ViewerDragState::None;
             self.notify_subsystem_changed();
         }
     }
@@ -375,7 +486,10 @@ impl SubsystemApp {
         if resolve_subsystem_by_vec(&self.root, &p).is_some() {
             self.path = p;
             self.reset_view = true;
+            self.view_bounds = None;
             self.selected_block_sids.clear();
+            self.selected_line_indices.clear();
+            self.viewer_drag_state = ViewerDragState::None;
             self.notify_subsystem_changed();
         }
     }
@@ -387,7 +501,10 @@ impl SubsystemApp {
                 if sub.chart.is_none() {
                     self.path.push(b.name.clone());
                     self.reset_view = true;
+                    self.view_bounds = None;
                     self.selected_block_sids.clear();
+                    self.selected_line_indices.clear();
+                    self.viewer_drag_state = ViewerDragState::None;
                     self.notify_subsystem_changed();
                     return true;
                 }
@@ -426,4 +543,21 @@ impl eframe::App for SubsystemApp {
             super::ui::update_with_info(self, ui);
         });
     }
+}
+
+/// Resolve a mutable reference to a subsystem by path.
+fn resolve_subsystem_by_vec_mut<'a>(root: &'a mut System, path: &[String]) -> Option<&'a mut System> {
+    if path.is_empty() {
+        return Some(root);
+    }
+
+    let mut current = root;
+    for name in path {
+        let block = current
+            .blocks
+            .iter_mut()
+            .find(|b| b.name == *name && b.subsystem.is_some())?;
+        current = block.subsystem.as_mut()?;
+    }
+    Some(current)
 }

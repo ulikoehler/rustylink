@@ -6,9 +6,13 @@ use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, V
 use crate::egui_app::state::SubsystemApp;
 use crate::block_types::BlockShape;
 use crate::egui_app::render::{get_block_type_cfg, render_block_icon, render_manual_switch, get_interior_renderer, wrap_text_to_max_width};
+#[cfg(not(feature = "dashboard"))]
+use crate::egui_app::render::render_center_glyph_maximized;
 use crate::egui_app::text::highlight_query_job;
 use crate::egui_app::navigation::resolve_subsystem_by_vec;
 use crate::egui_app::geometry::{parse_rect_str, parse_block_rect};
+use crate::editor::operations;
+use crate::egui_app::state::ViewerDragState;
 use super::types::{UpdateResponse, ClickAction};
 use super::helpers::{is_block_subsystem, record_interaction};
 use super::colors::{block_base_color, contrast_color};
@@ -73,6 +77,41 @@ pub(crate) fn update_internal(
                     .speed(0.01)
                     .range(0.05..=0.5),
             );
+            ui.separator();
+            let move_label = if app.move_mode_enabled {
+                "Move: On"
+            } else {
+                "Move: Off"
+            };
+            if ui
+                .selectable_label(app.move_mode_enabled, move_label)
+                .clicked()
+            {
+                app.move_mode_enabled = !app.move_mode_enabled;
+            }
+            let save_label = if app.layout_dirty {
+                "Save layout*"
+            } else {
+                "Save layout"
+            };
+            if ui.button(save_label).clicked() {
+                match app.save_layout_to_default_path() {
+                    Ok(()) => app.show_notification("Layout saved", 3000),
+                    Err(err) => app.show_notification(
+                        format!("Save layout failed: {}", err),
+                        5000,
+                    ),
+                }
+            }
+            if ui.button("Load layout").clicked() {
+                match app.load_layout_from_default_path() {
+                    Ok(()) => app.show_notification("Layout loaded", 3000),
+                    Err(err) => app.show_notification(
+                        format!("Load layout failed: {}", err),
+                        5000,
+                    ),
+                }
+            }
 
             // Render transient in-GUI notification (right-aligned in the top bar)
             if let Some((msg, expiry)) = &app.transient_notification {
@@ -121,6 +160,7 @@ pub(crate) fn update_internal(
     let mut staged_zoom = app.zoom;
     let mut staged_pan = app.pan;
     let mut staged_reset = app.reset_view;
+    let mut staged_view_bounds = app.view_bounds;
 
     // Temporary variable to store block to open as subsystem
     let mut block_to_open_subsystem: Option<crate::model::Block> = None;
@@ -245,17 +285,25 @@ pub(crate) fn update_internal(
             );
             return;
         }
-        let mut bb = blocks
+        let mut content_bb = blocks
             .get(0)
             .map(|x| x.1)
             .or_else(|| annotations.get(0).map(|x| x.1))
             .unwrap();
         for (_, r) in &blocks {
-            bb = bb.union(*r);
+            content_bb = content_bb.union(*r);
         }
         for (_, r) in &annotations {
-            bb = bb.union(*r);
+            content_bb = content_bb.union(*r);
         }
+
+        let bb = if staged_reset || staged_view_bounds.is_none() {
+            let fitted = content_bb.expand(20.0);
+            staged_view_bounds = Some(fitted);
+            fitted
+        } else {
+            staged_view_bounds.unwrap()
+        };
 
         // Interaction space
         let margin = 20.0;
@@ -273,8 +321,13 @@ pub(crate) fn update_internal(
             staged_reset = false;
         }
 
-        let canvas_resp = ui.interact(avail, ui.id().with("canvas"), Sense::click_and_drag());
-        if canvas_resp.dragged() {
+        let canvas_sense = if app.move_mode_enabled {
+            Sense::click()
+        } else {
+            Sense::click_and_drag()
+        };
+        let canvas_resp = ui.interact(avail, ui.id().with("canvas"), canvas_sense);
+        if !app.move_mode_enabled && canvas_resp.dragged() {
             let d = canvas_resp.drag_delta();
             staged_pan += d;
         }
@@ -374,18 +427,59 @@ pub(crate) fn update_internal(
         let mut deferred_constant_edits: Vec<(String, Rect)> = Vec::new();
 
         for (b, r) in &blocks {
+            let preview_r = preview_block_rect(app, b, *r);
             if let Some(sid) = &b.sid {
-                sid_map.insert(sid.clone(), *r);
+                sid_map.insert(sid.clone(), preview_r);
             }
-            let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
+            let r_screen = Rect::from_min_max(to_screen(preview_r.min), to_screen(preview_r.max));
             if let Some(sid) = &b.sid {
                 sid_screen_map.insert(sid.clone(), r_screen);
             }
 
-            let resp = ui.allocate_rect(r_screen, Sense::click());
+            let block_sense = if app.move_mode_enabled {
+                Sense::click_and_drag()
+            } else {
+                Sense::click()
+            };
+            let resp = ui.allocate_rect(r_screen, block_sense);
             let cfg = get_block_type_cfg(b);
             let bg = block_base_color(b, &cfg);
             let mut effective_bg = bg;
+
+            if app.move_mode_enabled && resp.drag_started() {
+                if let Some(sid) = &b.sid {
+                    if !app.selected_block_sids.contains(sid) {
+                        app.selected_block_sids.clear();
+                        app.selected_block_sids.insert(sid.clone());
+                    }
+                    app.selected_line_indices.clear();
+                    app.viewer_drag_state = ViewerDragState::Blocks {
+                        current_dx: 0,
+                        current_dy: 0,
+                    };
+                }
+            }
+            if app.move_mode_enabled
+                && resp.dragged()
+                && b
+                    .sid
+                    .as_ref()
+                    .map(|sid| app.selected_block_sids.contains(sid))
+                    .unwrap_or(false)
+            {
+                let s = base_scale * staged_zoom;
+                let target_dx = (resp.drag_delta().x / s).round() as i32;
+                let target_dy = (resp.drag_delta().y / s).round() as i32;
+                if let ViewerDragState::Blocks {
+                    current_dx,
+                    current_dy,
+                } = &mut app.viewer_drag_state
+                {
+                    *current_dx = target_dx;
+                    *current_dy = target_dy;
+                    ui.ctx().request_repaint();
+                }
+            }
 
             let mut block_action: Option<ClickAction> = None;
             if resp.double_clicked() {
@@ -396,26 +490,28 @@ pub(crate) fn update_internal(
                 block_action = Some(ClickAction::Secondary);
             } else if resp.clicked() {
                 println!("Block {} clicked", b.name);
-                // Dashboard / UI block click: print connected block and signal info.
-                // Also handle traditional signal-line blocks like Scope and Display.
-                if crate::builtin_libraries::simulink_dashboard::is_dashboard_block_type(
-                    &b.block_type,
-                ) || matches!(b.block_type.as_str(), "Scope" | "Display")
-                {
-                    print_dashboard_connected_signals(b, entities);
-                }
-                // Open a scope popout window when a Scope/DashboardScope is clicked.
-                #[cfg(feature = "dashboard")]
-                if matches!(b.block_type.as_str(), "Scope" | "DashboardScope") {
-                    let key = b
-                        .sid
-                        .clone()
-                        .unwrap_or_else(|| format!("__scope_{}", b.name));
-                    app.scope_popout = Some(crate::egui_app::state::ScopePopout {
-                        title: b.name.clone(),
-                        scope_key: key,
-                        open: true,
-                    });
+                if !app.move_mode_enabled {
+                    // Dashboard / UI block click: print connected block and signal info.
+                    // Also handle traditional signal-line blocks like Scope and Display.
+                    if crate::builtin_libraries::simulink_dashboard::is_dashboard_block_type(
+                        &b.block_type,
+                    ) || matches!(b.block_type.as_str(), "Scope" | "Display")
+                    {
+                        print_dashboard_connected_signals(b, entities);
+                    }
+                    // Open a scope popout window when a Scope/DashboardScope is clicked.
+                    #[cfg(feature = "dashboard")]
+                    if matches!(b.block_type.as_str(), "Scope" | "DashboardScope") {
+                        let key = b
+                            .sid
+                            .clone()
+                            .unwrap_or_else(|| format!("__scope_{}", b.name));
+                        app.scope_popout = Some(crate::egui_app::state::ScopePopout {
+                            title: b.name.clone(),
+                            scope_key: key,
+                            open: true,
+                        });
+                    }
                 }
                 block_action = Some(ClickAction::Primary);
             }
@@ -436,6 +532,7 @@ pub(crate) fn update_internal(
                         app.selected_block_sids.clear();
                         app.selected_block_sids.insert(sid.clone());
                     }
+                    app.selected_line_indices.clear();
                 }
             }
 
@@ -448,6 +545,7 @@ pub(crate) fn update_internal(
                     });
                     if !hit_any {
                         app.selected_block_sids.clear();
+                        app.selected_line_indices.clear();
                     }
                 }
             }
@@ -461,6 +559,18 @@ pub(crate) fn update_internal(
             {
                 let rounding = if b.commented { 0.0 } else { 6.0 };
                 paint_selected_shadow(ui.painter(), r_screen, rounding, font_scale);
+                if app.move_mode_enabled {
+                    if let Some(sid) = &b.sid {
+                        draw_viewer_resize_handles(
+                            ui,
+                            &r_screen,
+                            sid,
+                            &preview_r,
+                            app,
+                            base_scale * staged_zoom,
+                        );
+                    }
+                }
             }
 
             match cfg.shape {
@@ -571,6 +681,45 @@ pub(crate) fn update_internal(
                         handled,
                     },
                 );
+            }
+            if app.move_mode_enabled && resp.drag_stopped() {
+                if let ViewerDragState::Blocks {
+                    current_dx,
+                    current_dy,
+                } = app.viewer_drag_state.clone()
+                {
+                    if (current_dx != 0 || current_dy != 0)
+                        && b
+                            .sid
+                            .as_ref()
+                            .map(|sid| app.selected_block_sids.contains(sid))
+                            .unwrap_or(false)
+                    {
+                        let selected_sids = app.selected_block_sids.clone();
+                        let mut layout_changed = false;
+                        if let Some(system) = app.current_system_mut() {
+                            let indices: Vec<usize> = system
+                                .blocks
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(idx, block)| {
+                                    block.sid
+                                        .as_ref()
+                                        .filter(|sid| selected_sids.contains(*sid))
+                                        .map(|_| idx)
+                                })
+                                .collect();
+                            if !indices.is_empty() {
+                                let _ = operations::move_blocks(system, &indices, current_dx, current_dy);
+                                layout_changed = true;
+                            }
+                        }
+                        if layout_changed {
+                            app.layout_dirty = true;
+                        }
+                    }
+                    app.viewer_drag_state = ViewerDragState::None;
+                }
             }
             block_views.push((b, r_screen, resp.clicked(), effective_bg));
         }
@@ -906,10 +1055,9 @@ pub(crate) fn update_internal(
             if screen_pts.is_empty() {
                 continue;
             }
+            screen_pts = orthogonalize_polyline(&screen_pts);
             let mut segments_all: Vec<(Pos2, Pos2)> = Vec::new();
-            for seg in screen_pts.windows(2) {
-                segments_all.push((seg[0], seg[1]));
-            }
+            push_orthogonal_segments(&screen_pts, &mut segments_all);
             for br in &line.branches {
                 collect_branch_segments_rec(
                     &to_screen,
@@ -976,9 +1124,8 @@ pub(crate) fn update_internal(
                 cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
                 pts.push(cur);
             }
-            for seg in pts.windows(2) {
-                out.push((to_screen(seg[0]), to_screen(seg[1])));
-            }
+            let screen_pts: Vec<Pos2> = pts.iter().map(|p| to_screen(*p)).collect();
+            push_orthogonal_segments(&screen_pts, out);
             if let Some(dstb) = &br.dst {
                 if let Some(dr) = sid_map.get(&dstb.sid) {
                     let key = (
@@ -996,7 +1143,7 @@ pub(crate) fn update_internal(
                     );
                     let a = to_screen(*pts.last().unwrap_or(&cur));
                     let b = to_screen(end_pt);
-                    out.push((a, b));
+                    push_orthogonal_segments(&[a, b], out);
                     if dstb.port_type == "in" {
                         port_y_screen.insert((dstb.sid.clone(), dstb.port_index, true), b.y);
                     }
@@ -1064,10 +1211,9 @@ pub(crate) fn update_internal(
                 cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
                 pts.push(cur);
             }
-            for seg in pts.windows(2) {
-                let a = to_screen(seg[0]);
-                let b = to_screen(seg[1]);
-                painter.line_segment([a, b], stroke);
+            let screen_pts: Vec<Pos2> = pts.iter().map(|p| to_screen(*p)).collect();
+            for seg in orthogonalize_polyline(&screen_pts).windows(2) {
+                painter.line_segment([seg[0], seg[1]], stroke);
             }
             if let Some(dstb) = &br.dst {
                 if let Some(dr) = sid_map.get(&dstb.sid) {
@@ -1087,11 +1233,20 @@ pub(crate) fn update_internal(
                     let last = *pts.last().unwrap_or(&cur);
                     let a = to_screen(last);
                     let b = to_screen(end_pt);
+                    let ortho = orthogonalize_polyline(&[a, b]);
                     if dstb.port_type == "in" {
-                        draw_arrow_with_trim(painter, a, b, color, stroke);
+                        for seg in ortho.windows(2).take(ortho.len().saturating_sub(2)) {
+                            painter.line_segment([seg[0], seg[1]], stroke);
+                        }
+                        if ortho.len() >= 2 {
+                            let n = ortho.len();
+                            draw_arrow_with_trim(painter, ortho[n - 2], ortho[n - 1], color, stroke);
+                        }
                         port_label_requests.push((dstb.sid.clone(), dstb.port_index, true, b.y));
                     } else {
-                        painter.line_segment([a, b], stroke);
+                        for seg in ortho.windows(2) {
+                            painter.line_segment([seg[0], seg[1]], stroke);
+                        }
                     }
                 }
             }
@@ -1129,7 +1284,10 @@ pub(crate) fn update_internal(
                 .get(*li)
                 .copied()
                 .unwrap_or(line_stroke_default.color);
-            let stroke = Stroke::new(2.0, color);
+            let stroke = Stroke::new(
+                if app.selected_line_indices.contains(li) { 3.5 } else { 2.0 },
+                color,
+            );
             let has_in_dst = line.dst.as_ref().map_or(false, |dst| dst.port_type == "in");
             let mut draw_pts = screen_pts.clone();
             if draw_pts.len() >= 2 {
@@ -1223,15 +1381,32 @@ pub(crate) fn update_internal(
                             None
                         };
                         if let Some(action) = action {
-                            record_interaction(
-                                &mut interaction,
-                                UpdateResponse::Signal {
-                                    action,
-                                    line_idx: *li,
-                                    line: (*line).clone(),
-                                    handled: false,
-                                },
-                            );
+                            if app.move_mode_enabled {
+                                if matches!(action, ClickAction::Primary) {
+                                    let shift = ui.input(|i| i.modifiers.shift);
+                                    if shift {
+                                        if app.selected_line_indices.contains(li) {
+                                            app.selected_line_indices.remove(li);
+                                        } else {
+                                            app.selected_line_indices.insert(*li);
+                                        }
+                                    } else {
+                                        app.selected_line_indices.clear();
+                                        app.selected_line_indices.insert(*li);
+                                    }
+                                    app.selected_block_sids.clear();
+                                }
+                            } else {
+                                record_interaction(
+                                    &mut interaction,
+                                    UpdateResponse::Signal {
+                                        action,
+                                        line_idx: *li,
+                                        line: (*line).clone(),
+                                        handled: false,
+                                    },
+                                );
+                            }
                         }
                     }
                     // Context menu: show when secondary-clicked near a segment.
@@ -1258,6 +1433,97 @@ pub(crate) fn update_internal(
                                 }
                             }
                         });
+                    }
+                }
+            }
+        }
+
+        if app.move_mode_enabled {
+            for (line, _screen_pts, main_anchor, _hover_resp, li, _segments_all) in &line_views {
+                if !app.selected_line_indices.contains(li) {
+                    continue;
+                }
+                let mut cur = *main_anchor;
+                for point_index in 0..line.points.len() {
+                    let point = &line.points[point_index];
+                    cur = Pos2::new(cur.x + point.x as f32, cur.y + point.y as f32);
+                    let handle_pos = to_screen(cur);
+                    let handle_rect = Rect::from_center_size(handle_pos, Vec2::splat(10.0));
+                    let resp = ui.allocate_rect(
+                        handle_rect,
+                        Sense::click_and_drag(),
+                    );
+                    let color = if resp.dragged() || resp.hovered() {
+                        Color32::from_rgb(80, 180, 255)
+                    } else {
+                        Color32::from_rgb(0, 120, 255)
+                    };
+                    ui.painter().rect_filled(handle_rect.shrink(2.0), 1.0, color);
+                    ui.painter().rect_stroke(
+                        handle_rect.shrink(2.0),
+                        1.0,
+                        Stroke::new(1.0, Color32::WHITE),
+                        egui::StrokeKind::Outside,
+                    );
+                    if resp.drag_stopped() {
+                        let s = base_scale * staged_zoom;
+                        let dx = (resp.drag_delta().x / s).round() as i32;
+                        let dy = (resp.drag_delta().y / s).round() as i32;
+                        if dx != 0 || dy != 0 {
+                            let mut layout_changed = false;
+                            if let Some(system) = app.current_system_mut() {
+                                if let Some(line_mut) = system.lines.get_mut(*li) {
+                                    move_line_point(line_mut, point_index, dx, dy);
+                                    layout_changed = true;
+                                }
+                            }
+                            if layout_changed {
+                                app.layout_dirty = true;
+                            }
+                        }
+                    }
+                }
+
+                let mut branch_handles: Vec<(Vec<usize>, usize, Pos2)> = Vec::new();
+                collect_branch_handle_positions(
+                    *main_anchor,
+                    &line.branches,
+                    &to_screen,
+                    &mut Vec::new(),
+                    &mut branch_handles,
+                );
+                for (branch_path, point_index, handle_pos) in branch_handles {
+                    let handle_rect = Rect::from_center_size(handle_pos, Vec2::splat(10.0));
+                    let resp = ui.allocate_rect(handle_rect, Sense::click_and_drag());
+                    let color = if resp.dragged() || resp.hovered() {
+                        Color32::from_rgb(255, 180, 80)
+                    } else {
+                        Color32::from_rgb(220, 140, 40)
+                    };
+                    ui.painter().circle_filled(handle_rect.center(), 4.0, color);
+                    ui.painter().circle_stroke(
+                        handle_rect.center(),
+                        4.0,
+                        Stroke::new(1.0, Color32::WHITE),
+                    );
+                    if resp.drag_stopped() {
+                        let s = base_scale * staged_zoom;
+                        let dx = (resp.drag_delta().x / s).round() as i32;
+                        let dy = (resp.drag_delta().y / s).round() as i32;
+                        if dx != 0 || dy != 0 {
+                            let mut layout_changed = false;
+                            if let Some(system) = app.current_system_mut() {
+                                if let Some(line_mut) = system.lines.get_mut(*li) {
+                                    if let Some(branch_mut) = get_branch_mut(&mut line_mut.branches, &branch_path) {
+                                        move_branch_point(branch_mut, point_index, dx, dy);
+                                        layout_changed = true;
+                                    }
+                                }
+                            }
+                            if layout_changed {
+                                app.layout_dirty = true;
+                            }
+                        }
                     }
                 }
             }
@@ -1480,7 +1746,20 @@ pub(crate) fn update_internal(
 
         // Clickable labels
         for (r, li) in &signal_label_rects {
-            let resp = ui.interact(*r, ui.id().with(("signal_label", *li)), Sense::click());
+            let resp = ui.interact(
+                *r,
+                ui.id().with(("signal_label", *li)),
+                if app.move_mode_enabled {
+                    Sense::click_and_drag()
+                } else {
+                    Sense::click()
+                },
+            );
+            if app.move_mode_enabled && resp.drag_started() {
+                app.selected_line_indices.clear();
+                app.selected_line_indices.insert(*li);
+                app.selected_block_sids.clear();
+            }
             let mut label_action: Option<ClickAction> = None;
             if resp.double_clicked() {
                 println!("Line {} double-clicked", li);
@@ -1493,16 +1772,50 @@ pub(crate) fn update_internal(
                 label_action = Some(ClickAction::Primary);
             }
             if let Some(action) = label_action {
-                let line = &entities.lines[*li];
-                record_interaction(
-                    &mut interaction,
-                    UpdateResponse::Signal {
-                        action,
-                        line_idx: *li,
-                        line: line.clone(),
-                        handled: false,
-                    },
-                );
+                if app.move_mode_enabled {
+                    if matches!(action, ClickAction::Primary) {
+                        let shift = ui.input(|i| i.modifiers.shift);
+                        if shift {
+                            if app.selected_line_indices.contains(li) {
+                                app.selected_line_indices.remove(li);
+                            } else {
+                                app.selected_line_indices.insert(*li);
+                            }
+                        } else {
+                            app.selected_line_indices.clear();
+                            app.selected_line_indices.insert(*li);
+                        }
+                        app.selected_block_sids.clear();
+                    }
+                } else {
+                    let line = &entities.lines[*li];
+                    record_interaction(
+                        &mut interaction,
+                        UpdateResponse::Signal {
+                            action,
+                            line_idx: *li,
+                            line: line.clone(),
+                            handled: false,
+                        },
+                    );
+                }
+            }
+            if app.move_mode_enabled && resp.drag_stopped() && app.selected_line_indices.contains(li) {
+                let s = base_scale * staged_zoom;
+                let dx = (resp.drag_delta().x / s).round() as i32;
+                let dy = (resp.drag_delta().y / s).round() as i32;
+                if dx != 0 || dy != 0 {
+                    let mut layout_changed = false;
+                    if let Some(system) = app.current_system_mut() {
+                        if let Some(line_mut) = system.lines.get_mut(*li) {
+                            move_line_layout(line_mut, dx, dy);
+                            layout_changed = true;
+                        }
+                    }
+                    if layout_changed {
+                        app.layout_dirty = true;
+                    }
+                }
             }
             if enable_context_menus {
                 resp.context_menu(|ui| {
@@ -1812,14 +2125,25 @@ pub(crate) fn update_internal(
                         .or_else(|| b.value.clone())
                         .unwrap_or_else(|| "1".to_string())
                 };
+                #[cfg(feature = "dashboard")]
+                {
+                    let beneath_font_px = 10.0 * font_scale;
+                    let font_id = egui::FontId::proportional(beneath_font_px);
+                    let galley = painter.layout_no_wrap(display_text, font_id.clone(), fg);
+                    let pos = r_screen.center() - galley.size() * 0.5;
+                    painter.galley(pos, galley, fg);
+                }
                 #[cfg(not(feature = "dashboard"))]
-                let display_text = b.value.clone().unwrap_or_else(|| "1".to_string());
-
-                let beneath_font_px = 10.0 * font_scale;
-                let font_id = egui::FontId::proportional(beneath_font_px);
-                let galley = painter.layout_no_wrap(display_text, font_id.clone(), fg);
-                let pos = r_screen.center() - galley.size() * 0.5;
-                painter.galley(pos, galley, fg);
+                {
+                    render_center_glyph_maximized(
+                        &painter,
+                        r_screen,
+                        font_scale,
+                        "C",
+                        fg,
+                        icon_port_label_widths,
+                    );
+                }
             } else if b.mask.is_some() {
                 if let Some(text) = b.mask_display_text.as_ref() {
                     let font_size = (b.font_size.unwrap_or(14) as f32) * font_scale;
@@ -2172,12 +2496,327 @@ pub(crate) fn update_internal(
     app.zoom = staged_zoom;
     app.pan = staged_pan;
     app.reset_view = staged_reset;
+    app.view_bounds = staged_view_bounds;
     if clear_search {
         app.search_query.clear();
         app.search_matches.clear();
     }
 
     interaction
+}
+
+fn preview_block_rect(app: &SubsystemApp, block: &crate::model::Block, rect: Rect) -> Rect {
+    match &app.viewer_drag_state {
+        ViewerDragState::Blocks {
+            current_dx,
+            current_dy,
+        } => {
+            if block
+                .sid
+                .as_ref()
+                .map(|sid| app.selected_block_sids.contains(sid))
+                .unwrap_or(false)
+            {
+                rect.translate(Vec2::new(*current_dx as f32, *current_dy as f32))
+            } else {
+                rect
+            }
+        }
+        ViewerDragState::Resize {
+            sid,
+            handle,
+            original_l,
+            original_t,
+            original_r,
+            original_b,
+            current_dx,
+            current_dy,
+        } => {
+            if block.sid.as_deref() == Some(sid.as_str()) {
+                let (nl, nt, nr, nb) = compute_resized_rect(
+                    *original_l as f32,
+                    *original_t as f32,
+                    *original_r as f32,
+                    *original_b as f32,
+                    *handle,
+                    *current_dx as f32,
+                    *current_dy as f32,
+                );
+                Rect::from_min_max(
+                    Pos2::new(nl as f32, nt as f32),
+                    Pos2::new(nr as f32, nb as f32),
+                )
+            } else {
+                rect
+            }
+        }
+        ViewerDragState::None => rect,
+    }
+}
+
+fn orthogonalize_polyline(points: &[Pos2]) -> Vec<Pos2> {
+    if points.len() <= 1 {
+        return points.to_vec();
+    }
+    let mut out = vec![points[0]];
+    for pair in points.windows(2) {
+        let a = pair[0];
+        let b = pair[1];
+        if (a.x - b.x).abs() > f32::EPSILON && (a.y - b.y).abs() > f32::EPSILON {
+            let corner = Pos2::new(b.x, a.y);
+            if out.last().copied() != Some(corner) {
+                out.push(corner);
+            }
+        }
+        if out.last().copied() != Some(b) {
+            out.push(b);
+        }
+    }
+    out
+}
+
+fn push_orthogonal_segments(points: &[Pos2], out: &mut Vec<(Pos2, Pos2)>) {
+    let ortho = orthogonalize_polyline(points);
+    for seg in ortho.windows(2) {
+        out.push((seg[0], seg[1]));
+    }
+}
+
+fn resize_handle_positions(r: &Rect) -> [(Pos2, u8); 8] {
+    let cx = r.center().x;
+    let cy = r.center().y;
+    [
+        (r.left_top(), 0),
+        (Pos2::new(cx, r.top()), 1),
+        (r.right_top(), 2),
+        (Pos2::new(r.right(), cy), 3),
+        (r.right_bottom(), 4),
+        (Pos2::new(cx, r.bottom()), 5),
+        (r.left_bottom(), 6),
+        (Pos2::new(r.left(), cy), 7),
+    ]
+}
+
+fn compute_resized_rect(
+    l: f32,
+    t: f32,
+    r: f32,
+    b: f32,
+    handle: u8,
+    dx: f32,
+    dy: f32,
+) -> (i32, i32, i32, i32) {
+    let min_size = 10.0;
+    let (mut nl, mut nt, mut nr, mut nb) = (l, t, r, b);
+
+    match handle {
+        0 => {
+            nl = l + dx;
+            nt = t + dy;
+        }
+        1 => nt = t + dy,
+        2 => {
+            nr = r + dx;
+            nt = t + dy;
+        }
+        3 => nr = r + dx,
+        4 => {
+            nr = r + dx;
+            nb = b + dy;
+        }
+        5 => nb = b + dy,
+        6 => {
+            nl = l + dx;
+            nb = b + dy;
+        }
+        7 => nl = l + dx,
+        _ => {}
+    }
+
+    if nr - nl < min_size {
+        if matches!(handle, 0 | 6 | 7) {
+            nl = nr - min_size;
+        } else {
+            nr = nl + min_size;
+        }
+    }
+    if nb - nt < min_size {
+        if matches!(handle, 0 | 1 | 2) {
+            nt = nb - min_size;
+        } else {
+            nb = nt + min_size;
+        }
+    }
+
+    (nl.round() as i32, nt.round() as i32, nr.round() as i32, nb.round() as i32)
+}
+
+fn draw_viewer_resize_handles(
+    ui: &mut egui::Ui,
+    r_screen: &Rect,
+    sid: &str,
+    model_rect: &Rect,
+    app: &mut SubsystemApp,
+    scale: f32,
+) {
+    let handles = resize_handle_positions(r_screen);
+    for (pos, handle_id) in handles {
+        let handle_rect = Rect::from_center_size(pos, Vec2::splat(10.0));
+        let resp = ui.allocate_rect(handle_rect, Sense::click_and_drag());
+        let color = if resp.dragged() || resp.hovered() {
+            Color32::from_rgb(80, 180, 255)
+        } else {
+            Color32::from_rgb(0, 120, 255)
+        };
+        ui.painter().rect_filled(handle_rect.shrink(2.0), 1.0, color);
+        ui.painter().rect_stroke(
+            handle_rect.shrink(2.0),
+            1.0,
+            Stroke::new(1.0, Color32::WHITE),
+            egui::StrokeKind::Outside,
+        );
+        if resp.drag_started() {
+            app.viewer_drag_state = ViewerDragState::Resize {
+                sid: sid.to_string(),
+                handle: handle_id,
+                original_l: model_rect.left().round() as i32,
+                original_t: model_rect.top().round() as i32,
+                original_r: model_rect.right().round() as i32,
+                original_b: model_rect.bottom().round() as i32,
+                current_dx: 0,
+                current_dy: 0,
+            };
+        }
+        if resp.dragged() {
+            let dx = (resp.drag_delta().x / scale).round() as i32;
+            let dy = (resp.drag_delta().y / scale).round() as i32;
+            if let ViewerDragState::Resize {
+                sid: resize_sid,
+                current_dx,
+                current_dy,
+                ..
+            } = &mut app.viewer_drag_state
+            {
+                if resize_sid == sid {
+                    *current_dx = dx;
+                    *current_dy = dy;
+                    ui.ctx().request_repaint();
+                }
+            }
+        }
+        if resp.drag_stopped() {
+            if let ViewerDragState::Resize {
+                sid: resize_sid,
+                handle,
+                original_l,
+                original_t,
+                original_r,
+                original_b,
+                current_dx,
+                current_dy,
+            } = app.viewer_drag_state.clone()
+            {
+                if resize_sid == sid {
+                    let (nl, nt, nr, nb) = compute_resized_rect(
+                        original_l as f32,
+                        original_t as f32,
+                        original_r as f32,
+                        original_b as f32,
+                        handle,
+                        current_dx as f32,
+                        current_dy as f32,
+                    );
+                    let mut layout_changed = false;
+                    if let Some(system) = app.current_system_mut() {
+                        if let Some(block_index) = system
+                            .blocks
+                            .iter()
+                            .position(|block| block.sid.as_deref() == Some(sid))
+                        {
+                            let _ = operations::resize_block(system, block_index, nl, nt, nr, nb);
+                            layout_changed = true;
+                        }
+                    }
+                    if layout_changed {
+                        app.layout_dirty = true;
+                    }
+                    app.viewer_drag_state = ViewerDragState::None;
+                }
+            }
+        }
+    }
+}
+
+fn move_line_point(line: &mut crate::model::Line, point_index: usize, dx: i32, dy: i32) {
+    if let Some(point) = line.points.get_mut(point_index) {
+        point.x += dx;
+        point.y += dy;
+    }
+    if let Some(next) = line.points.get_mut(point_index + 1) {
+        next.x -= dx;
+        next.y -= dy;
+    }
+}
+
+fn collect_branch_handle_positions(
+    start: Pos2,
+    branches: &[crate::model::Branch],
+    to_screen: &dyn Fn(Pos2) -> Pos2,
+    path_prefix: &mut Vec<usize>,
+    out: &mut Vec<(Vec<usize>, usize, Pos2)>,
+) {
+    for (branch_index, branch) in branches.iter().enumerate() {
+        path_prefix.push(branch_index);
+        let mut cur = start;
+        for (point_index, point) in branch.points.iter().enumerate() {
+            cur = Pos2::new(cur.x + point.x as f32, cur.y + point.y as f32);
+            out.push((path_prefix.clone(), point_index, to_screen(cur)));
+        }
+        collect_branch_handle_positions(cur, &branch.branches, to_screen, path_prefix, out);
+        path_prefix.pop();
+    }
+}
+
+fn get_branch_mut<'a>(
+    branches: &'a mut [crate::model::Branch],
+    path: &[usize],
+) -> Option<&'a mut crate::model::Branch> {
+    let (first, rest) = path.split_first()?;
+    let branch = branches.get_mut(*first)?;
+    if rest.is_empty() {
+        Some(branch)
+    } else {
+        get_branch_mut(&mut branch.branches, rest)
+    }
+}
+
+fn move_branch_point(branch: &mut crate::model::Branch, point_index: usize, dx: i32, dy: i32) {
+    if let Some(point) = branch.points.get_mut(point_index) {
+        point.x += dx;
+        point.y += dy;
+    }
+    if let Some(next) = branch.points.get_mut(point_index + 1) {
+        next.x -= dx;
+        next.y -= dy;
+    }
+}
+
+fn move_line_layout(line: &mut crate::model::Line, dx: i32, dy: i32) {
+    for point in &mut line.points {
+        point.x += dx;
+        point.y += dy;
+    }
+    move_branch_layouts(&mut line.branches, dx, dy);
+}
+
+fn move_branch_layouts(branches: &mut [crate::model::Branch], dx: i32, dy: i32) {
+    for branch in branches {
+        for point in &mut branch.points {
+            point.x += dx;
+            point.y += dy;
+        }
+        move_branch_layouts(&mut branch.branches, dx, dy);
+    }
 }
 
 /// Draw a lightweight static sine waveform glyph inside a block rectangle.
