@@ -17,8 +17,8 @@ mod ui;
 
 // Re-export geometry items needed by the editor module
 pub use geometry::{
-    PortSide, endpoint_pos, endpoint_pos_maybe_mirrored, endpoint_pos_with_target,
-    endpoint_pos_with_target_maybe_mirrored, parse_block_rect, parse_rect_str, port_anchor_pos,
+    PortSide, endpoint_pos_maybe_mirrored,
+    parse_block_rect, parse_rect_str, port_anchor_pos,
     port_indicator_positions,
 };
 pub use navigation::{

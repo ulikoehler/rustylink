@@ -1,4 +1,3 @@
-use eframe::egui::{self, Color32, Pos2, Rect};
 use super::types::{ClickAction, UpdateResponse};
 
 /// Normalize a user-facing string by collapsing all whitespace to a single
@@ -62,25 +61,4 @@ pub(crate) fn record_interaction(current: &mut UpdateResponse, new: UpdateRespon
     }
 }
 
-#[allow(dead_code)]
-pub(crate) fn expand_rect_for_label(
-    rect: Rect,
-    block: &crate::model::Block,
-    ui: &egui::Ui,
-    font_scale: f32,
-) -> Rect {
-    let font = egui::FontId::proportional(14.0 * font_scale);
-    let label = block.name.replace('\n', " ");
-    let galley = ui.painter().layout_no_wrap(label, font, Color32::BLACK);
-    let padding = 16.0 * font_scale;
-    let desired = galley.size().x + padding;
-    if desired > rect.width() {
-        let extra = desired - rect.width();
-        Rect::from_min_max(
-            Pos2::new(rect.min.x - extra * 0.5, rect.min.y),
-            Pos2::new(rect.max.x + extra * 0.5, rect.max.y),
-        )
-    } else {
-        rect
-    }
-}
+

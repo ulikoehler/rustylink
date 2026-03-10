@@ -23,8 +23,6 @@ fn prop<'a>(block: &'a Block, name: &str, default: &'a str) -> &'a str {
 }
 
 /// Standard widget colours matching Simulink's Dashboard palette.
-#[allow(dead_code)]
-const BG_LIGHT: Color32 = Color32::from_rgb(245, 245, 245);
 const BG_FIELD: Color32 = Color32::from_rgb(255, 255, 255);
 const BORDER: Color32 = Color32::from_rgb(180, 180, 180);
 const TEXT_DARK: Color32 = Color32::from_rgb(40, 40, 40);

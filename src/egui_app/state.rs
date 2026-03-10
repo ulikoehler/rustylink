@@ -7,6 +7,7 @@ use camino::Utf8PathBuf;
 use eframe::egui::{self, Vec2};
 
 use crate::model::{Annotation, Block, Chart, Line, System};
+use crate::editor::operations::EditorHistory;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct LayoutSnapshot {
@@ -178,6 +179,8 @@ impl ComputedViewCache {
 #[derive(Clone)]
 pub struct SubsystemApp {
     pub root: System,
+    /// Snapshot of the root system at construction / last load, used for "Restore layout".
+    pub original_root: System,
     pub path: Vec<String>,
     pub all_subsystems: Vec<Vec<String>>,
     pub search_query: String,
@@ -264,6 +267,9 @@ pub struct SubsystemApp {
     /// recomputed only when the model changes.
     pub view_cache: ComputedViewCache,
 
+    /// Undo/redo history for viewer layout editing operations.
+    pub viewer_history: EditorHistory,
+
     /// Per-block `MiniScope` instances for interactive liveplot rendering.
     ///
     /// Keyed by a stable block identifier (SID or name). Scope instances are
@@ -295,8 +301,10 @@ impl SubsystemApp {
         chart_map: BTreeMap<String, u32>,
     ) -> Self {
         let all = collect_subsystems_paths(&root);
+        let original_root = root.clone();
         Self {
             root,
+            original_root,
             path: initial_path,
             all_subsystems: all,
             search_query: String::new(),
@@ -330,6 +338,7 @@ impl SubsystemApp {
             view_bounds: None,
             viewer_drag_state: ViewerDragState::None,
             view_cache: ComputedViewCache::default(),
+            viewer_history: EditorHistory::new(200),
             #[cfg(feature = "dashboard")]
             scope_instances: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             #[cfg(feature = "dashboard")]
@@ -516,6 +525,7 @@ impl SubsystemApp {
             anyhow::bail!("Unsupported layout version {}", snapshot.version);
         }
         self.root = snapshot.root;
+        self.original_root = self.root.clone();
         self.all_subsystems = collect_subsystems_paths(&self.root);
         if resolve_subsystem_by_vec(&self.root, &self.path).is_none() {
             self.path.clear();
@@ -526,8 +536,27 @@ impl SubsystemApp {
         self.selected_line_indices.clear();
         self.viewer_drag_state = ViewerDragState::None;
         self.layout_dirty = false;
+        self.viewer_history.clear();
         self.notify_subsystem_changed();
         Ok(())
+    }
+
+    /// Restore the root system to its original state (at construction or last load).
+    pub fn restore_original_layout(&mut self) {
+        self.root = self.original_root.clone();
+        self.all_subsystems = collect_subsystems_paths(&self.root);
+        if resolve_subsystem_by_vec(&self.root, &self.path).is_none() {
+            self.path.clear();
+        }
+        self.reset_view = true;
+        self.view_bounds = None;
+        self.selected_block_sids.clear();
+        self.selected_line_indices.clear();
+        self.viewer_drag_state = ViewerDragState::None;
+        self.layout_dirty = false;
+        self.view_cache.invalidate();
+        self.viewer_history.clear();
+        self.notify_subsystem_changed();
     }
 
     /// Navigate one level up, if possible.
@@ -539,6 +568,7 @@ impl SubsystemApp {
             self.selected_block_sids.clear();
             self.selected_line_indices.clear();
             self.viewer_drag_state = ViewerDragState::None;
+            self.viewer_history.clear();
             self.notify_subsystem_changed();
         }
     }
@@ -552,6 +582,7 @@ impl SubsystemApp {
             self.selected_block_sids.clear();
             self.selected_line_indices.clear();
             self.viewer_drag_state = ViewerDragState::None;
+            self.viewer_history.clear();
             self.notify_subsystem_changed();
         }
     }
@@ -567,6 +598,7 @@ impl SubsystemApp {
                     self.selected_block_sids.clear();
                     self.selected_line_indices.clear();
                     self.viewer_drag_state = ViewerDragState::None;
+                    self.viewer_history.clear();
                     self.notify_subsystem_changed();
                     return true;
                 }
@@ -608,7 +640,7 @@ impl eframe::App for SubsystemApp {
 }
 
 /// Resolve a mutable reference to a subsystem by path.
-fn resolve_subsystem_by_vec_mut<'a>(root: &'a mut System, path: &[String]) -> Option<&'a mut System> {
+pub(crate) fn resolve_subsystem_by_vec_mut<'a>(root: &'a mut System, path: &[String]) -> Option<&'a mut System> {
     if path.is_empty() {
         return Some(root);
     }

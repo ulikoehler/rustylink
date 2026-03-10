@@ -97,6 +97,40 @@ pub enum EditorCommand {
     },
     /// Batch command combining multiple sub-commands.
     Batch(Vec<EditorCommand>),
+    /// Move a single point in a line's point list.
+    MoveLinePoint {
+        line_index: usize,
+        point_index: usize,
+        dx: i32,
+        dy: i32,
+    },
+    /// Move a single point in a branch's point list.
+    MoveBranchPoint {
+        line_index: usize,
+        branch_path: Vec<usize>,
+        point_index: usize,
+        dx: i32,
+        dy: i32,
+    },
+    /// Move an entire line layout (all points + branches) by a delta.
+    MoveLineLayout {
+        line_index: usize,
+        dx: i32,
+        dy: i32,
+    },
+    /// Insert a corner point into a line's point list.
+    InsertCorner {
+        line_index: usize,
+        point_index: usize,
+        offset: Point,
+    },
+    /// Remove a corner point from a line's point list.
+    RemoveCorner {
+        line_index: usize,
+        point_index: usize,
+        /// The removed point (saved for undo).
+        removed_point: Point,
+    },
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -536,12 +570,149 @@ fn apply_inverse(system: &mut System, cmd: &EditorCommand) -> EditorCommand {
             inverses.reverse();
             EditorCommand::Batch(inverses)
         }
+        EditorCommand::MoveLinePoint {
+            line_index,
+            point_index,
+            dx,
+            dy,
+        } => {
+            if let Some(line) = system.lines.get_mut(*line_index) {
+                // Apply inverse: move by -dx, -dy
+                if let Some(point) = line.points.get_mut(*point_index) {
+                    point.x -= dx;
+                    point.y -= dy;
+                }
+                if let Some(next) = line.points.get_mut(*point_index + 1) {
+                    next.x += dx;
+                    next.y += dy;
+                }
+            }
+            EditorCommand::MoveLinePoint {
+                line_index: *line_index,
+                point_index: *point_index,
+                dx: -dx,
+                dy: -dy,
+            }
+        }
+        EditorCommand::MoveBranchPoint {
+            line_index,
+            branch_path,
+            point_index,
+            dx,
+            dy,
+        } => {
+            if let Some(line) = system.lines.get_mut(*line_index) {
+                if let Some(branch) = navigate_branch_mut(&mut line.branches, branch_path) {
+                    if let Some(point) = branch.points.get_mut(*point_index) {
+                        point.x -= dx;
+                        point.y -= dy;
+                    }
+                    if let Some(next) = branch.points.get_mut(*point_index + 1) {
+                        next.x += dx;
+                        next.y += dy;
+                    }
+                }
+            }
+            EditorCommand::MoveBranchPoint {
+                line_index: *line_index,
+                branch_path: branch_path.clone(),
+                point_index: *point_index,
+                dx: -dx,
+                dy: -dy,
+            }
+        }
+        EditorCommand::MoveLineLayout {
+            line_index,
+            dx,
+            dy,
+        } => {
+            if let Some(line) = system.lines.get_mut(*line_index) {
+                for point in &mut line.points {
+                    point.x -= dx;
+                    point.y -= dy;
+                }
+                move_branch_layouts_by(&mut line.branches, -dx, -dy);
+            }
+            EditorCommand::MoveLineLayout {
+                line_index: *line_index,
+                dx: -dx,
+                dy: -dy,
+            }
+        }
+        EditorCommand::InsertCorner {
+            line_index,
+            point_index,
+            offset,
+        } => {
+            // Undo insert = remove that point and merge its offset into the next
+            if let Some(line) = system.lines.get_mut(*line_index) {
+                if *point_index < line.points.len() {
+                    let removed = line.points.remove(*point_index);
+                    // Merge the removed offset into the next point (if any) so
+                    // the downstream geometry stays where it was before insert.
+                    if let Some(next) = line.points.get_mut(*point_index) {
+                        next.x += removed.x;
+                        next.y += removed.y;
+                    }
+                }
+            }
+            EditorCommand::RemoveCorner {
+                line_index: *line_index,
+                point_index: *point_index,
+                removed_point: offset.clone(),
+            }
+        }
+        EditorCommand::RemoveCorner {
+            line_index,
+            point_index,
+            removed_point,
+        } => {
+            // Undo remove = re-insert the point and subtract its offset from
+            // the next point so downstream positions are preserved.
+            if let Some(line) = system.lines.get_mut(*line_index) {
+                line.points.insert(*point_index, removed_point.clone());
+                if let Some(next) = line.points.get_mut(*point_index + 1) {
+                    next.x -= removed_point.x;
+                    next.y -= removed_point.y;
+                }
+            }
+            EditorCommand::InsertCorner {
+                line_index: *line_index,
+                point_index: *point_index,
+                offset: removed_point.clone(),
+            }
+        }
     }
 }
 
 // ────────────────────────────────────────────────────────────────────────────
 // Helper functions
 // ────────────────────────────────────────────────────────────────────────────
+
+/// Navigate a branch tree by index path, returning a mutable reference.
+fn navigate_branch_mut<'a>(
+    branches: &'a mut [Branch],
+    path: &[usize],
+) -> Option<&'a mut Branch> {
+    let (first, rest) = path.split_first()?;
+    let branch = branches.get_mut(*first)?;
+    if rest.is_empty() {
+        Some(branch)
+    } else {
+        navigate_branch_mut(&mut branch.branches, rest)
+    }
+}
+
+/// Recursively shift all points in a branch slice by `(dx, dy)`.
+fn move_branch_layouts_by(branches: &mut [Branch], dx: i32, dy: i32) {
+    for branch in branches {
+        for point in &mut branch.points {
+            point.x += dx;
+            point.y += dy;
+        }
+        move_branch_layouts_by(&mut branch.branches, dx, dy);
+    }
+}
 
 /// Parse a position string `"[l, t, r, b]"` into `(l, t, r, b)`.
 pub fn parse_position(pos: &str) -> Option<(i32, i32, i32, i32)> {

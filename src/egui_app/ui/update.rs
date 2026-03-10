@@ -1,8 +1,8 @@
-use crate::egui_app::geometry::{endpoint_pos_maybe_mirrored, endpoint_pos_with_target_maybe_mirrored};
+use crate::egui_app::geometry::endpoint_pos_maybe_mirrored;
 use crate::egui_app::render::{ComputedPortYCoordinates, PortLabelMaxWidths, port_label_display_name};
 use std::collections::HashMap;
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
-use crate::egui_app::state::SubsystemApp;
+use crate::egui_app::state::{SubsystemApp, resolve_subsystem_by_vec_mut};
 use crate::block_types::BlockShape;
 use crate::egui_app::render::{get_block_type_cfg, render_block_icon, render_manual_switch, get_interior_renderer, wrap_text_to_max_width};
 #[cfg(not(feature = "dashboard"))]
@@ -13,6 +13,7 @@ use crate::egui_app::geometry::{parse_rect_str, parse_block_rect};
 use crate::editor::operations;
 use crate::egui_app::state::ViewerDragState;
 use super::types::{UpdateResponse, ClickAction};
+use super::corner_ops;
 use super::helpers::{is_block_subsystem, record_interaction};
 use super::colors::{block_base_color, contrast_color};
 use super::line_coloring;
@@ -81,15 +82,35 @@ pub(crate) fn update_internal(
             );
             ui.separator();
             let move_label = if app.move_mode_enabled {
-                "Move: On"
+                "Edit: On"
             } else {
-                "Move: Off"
+                "Edit: Off"
             };
             if ui
                 .selectable_label(app.move_mode_enabled, move_label)
                 .clicked()
             {
                 app.move_mode_enabled = !app.move_mode_enabled;
+            }
+            if app.move_mode_enabled {
+                let undo_btn = egui::Button::new("Undo");
+                let redo_btn = egui::Button::new("Redo");
+                if ui.add_enabled(app.viewer_history.can_undo(), undo_btn).clicked() {
+                    let path = app.path.clone();
+                    if let Some(system) = resolve_subsystem_by_vec_mut(&mut app.root, &path) {
+                        app.viewer_history.undo(system);
+                    }
+                    app.layout_dirty = true;
+                    app.view_cache.invalidate();
+                }
+                if ui.add_enabled(app.viewer_history.can_redo(), redo_btn).clicked() {
+                    let path = app.path.clone();
+                    if let Some(system) = resolve_subsystem_by_vec_mut(&mut app.root, &path) {
+                        app.viewer_history.redo(system);
+                    }
+                    app.layout_dirty = true;
+                    app.view_cache.invalidate();
+                }
             }
             let save_label = if app.layout_dirty {
                 "Save layout*"
@@ -113,6 +134,10 @@ pub(crate) fn update_internal(
                         5000,
                     ),
                 }
+            }
+            if ui.button("Restore layout").clicked() {
+                app.restore_original_layout();
+                app.show_notification("Layout restored", 3000);
             }
 
             // Render transient in-GUI notification (right-aligned in the top bar)
@@ -248,6 +273,33 @@ pub(crate) fn update_internal(
         }
         // Use entities snapshot for this frame
         let entities = entities_opt.as_ref().unwrap();
+
+        // ── Keyboard shortcuts for undo/redo ──
+        if app.move_mode_enabled {
+            let undo_requested = ui.input(|i| {
+                i.modifiers.command && !i.modifiers.shift && i.key_pressed(egui::Key::Z)
+            });
+            let redo_requested = ui.input(|i| {
+                (i.modifiers.command && i.modifiers.shift && i.key_pressed(egui::Key::Z))
+                    || (i.modifiers.command && i.key_pressed(egui::Key::Y))
+            });
+            if undo_requested && app.viewer_history.can_undo() {
+                let path = app.path.clone();
+                if let Some(system) = resolve_subsystem_by_vec_mut(&mut app.root, &path) {
+                    app.viewer_history.undo(system);
+                }
+                app.layout_dirty = true;
+                app.view_cache.invalidate();
+            }
+            if redo_requested && app.viewer_history.can_redo() {
+                let path = app.path.clone();
+                if let Some(system) = resolve_subsystem_by_vec_mut(&mut app.root, &path) {
+                    app.viewer_history.redo(system);
+                }
+                app.layout_dirty = true;
+                app.view_cache.invalidate();
+            }
+        }
         // Compute blocks with positions from snapshot. Also inject SystemName
         // into a temporary, enriched block clone so later code can read it from properties.
         let system_name = system_name_snapshot.clone();
@@ -704,6 +756,7 @@ pub(crate) fn update_internal(
                     {
                         let selected_sids = app.selected_block_sids.clone();
                         let mut layout_changed = false;
+                        let mut undo_cmd = None;
                         if let Some(system) = app.current_system_mut() {
                             let indices: Vec<usize> = system
                                 .blocks
@@ -717,9 +770,28 @@ pub(crate) fn update_internal(
                                 })
                                 .collect();
                             if !indices.is_empty() {
-                                let _ = operations::move_blocks(system, &indices, current_dx, current_dy);
+                                undo_cmd = Some(operations::move_blocks(system, &indices, current_dx, current_dy));
                                 layout_changed = true;
+                                // Auto-adjust signal line corners for moved blocks
+                                for sid in &selected_sids {
+                                    for line in &mut system.lines {
+                                        if let Some(src) = &line.src {
+                                            if src.sid == *sid {
+                                                corner_ops::auto_adjust_on_block_move(line, true, current_dx, current_dy);
+                                            }
+                                        }
+                                        if let Some(dst) = &line.dst {
+                                            if dst.sid == *sid {
+                                                corner_ops::auto_adjust_on_block_move(line, false, current_dx, current_dy);
+                                            }
+                                        }
+                                        corner_ops::auto_adjust_branches_on_block_move(&mut line.branches, sid, current_dx, current_dy);
+                                    }
+                                }
                             }
+                        }
+                        if let Some(cmd) = undo_cmd {
+                            app.viewer_history.push(cmd);
                         }
                         if layout_changed {
                             app.layout_dirty = true;
@@ -847,11 +919,10 @@ pub(crate) fn update_internal(
                         .find(|b| b.sid.as_ref() == Some(&dst.sid))
                         .and_then(|b| b.block_mirror)
                         .unwrap_or(false);
-                    let dst_pt = endpoint_pos_with_target_maybe_mirrored(
+                    let dst_pt = endpoint_pos_maybe_mirrored(
                         *dr,
                         dst,
                         num_dst,
-                        Some(cur.y),
                         mirrored_dst,
                     );
                     let dst_screen = to_screen(dst_pt);
@@ -949,11 +1020,10 @@ pub(crate) fn update_internal(
                     );
                     let num_dst = port_counts.get(&key).copied();
                     let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
-                    let end_pt = crate::egui_app::geometry::endpoint_pos_with_target_maybe_mirrored(
+                    let end_pt = crate::egui_app::geometry::endpoint_pos_maybe_mirrored(
                         *dr,
                         dstb,
                         num_dst,
-                        Some(cur.y),
                         mirrored_dst,
                     );
                     let a = to_screen(*pts.last().unwrap_or(&cur));
@@ -1038,11 +1108,10 @@ pub(crate) fn update_internal(
                     );
                     let num_dst = port_counts.get(&key).copied();
                     let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
-                    let end_pt = endpoint_pos_with_target_maybe_mirrored(
+                    let end_pt = endpoint_pos_maybe_mirrored(
                         *dr,
                         dstb,
                         num_dst,
-                        Some(cur.y),
                         mirrored_dst,
                     );
                     let last = *pts.last().unwrap_or(&cur);
@@ -1309,11 +1378,39 @@ pub(crate) fn update_internal(
                                     }
                                 }
                                 if layout_changed {
+                                    app.viewer_history.push(
+                                        crate::editor::operations::EditorCommand::MoveLinePoint {
+                                            line_index: line_idx,
+                                            point_index: point_idx,
+                                            dx: acc_dx,
+                                            dy: acc_dy,
+                                        },
+                                    );
                                     app.layout_dirty = true;
                                     app.view_cache.invalidate();
                                 }
                             }
                             app.viewer_drag_state = ViewerDragState::None;
+                        }
+                    }
+                    // Double-click on a corner handle removes it
+                    if resp.double_clicked() {
+                        let mut removed_point = None;
+                        if let Some(system) = app.current_system_mut() {
+                            if let Some(line_mut) = system.lines.get_mut(*li) {
+                                removed_point = corner_ops::remove_corner(&mut line_mut.points, point_index);
+                            }
+                        }
+                        if let Some(rp) = removed_point {
+                            app.viewer_history.push(
+                                crate::editor::operations::EditorCommand::RemoveCorner {
+                                    line_index: *li,
+                                    point_index,
+                                    removed_point: rp,
+                                },
+                            );
+                            app.layout_dirty = true;
+                            app.view_cache.invalidate();
                         }
                     }
                 }
@@ -1372,11 +1469,87 @@ pub(crate) fn update_internal(
                                     }
                                 }
                                 if layout_changed {
+                                    app.viewer_history.push(
+                                        crate::editor::operations::EditorCommand::MoveBranchPoint {
+                                            line_index: line_idx,
+                                            branch_path: bp,
+                                            point_index: point_idx,
+                                            dx: acc_dx,
+                                            dy: acc_dy,
+                                        },
+                                    );
                                     app.layout_dirty = true;
                                     app.view_cache.invalidate();
                                 }
                             }
                             app.viewer_drag_state = ViewerDragState::None;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Segment midpoint "+" handles for inserting new corners
+        if app.move_mode_enabled {
+            for (line, _screen_pts, main_anchor, _hover_resp, li, _segments_all) in &line_views {
+                if !app.selected_line_indices.contains(li) {
+                    continue;
+                }
+                // Build model-space positions of the line's corners
+                let mut model_pts: Vec<Pos2> = Vec::new();
+                let mut cur = *main_anchor;
+                model_pts.push(cur);
+                for point in &line.points {
+                    cur = Pos2::new(cur.x + point.x as f32, cur.y + point.y as f32);
+                    model_pts.push(cur);
+                }
+                // For each segment between consecutive model points, show a "+" handle at
+                // the midpoint. Clicking it inserts a new corner at that position.
+                if model_pts.len() >= 2 {
+                    for seg_idx in 0..model_pts.len() - 1 {
+                        let a = model_pts[seg_idx];
+                        let b = model_pts[seg_idx + 1];
+                        let mid_model = Pos2::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5);
+                        let mid_screen = to_screen(mid_model);
+                        let handle_rect = Rect::from_center_size(mid_screen, Vec2::splat(12.0));
+                        let resp = ui.allocate_rect(handle_rect, Sense::click());
+                        let color = if resp.hovered() {
+                            Color32::from_rgb(100, 220, 100)
+                        } else {
+                            Color32::from_rgba_premultiplied(60, 180, 60, 160)
+                        };
+                        ui.painter().circle_filled(mid_screen, 5.0, color);
+                        ui.painter().text(
+                            mid_screen,
+                            Align2::CENTER_CENTER,
+                            "+",
+                            egui::FontId::proportional(10.0),
+                            Color32::WHITE,
+                        );
+                        if resp.clicked() {
+                            // Compute offset: the corner splits the segment in half.
+                            // The new point is at mid_model - a = half the segment.
+                            let dx = ((b.x - a.x) * 0.5).round() as i32;
+                            let dy = ((b.y - a.y) * 0.5).round() as i32;
+                            let offset = crate::model::Point { x: dx, y: dy };
+                            // point_index in the points array: seg_idx maps to the
+                            // point *after* seg_idx positions (index seg_idx corresponds
+                            // to the segment from anchor/model_pts[seg_idx] to points[seg_idx]).
+                            let insert_idx = seg_idx;
+                            if let Some(system) = app.current_system_mut() {
+                                if let Some(line_mut) = system.lines.get_mut(*li) {
+                                    corner_ops::insert_corner(&mut line_mut.points, insert_idx, offset.clone());
+                                }
+                            }
+                            app.viewer_history.push(
+                                crate::editor::operations::EditorCommand::InsertCorner {
+                                    line_index: *li,
+                                    point_index: insert_idx,
+                                    offset,
+                                },
+                            );
+                            app.layout_dirty = true;
+                            app.view_cache.invalidate();
                         }
                     }
                 }
@@ -1682,6 +1855,13 @@ pub(crate) fn update_internal(
                             }
                         }
                         if layout_changed {
+                            app.viewer_history.push(
+                                crate::editor::operations::EditorCommand::MoveLineLayout {
+                                    line_index: line_idx,
+                                    dx: acc_dx,
+                                    dy: acc_dy,
+                                },
+                            );
                             app.layout_dirty = true;
                             app.view_cache.invalidate();
                         }
@@ -2453,15 +2633,19 @@ fn draw_viewer_resize_handles(
                         current_dy as f32,
                     );
                     let mut layout_changed = false;
+                    let mut undo_cmd = None;
                     if let Some(system) = app.current_system_mut() {
                         if let Some(block_index) = system
                             .blocks
                             .iter()
                             .position(|block| block.sid.as_deref() == Some(sid))
                         {
-                            let _ = operations::resize_block(system, block_index, nl, nt, nr, nb);
+                            undo_cmd = Some(operations::resize_block(system, block_index, nl, nt, nr, nb));
                             layout_changed = true;
                         }
+                    }
+                    if let Some(cmd) = undo_cmd {
+                        app.viewer_history.push(cmd);
                     }
                     if layout_changed {
                         app.layout_dirty = true;

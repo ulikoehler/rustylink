@@ -22,7 +22,7 @@ use crate::model::EndpointRef;
 
 use crate::egui_app::{
     BlockDialog, SignalDialog, endpoint_pos_maybe_mirrored,
-    endpoint_pos_with_target_maybe_mirrored, get_block_type_cfg, highlight_query_job,
+    get_block_type_cfg, highlight_query_job,
     parse_block_rect, parse_rect_str, render_block_icon, wrap_text_to_max_width,
 };
 
@@ -803,11 +803,10 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
                         .get(&(dst.sid.clone(), if dst.port_type == "out" { 1 } else { 0 }))
                         .copied();
                     let mirrored_dst = sid_mirrored.get(&dst.sid).copied().unwrap_or(false);
-                    let dst_pt = endpoint_pos_with_target_maybe_mirrored(
+                    let dst_pt = endpoint_pos_maybe_mirrored(
                         *dr,
                         dst,
                         num_dst,
-                        Some(cur.y),
                         mirrored_dst,
                     );
                     screen_pts.push(to_screen(dst_pt));
@@ -2075,11 +2074,10 @@ fn draw_branch_rec(
             );
             let num_dst = port_counts.get(&key).copied();
             let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
-            let end_pt = endpoint_pos_with_target_maybe_mirrored(
+            let end_pt = endpoint_pos_maybe_mirrored(
                 *dr,
                 dstb,
                 num_dst,
-                Some(cur.y),
                 mirrored_dst,
             );
             let a = to_screen(*pts.last().unwrap_or(&cur));

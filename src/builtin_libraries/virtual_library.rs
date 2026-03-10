@@ -450,22 +450,3 @@ where
     }
     None
 }
-
-/// Invoke a callback for every block in every user-registered virtual library.
-///
-/// The callback receives `(lib_name, block)` for each block.
-/// Used by `block_types::register_user_library_block_types` to populate the
-/// icon registry.
-#[allow(dead_code)]
-pub(crate) fn for_each_user_library_block<F>(mut f: F)
-where
-    F: FnMut(&str, &OwnedVirtualBlock),
-{
-    if let Ok(guard) = user_libraries_lock().read() {
-        for spec in guard.iter() {
-            for block in &spec.blocks {
-                f(&spec.name, block);
-            }
-        }
-    }
-}

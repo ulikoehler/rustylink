@@ -1,17 +1,12 @@
 #![cfg(feature = "egui")]
 
-use crate::block_types::{self, BlockTypeConfig, Rgb};
+use crate::block_types::{self, BlockTypeConfig};
 use crate::model::Block;
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Vec2};
 
 use super::icon_assets;
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock};
-
-#[allow(dead_code)]
-pub(crate) fn rgb_to_color32(c: Rgb) -> Color32 {
-    Color32::from_rgb(c.0, c.1, c.2)
-}
 
 fn normalize_library_block_path(path: &str) -> Option<String> {
     let path = path.trim();

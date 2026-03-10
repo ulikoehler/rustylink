@@ -1,6 +1,7 @@
 pub mod types;
 pub mod helpers;
 pub mod colors;
+pub mod corner_ops;
 pub mod dialogs;
 pub mod line_coloring;
 pub mod signal_routing;
