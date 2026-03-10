@@ -1,4 +1,3 @@
-use crate::model::EndpointRef;
 use crate::egui_app::geometry::{endpoint_pos_maybe_mirrored, endpoint_pos_with_target_maybe_mirrored};
 use crate::egui_app::render::{ComputedPortYCoordinates, PortLabelMaxWidths, port_label_display_name};
 use std::collections::HashMap;
@@ -16,6 +15,9 @@ use crate::egui_app::state::ViewerDragState;
 use super::types::{UpdateResponse, ClickAction};
 use super::helpers::{is_block_subsystem, record_interaction};
 use super::colors::{block_base_color, contrast_color};
+use super::line_coloring;
+use super::signal_routing;
+use super::view_transform;
 
 pub(crate) fn update_internal(
     app: &mut SubsystemApp,
@@ -427,7 +429,12 @@ pub(crate) fn update_internal(
         let mut deferred_constant_edits: Vec<(String, Rect)> = Vec::new();
 
         for (b, r) in &blocks {
-            let preview_r = preview_block_rect(app, b, *r);
+            let preview_r = view_transform::preview_block_rect(
+                &app.viewer_drag_state,
+                &app.selected_block_sids,
+                b.sid.as_deref(),
+                *r,
+            );
             if let Some(sid) = &b.sid {
                 sid_map.insert(sid.clone(), preview_r);
             }
@@ -475,8 +482,8 @@ pub(crate) fn update_internal(
                     current_dy,
                 } = &mut app.viewer_drag_state
                 {
-                    *current_dx = target_dx;
-                    *current_dy = target_dy;
+                    *current_dx += target_dx;
+                    *current_dy += target_dy;
                     ui.ctx().request_repaint();
                 }
             }
@@ -716,6 +723,7 @@ pub(crate) fn update_internal(
                         }
                         if layout_changed {
                             app.layout_dirty = true;
+                            app.view_cache.invalidate();
                         }
                     }
                     app.viewer_drag_state = ViewerDragState::None;
@@ -759,220 +767,27 @@ pub(crate) fn update_internal(
             }
         }
 
-        // Build adjacency across lines for coloring
-        let mut line_adjacency: Vec<Vec<usize>> = vec![Vec::new(); entities.lines.len()];
-        let mut sid_to_lines: HashMap<String, Vec<usize>> = HashMap::new();
-        for (i, l) in entities.lines.iter().enumerate() {
-            if let Some(src) = &l.src {
-                sid_to_lines.entry(src.sid.clone()).or_default().push(i);
-            }
-            if let Some(dst) = &l.dst {
-                sid_to_lines.entry(dst.sid.clone()).or_default().push(i);
-            }
-            fn collect_branch_sids(br: &crate::model::Branch, out: &mut Vec<String>) {
-                if let Some(dst) = &br.dst {
-                    out.push(dst.sid.clone());
-                }
-                for sub in &br.branches {
-                    collect_branch_sids(sub, out);
-                }
-            }
-            let mut br_sids: Vec<String> = Vec::new();
-            for br in &l.branches {
-                collect_branch_sids(br, &mut br_sids);
-            }
-            for sid in br_sids {
-                sid_to_lines.entry(sid).or_default().push(i);
-            }
-        }
-        for (_sid, idxs) in &sid_to_lines {
-            for a in 0..idxs.len() {
-                for b in (a + 1)..idxs.len() {
-                    let i = idxs[a];
-                    let j = idxs[b];
-                    if !line_adjacency[i].contains(&j) {
-                        line_adjacency[i].push(j);
-                    }
-                    if !line_adjacency[j].contains(&i) {
-                        line_adjacency[j].push(i);
-                    }
-                }
-            }
-        }
+        // Use cached line colors and port info when possible; recompute on model change.
+        let cache_gen = app.view_cache.generation;
+        if !app.view_cache.is_valid(&app.path, cache_gen) {
+            let line_adjacency = line_coloring::compute_line_adjacency(&entities.lines);
+            let bg_lum = line_coloring::rel_luminance(Color32::from_gray(245));
+            app.view_cache.line_colors = line_coloring::assign_line_colors(&line_adjacency, bg_lum);
 
-        // Color assignment
-        fn circular_dist(a: f32, b: f32) -> f32 {
-            let d = (a - b).abs();
-            d.min(1.0 - d)
+            let block_refs: Vec<&crate::model::Block> = blocks.iter().map(|(b, _)| *b).collect();
+            let (pc, cp) = signal_routing::compute_port_info(
+                &entities.lines,
+                &block_refs.iter().cloned().cloned().collect::<Vec<_>>(),
+            );
+            app.view_cache.port_counts = pc;
+            app.view_cache.connected_ports = cp;
+            app.view_cache.mark_valid(&app.path, cache_gen);
         }
-        fn hsv_to_color32(h: f32, s: f32, v: f32) -> Color32 {
-            let h6 = (h * 6.0) % 6.0;
-            let c = v * s;
-            let x = c * (1.0 - ((h6 % 2.0) - 1.0).abs());
-            let (r1, g1, b1) = if h6 < 1.0 {
-                (c, x, 0.0)
-            } else if h6 < 2.0 {
-                (x, c, 0.0)
-            } else if h6 < 3.0 {
-                (0.0, c, x)
-            } else if h6 < 4.0 {
-                (0.0, x, c)
-            } else if h6 < 5.0 {
-                (x, 0.0, c)
-            } else {
-                (c, 0.0, x)
-            };
-            let m = v - c;
-            let (r, g, b) = (r1 + m, g1 + m, b1 + m);
-            Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
-        }
-        fn hue_to_color32(h: f32) -> Color32 {
-            hsv_to_color32(h, 0.85, 0.95)
-        }
-        fn rel_luminance(c: Color32) -> f32 {
-            fn to_lin(u: u8) -> f32 {
-                let s = (u as f32) / 255.0;
-                if s <= 0.04045 {
-                    s / 12.92
-                } else {
-                    ((s + 0.055) / 1.055).powf(2.4)
-                }
-            }
-            0.2126 * to_lin(c.r()) + 0.7152 * to_lin(c.g()) + 0.0722 * to_lin(c.b())
-        }
-        let n_lines = entities.lines.len();
-        let sample_count = (n_lines.max(1) * 8).max(64);
-        let mut candidates: Vec<f32> = (0..sample_count)
-            .map(|i| (i as f32) / (sample_count as f32))
-            .collect();
-        let bg_lum = rel_luminance(Color32::from_gray(245));
-        let max_lum = (bg_lum - 0.25).clamp(0.0, 1.0);
-        candidates.retain(|&h| rel_luminance(hue_to_color32(h)) <= max_lum);
-        if candidates.is_empty() {
-            candidates = (0..sample_count)
-                .map(|i| (i as f32) / (sample_count as f32))
-                .collect();
-        }
-        let mut order: Vec<usize> = (0..n_lines).collect();
-        order.sort_by_key(|&i| (-(line_adjacency[i].len() as isize), i as isize));
-        let mut assigned_hues: Vec<Option<f32>> = vec![None; n_lines];
-        let mut remaining: Vec<f32> = candidates.clone();
-        for i in order {
-            let neigh_hues: Vec<f32> = line_adjacency[i]
-                .iter()
-                .filter_map(|&j| assigned_hues[j])
-                .collect();
-            let mut best_h = 0.0;
-            let mut best_score = -1.0f32;
-            for &h in &remaining {
-                let used: Vec<f32> = if neigh_hues.is_empty() {
-                    assigned_hues.iter().flatten().copied().collect()
-                } else {
-                    neigh_hues.clone()
-                };
-                let score: f32 = if used.is_empty() {
-                    1.0
-                } else {
-                    used.iter()
-                        .map(|&u| circular_dist(h, u))
-                        .fold(1.0, |a, d| f32::min(a, d))
-                };
-                if score > best_score || (score == best_score && h < best_h) {
-                    best_score = score;
-                    best_h = h;
-                }
-            }
-            assigned_hues[i] = Some(best_h);
-            if let Some(pos) = remaining
-                .iter()
-                .position(|&x| (x - best_h).abs() < f32::EPSILON)
-            {
-                remaining.remove(pos);
-            }
-        }
-        let line_colors: Vec<Color32> = assigned_hues
-            .into_iter()
-            .enumerate()
-            .map(|(i, h)| {
-                let default_h = (i as f32) / (n_lines.max(1) as f32);
-                let c = hue_to_color32(h.unwrap_or(default_h));
-                if rel_luminance(c) > max_lum {
-                    hsv_to_color32(h.unwrap_or(default_h), 0.85, 0.75)
-                } else {
-                    c
-                }
-            })
-            .collect();
+        let line_colors = app.view_cache.line_colors.clone();
+        let port_counts = app.view_cache.port_counts.clone();
+        let connected_ports = app.view_cache.connected_ports.clone();
 
         let line_stroke_default = Stroke::new(2.0, Color32::LIGHT_GREEN);
-        let mut port_counts: HashMap<(String, u8), u32> = HashMap::new();
-        // Track which ports are actually connected to at least one line.
-        // Key: (sid, port_index, is_input)
-        let mut connected_ports: std::collections::HashSet<(String, u32, bool)> =
-            std::collections::HashSet::new();
-        fn reg_ep(
-            ep: &EndpointRef,
-            port_counts: &mut HashMap<(String, u8), u32>,
-            connected_ports: &mut std::collections::HashSet<(String, u32, bool)>,
-        ) {
-            let key = (ep.sid.clone(), if ep.port_type == "out" { 1 } else { 0 });
-            let idx1 = if ep.port_index == 0 { 1 } else { ep.port_index };
-            port_counts
-                .entry(key)
-                .and_modify(|v| *v = (*v).max(idx1))
-                .or_insert(idx1);
-            connected_ports.insert((ep.sid.clone(), idx1, ep.port_type != "out"));
-        }
-        fn reg_branch(
-            br: &crate::model::Branch,
-            port_counts: &mut HashMap<(String, u8), u32>,
-            connected_ports: &mut std::collections::HashSet<(String, u32, bool)>,
-        ) {
-            if let Some(dst) = &br.dst {
-                reg_ep(dst, port_counts, connected_ports);
-            }
-            for sub in &br.branches {
-                reg_branch(sub, port_counts, connected_ports);
-            }
-        }
-        for line in &entities.lines {
-            if let Some(src) = &line.src {
-                reg_ep(src, &mut port_counts, &mut connected_ports);
-            }
-            if let Some(dst) = &line.dst {
-                reg_ep(dst, &mut port_counts, &mut connected_ports);
-            }
-            for br in &line.branches {
-                reg_branch(br, &mut port_counts, &mut connected_ports);
-            }
-        }
-
-        // Pre-populate port_counts from block declarations so that the
-        // line-endpoint and chevron positioning formulas use the same
-        // total port count (the block-declared count) when computing Y
-        // positions.  Without this, lines would compute Y using the max
-        // port index seen in connections while chevrons use the block's
-        // declared count, causing a visual mismatch.
-        for (b, _) in &blocks {
-            if let Some(sid) = &b.sid {
-                if let Some(pc) = &b.port_counts {
-                    if let Some(ins) = pc.ins {
-                        let key = (sid.clone(), 0u8);
-                        port_counts
-                            .entry(key)
-                            .and_modify(|v| *v = (*v).max(ins))
-                            .or_insert(ins);
-                    }
-                    if let Some(outs) = pc.outs {
-                        let key = (sid.clone(), 1u8);
-                        port_counts
-                            .entry(key)
-                            .and_modify(|v| *v = (*v).max(outs))
-                            .or_insert(outs);
-                    }
-                }
-            }
-        }
 
         // Build lines in screen space and interactive hit rects
         let mut line_views: Vec<(
@@ -1055,9 +870,9 @@ pub(crate) fn update_internal(
             if screen_pts.is_empty() {
                 continue;
             }
-            screen_pts = orthogonalize_polyline(&screen_pts);
+            screen_pts = signal_routing::orthogonalize_polyline(&screen_pts);
             let mut segments_all: Vec<(Pos2, Pos2)> = Vec::new();
-            push_orthogonal_segments(&screen_pts, &mut segments_all);
+            signal_routing::push_orthogonal_segments(&screen_pts, &mut segments_all);
             for br in &line.branches {
                 collect_branch_segments_rec(
                     &to_screen,
@@ -1125,7 +940,7 @@ pub(crate) fn update_internal(
                 pts.push(cur);
             }
             let screen_pts: Vec<Pos2> = pts.iter().map(|p| to_screen(*p)).collect();
-            push_orthogonal_segments(&screen_pts, out);
+            signal_routing::push_orthogonal_segments(&screen_pts, out);
             if let Some(dstb) = &br.dst {
                 if let Some(dr) = sid_map.get(&dstb.sid) {
                     let key = (
@@ -1143,7 +958,7 @@ pub(crate) fn update_internal(
                     );
                     let a = to_screen(*pts.last().unwrap_or(&cur));
                     let b = to_screen(end_pt);
-                    push_orthogonal_segments(&[a, b], out);
+                    signal_routing::push_orthogonal_segments(&[a, b], out);
                     if dstb.port_type == "in" {
                         port_y_screen.insert((dstb.sid.clone(), dstb.port_index, true), b.y);
                     }
@@ -1212,7 +1027,7 @@ pub(crate) fn update_internal(
                 pts.push(cur);
             }
             let screen_pts: Vec<Pos2> = pts.iter().map(|p| to_screen(*p)).collect();
-            for seg in orthogonalize_polyline(&screen_pts).windows(2) {
+            for seg in signal_routing::orthogonalize_polyline(&screen_pts).windows(2) {
                 painter.line_segment([seg[0], seg[1]], stroke);
             }
             if let Some(dstb) = &br.dst {
@@ -1233,7 +1048,7 @@ pub(crate) fn update_internal(
                     let last = *pts.last().unwrap_or(&cur);
                     let a = to_screen(last);
                     let b = to_screen(end_pt);
-                    let ortho = orthogonalize_polyline(&[a, b]);
+                    let ortho = signal_routing::orthogonalize_polyline(&[a, b]);
                     if dstb.port_type == "in" {
                         for seg in ortho.windows(2).take(ortho.len().saturating_sub(2)) {
                             painter.line_segment([seg[0], seg[1]], stroke);
@@ -1465,27 +1280,46 @@ pub(crate) fn update_internal(
                         Stroke::new(1.0, Color32::WHITE),
                         egui::StrokeKind::Outside,
                     );
-                    if resp.drag_stopped() {
+                    if resp.drag_started() {
+                        app.viewer_drag_state = ViewerDragState::LinePointDrag {
+                            line_idx: *li,
+                            point_idx: point_index,
+                            acc_dx: 0,
+                            acc_dy: 0,
+                        };
+                    }
+                    if resp.dragged() {
                         let s = base_scale * staged_zoom;
-                        let dx = (resp.drag_delta().x / s).round() as i32;
-                        let dy = (resp.drag_delta().y / s).round() as i32;
-                        if dx != 0 || dy != 0 {
-                            let mut layout_changed = false;
-                            if let Some(system) = app.current_system_mut() {
-                                if let Some(line_mut) = system.lines.get_mut(*li) {
-                                    move_line_point(line_mut, point_index, dx, dy);
-                                    layout_changed = true;
+                        let fdx = (resp.drag_delta().x / s).round() as i32;
+                        let fdy = (resp.drag_delta().y / s).round() as i32;
+                        if let ViewerDragState::LinePointDrag { acc_dx, acc_dy, .. } = &mut app.viewer_drag_state {
+                            *acc_dx += fdx;
+                            *acc_dy += fdy;
+                        }
+                        ui.ctx().request_repaint();
+                    }
+                    if resp.drag_stopped() {
+                        if let ViewerDragState::LinePointDrag { line_idx, point_idx, acc_dx, acc_dy } = app.viewer_drag_state.clone() {
+                            if acc_dx != 0 || acc_dy != 0 {
+                                let mut layout_changed = false;
+                                if let Some(system) = app.current_system_mut() {
+                                    if let Some(line_mut) = system.lines.get_mut(line_idx) {
+                                        signal_routing::move_line_point(line_mut, point_idx, acc_dx, acc_dy);
+                                        layout_changed = true;
+                                    }
+                                }
+                                if layout_changed {
+                                    app.layout_dirty = true;
+                                    app.view_cache.invalidate();
                                 }
                             }
-                            if layout_changed {
-                                app.layout_dirty = true;
-                            }
+                            app.viewer_drag_state = ViewerDragState::None;
                         }
                     }
                 }
 
                 let mut branch_handles: Vec<(Vec<usize>, usize, Pos2)> = Vec::new();
-                collect_branch_handle_positions(
+                signal_routing::collect_branch_handle_positions(
                     *main_anchor,
                     &line.branches,
                     &to_screen,
@@ -1506,23 +1340,43 @@ pub(crate) fn update_internal(
                         4.0,
                         Stroke::new(1.0, Color32::WHITE),
                     );
-                    if resp.drag_stopped() {
+                    if resp.drag_started() {
+                        app.viewer_drag_state = ViewerDragState::BranchPointDrag {
+                            line_idx: *li,
+                            branch_path: branch_path.clone(),
+                            point_idx: point_index,
+                            acc_dx: 0,
+                            acc_dy: 0,
+                        };
+                    }
+                    if resp.dragged() {
                         let s = base_scale * staged_zoom;
-                        let dx = (resp.drag_delta().x / s).round() as i32;
-                        let dy = (resp.drag_delta().y / s).round() as i32;
-                        if dx != 0 || dy != 0 {
-                            let mut layout_changed = false;
-                            if let Some(system) = app.current_system_mut() {
-                                if let Some(line_mut) = system.lines.get_mut(*li) {
-                                    if let Some(branch_mut) = get_branch_mut(&mut line_mut.branches, &branch_path) {
-                                        move_branch_point(branch_mut, point_index, dx, dy);
-                                        layout_changed = true;
+                        let fdx = (resp.drag_delta().x / s).round() as i32;
+                        let fdy = (resp.drag_delta().y / s).round() as i32;
+                        if let ViewerDragState::BranchPointDrag { acc_dx, acc_dy, .. } = &mut app.viewer_drag_state {
+                            *acc_dx += fdx;
+                            *acc_dy += fdy;
+                        }
+                        ui.ctx().request_repaint();
+                    }
+                    if resp.drag_stopped() {
+                        if let ViewerDragState::BranchPointDrag { line_idx, branch_path: bp, point_idx, acc_dx, acc_dy } = app.viewer_drag_state.clone() {
+                            if acc_dx != 0 || acc_dy != 0 {
+                                let mut layout_changed = false;
+                                if let Some(system) = app.current_system_mut() {
+                                    if let Some(line_mut) = system.lines.get_mut(line_idx) {
+                                    if let Some(branch_mut) = signal_routing::get_branch_mut(&mut line_mut.branches, &bp) {
+                                            signal_routing::move_branch_point(branch_mut, point_idx, acc_dx, acc_dy);
+                                            layout_changed = true;
+                                        }
                                     }
                                 }
+                                if layout_changed {
+                                    app.layout_dirty = true;
+                                    app.view_cache.invalidate();
+                                }
                             }
-                            if layout_changed {
-                                app.layout_dirty = true;
-                            }
+                            app.viewer_drag_state = ViewerDragState::None;
                         }
                     }
                 }
@@ -1800,21 +1654,39 @@ pub(crate) fn update_internal(
                     );
                 }
             }
-            if app.move_mode_enabled && resp.drag_stopped() && app.selected_line_indices.contains(li) {
+            if app.move_mode_enabled && resp.drag_started() && app.selected_line_indices.contains(li) {
+                app.viewer_drag_state = ViewerDragState::SignalLabelDrag {
+                    line_idx: *li,
+                    acc_dx: 0,
+                    acc_dy: 0,
+                };
+            }
+            if app.move_mode_enabled && resp.dragged() && app.selected_line_indices.contains(li) {
                 let s = base_scale * staged_zoom;
-                let dx = (resp.drag_delta().x / s).round() as i32;
-                let dy = (resp.drag_delta().y / s).round() as i32;
-                if dx != 0 || dy != 0 {
-                    let mut layout_changed = false;
-                    if let Some(system) = app.current_system_mut() {
-                        if let Some(line_mut) = system.lines.get_mut(*li) {
-                            move_line_layout(line_mut, dx, dy);
-                            layout_changed = true;
+                let fdx = (resp.drag_delta().x / s).round() as i32;
+                let fdy = (resp.drag_delta().y / s).round() as i32;
+                if let ViewerDragState::SignalLabelDrag { acc_dx, acc_dy, .. } = &mut app.viewer_drag_state {
+                    *acc_dx += fdx;
+                    *acc_dy += fdy;
+                }
+                ui.ctx().request_repaint();
+            }
+            if app.move_mode_enabled && resp.drag_stopped() && app.selected_line_indices.contains(li) {
+                if let ViewerDragState::SignalLabelDrag { line_idx, acc_dx, acc_dy } = app.viewer_drag_state.clone() {
+                    if acc_dx != 0 || acc_dy != 0 {
+                        let mut layout_changed = false;
+                        if let Some(system) = app.current_system_mut() {
+                            if let Some(line_mut) = system.lines.get_mut(line_idx) {
+                                signal_routing::move_line_layout(line_mut, acc_dx, acc_dy);
+                                layout_changed = true;
+                            }
+                        }
+                        if layout_changed {
+                            app.layout_dirty = true;
+                            app.view_cache.invalidate();
                         }
                     }
-                    if layout_changed {
-                        app.layout_dirty = true;
-                    }
+                    app.viewer_drag_state = ViewerDragState::None;
                 }
             }
             if enable_context_menus {
@@ -2505,152 +2377,6 @@ pub(crate) fn update_internal(
     interaction
 }
 
-fn preview_block_rect(app: &SubsystemApp, block: &crate::model::Block, rect: Rect) -> Rect {
-    match &app.viewer_drag_state {
-        ViewerDragState::Blocks {
-            current_dx,
-            current_dy,
-        } => {
-            if block
-                .sid
-                .as_ref()
-                .map(|sid| app.selected_block_sids.contains(sid))
-                .unwrap_or(false)
-            {
-                rect.translate(Vec2::new(*current_dx as f32, *current_dy as f32))
-            } else {
-                rect
-            }
-        }
-        ViewerDragState::Resize {
-            sid,
-            handle,
-            original_l,
-            original_t,
-            original_r,
-            original_b,
-            current_dx,
-            current_dy,
-        } => {
-            if block.sid.as_deref() == Some(sid.as_str()) {
-                let (nl, nt, nr, nb) = compute_resized_rect(
-                    *original_l as f32,
-                    *original_t as f32,
-                    *original_r as f32,
-                    *original_b as f32,
-                    *handle,
-                    *current_dx as f32,
-                    *current_dy as f32,
-                );
-                Rect::from_min_max(
-                    Pos2::new(nl as f32, nt as f32),
-                    Pos2::new(nr as f32, nb as f32),
-                )
-            } else {
-                rect
-            }
-        }
-        ViewerDragState::None => rect,
-    }
-}
-
-fn orthogonalize_polyline(points: &[Pos2]) -> Vec<Pos2> {
-    if points.len() <= 1 {
-        return points.to_vec();
-    }
-    let mut out = vec![points[0]];
-    for pair in points.windows(2) {
-        let a = pair[0];
-        let b = pair[1];
-        if (a.x - b.x).abs() > f32::EPSILON && (a.y - b.y).abs() > f32::EPSILON {
-            let corner = Pos2::new(b.x, a.y);
-            if out.last().copied() != Some(corner) {
-                out.push(corner);
-            }
-        }
-        if out.last().copied() != Some(b) {
-            out.push(b);
-        }
-    }
-    out
-}
-
-fn push_orthogonal_segments(points: &[Pos2], out: &mut Vec<(Pos2, Pos2)>) {
-    let ortho = orthogonalize_polyline(points);
-    for seg in ortho.windows(2) {
-        out.push((seg[0], seg[1]));
-    }
-}
-
-fn resize_handle_positions(r: &Rect) -> [(Pos2, u8); 8] {
-    let cx = r.center().x;
-    let cy = r.center().y;
-    [
-        (r.left_top(), 0),
-        (Pos2::new(cx, r.top()), 1),
-        (r.right_top(), 2),
-        (Pos2::new(r.right(), cy), 3),
-        (r.right_bottom(), 4),
-        (Pos2::new(cx, r.bottom()), 5),
-        (r.left_bottom(), 6),
-        (Pos2::new(r.left(), cy), 7),
-    ]
-}
-
-fn compute_resized_rect(
-    l: f32,
-    t: f32,
-    r: f32,
-    b: f32,
-    handle: u8,
-    dx: f32,
-    dy: f32,
-) -> (i32, i32, i32, i32) {
-    let min_size = 10.0;
-    let (mut nl, mut nt, mut nr, mut nb) = (l, t, r, b);
-
-    match handle {
-        0 => {
-            nl = l + dx;
-            nt = t + dy;
-        }
-        1 => nt = t + dy,
-        2 => {
-            nr = r + dx;
-            nt = t + dy;
-        }
-        3 => nr = r + dx,
-        4 => {
-            nr = r + dx;
-            nb = b + dy;
-        }
-        5 => nb = b + dy,
-        6 => {
-            nl = l + dx;
-            nb = b + dy;
-        }
-        7 => nl = l + dx,
-        _ => {}
-    }
-
-    if nr - nl < min_size {
-        if matches!(handle, 0 | 6 | 7) {
-            nl = nr - min_size;
-        } else {
-            nr = nl + min_size;
-        }
-    }
-    if nb - nt < min_size {
-        if matches!(handle, 0 | 1 | 2) {
-            nt = nb - min_size;
-        } else {
-            nb = nt + min_size;
-        }
-    }
-
-    (nl.round() as i32, nt.round() as i32, nr.round() as i32, nb.round() as i32)
-}
-
 fn draw_viewer_resize_handles(
     ui: &mut egui::Ui,
     r_screen: &Rect,
@@ -2659,7 +2385,7 @@ fn draw_viewer_resize_handles(
     app: &mut SubsystemApp,
     scale: f32,
 ) {
-    let handles = resize_handle_positions(r_screen);
+    let handles = view_transform::resize_handle_positions(r_screen);
     for (pos, handle_id) in handles {
         let handle_rect = Rect::from_center_size(pos, Vec2::splat(10.0));
         let resp = ui.allocate_rect(handle_rect, Sense::click_and_drag());
@@ -2698,8 +2424,8 @@ fn draw_viewer_resize_handles(
             } = &mut app.viewer_drag_state
             {
                 if resize_sid == sid {
-                    *current_dx = dx;
-                    *current_dy = dy;
+                    *current_dx += dx;
+                    *current_dy += dy;
                     ui.ctx().request_repaint();
                 }
             }
@@ -2717,7 +2443,7 @@ fn draw_viewer_resize_handles(
             } = app.viewer_drag_state.clone()
             {
                 if resize_sid == sid {
-                    let (nl, nt, nr, nb) = compute_resized_rect(
+                    let (nl, nt, nr, nb) = view_transform::compute_resized_rect(
                         original_l as f32,
                         original_t as f32,
                         original_r as f32,
@@ -2739,83 +2465,12 @@ fn draw_viewer_resize_handles(
                     }
                     if layout_changed {
                         app.layout_dirty = true;
+                        app.view_cache.invalidate();
                     }
                     app.viewer_drag_state = ViewerDragState::None;
                 }
             }
         }
-    }
-}
-
-fn move_line_point(line: &mut crate::model::Line, point_index: usize, dx: i32, dy: i32) {
-    if let Some(point) = line.points.get_mut(point_index) {
-        point.x += dx;
-        point.y += dy;
-    }
-    if let Some(next) = line.points.get_mut(point_index + 1) {
-        next.x -= dx;
-        next.y -= dy;
-    }
-}
-
-fn collect_branch_handle_positions(
-    start: Pos2,
-    branches: &[crate::model::Branch],
-    to_screen: &dyn Fn(Pos2) -> Pos2,
-    path_prefix: &mut Vec<usize>,
-    out: &mut Vec<(Vec<usize>, usize, Pos2)>,
-) {
-    for (branch_index, branch) in branches.iter().enumerate() {
-        path_prefix.push(branch_index);
-        let mut cur = start;
-        for (point_index, point) in branch.points.iter().enumerate() {
-            cur = Pos2::new(cur.x + point.x as f32, cur.y + point.y as f32);
-            out.push((path_prefix.clone(), point_index, to_screen(cur)));
-        }
-        collect_branch_handle_positions(cur, &branch.branches, to_screen, path_prefix, out);
-        path_prefix.pop();
-    }
-}
-
-fn get_branch_mut<'a>(
-    branches: &'a mut [crate::model::Branch],
-    path: &[usize],
-) -> Option<&'a mut crate::model::Branch> {
-    let (first, rest) = path.split_first()?;
-    let branch = branches.get_mut(*first)?;
-    if rest.is_empty() {
-        Some(branch)
-    } else {
-        get_branch_mut(&mut branch.branches, rest)
-    }
-}
-
-fn move_branch_point(branch: &mut crate::model::Branch, point_index: usize, dx: i32, dy: i32) {
-    if let Some(point) = branch.points.get_mut(point_index) {
-        point.x += dx;
-        point.y += dy;
-    }
-    if let Some(next) = branch.points.get_mut(point_index + 1) {
-        next.x -= dx;
-        next.y -= dy;
-    }
-}
-
-fn move_line_layout(line: &mut crate::model::Line, dx: i32, dy: i32) {
-    for point in &mut line.points {
-        point.x += dx;
-        point.y += dy;
-    }
-    move_branch_layouts(&mut line.branches, dx, dy);
-}
-
-fn move_branch_layouts(branches: &mut [crate::model::Branch], dx: i32, dy: i32) {
-    for branch in branches {
-        for point in &mut branch.points {
-            point.x += dx;
-            point.y += dy;
-        }
-        move_branch_layouts(&mut branch.branches, dx, dy);
     }
 }
 

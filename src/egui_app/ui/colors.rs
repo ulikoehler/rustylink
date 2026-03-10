@@ -2,7 +2,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use eframe::egui::Color32;
 
-pub(crate) fn luminance(c: Color32) -> f32 {
+pub fn luminance(c: Color32) -> f32 {
     fn to_lin(u: u8) -> f32 {
         let s = (u as f32) / 255.0;
         if s <= 0.04045 {
@@ -14,7 +14,7 @@ pub(crate) fn luminance(c: Color32) -> f32 {
     0.2126 * to_lin(c.r()) + 0.7152 * to_lin(c.g()) + 0.0722 * to_lin(c.b())
 }
 
-pub(crate) fn contrast_color(bg: Color32) -> Color32 {
+pub fn contrast_color(bg: Color32) -> Color32 {
     let lum = luminance(bg);
     if lum > 0.6 {
         Color32::from_rgb(25, 35, 45)
@@ -23,7 +23,7 @@ pub(crate) fn contrast_color(bg: Color32) -> Color32 {
     }
 }
 
-pub(crate) fn hsv_to_color32(h: f32, s: f32, v: f32) -> Color32 {
+pub fn hsv_to_color32(h: f32, s: f32, v: f32) -> Color32 {
     let h6 = (h * 6.0) % 6.0;
     let c = v * s;
     let x = c * (1.0 - ((h6 % 2.0) - 1.0).abs());
@@ -45,7 +45,7 @@ pub(crate) fn hsv_to_color32(h: f32, s: f32, v: f32) -> Color32 {
     Color32::from_rgb((r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8)
 }
 
-pub(crate) fn hash_color(input: &str, s: f32, v: f32) -> Color32 {
+pub fn hash_color(input: &str, s: f32, v: f32) -> Color32 {
     let mut hasher = DefaultHasher::new();
     input.hash(&mut hasher);
     let hash = hasher.finish();
@@ -53,7 +53,7 @@ pub(crate) fn hash_color(input: &str, s: f32, v: f32) -> Color32 {
     hsv_to_color32(h, s, v)
 }
 
-pub(crate) fn block_base_color(
+pub fn block_base_color(
     block: &crate::model::Block,
     cfg: &crate::block_types::BlockTypeConfig,
 ) -> Color32 {

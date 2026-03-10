@@ -115,6 +115,63 @@ pub enum ViewerDragState {
         current_dx: i32,
         current_dy: i32,
     },
+    LinePointDrag {
+        line_idx: usize,
+        point_idx: usize,
+        acc_dx: i32,
+        acc_dy: i32,
+    },
+    BranchPointDrag {
+        line_idx: usize,
+        branch_path: Vec<usize>,
+        point_idx: usize,
+        acc_dx: i32,
+        acc_dy: i32,
+    },
+    SignalLabelDrag {
+        line_idx: usize,
+        acc_dx: i32,
+        acc_dy: i32,
+    },
+}
+
+/// Cached per-frame computations that only need to be recalculated when the
+/// model changes (e.g. after a drag-commit, navigation, or layout load/save).
+///
+/// Stored in [`SubsystemApp`] and invalidated by bumping `generation`.
+#[derive(Clone, Default)]
+pub struct ComputedViewCache {
+    /// Monotonically increasing counter; cached values are valid when their
+    /// stored generation matches.
+    pub generation: u64,
+    /// Pre-computed line colors (one per line in the current subsystem).
+    pub line_colors: Vec<egui::Color32>,
+    /// Port-count map: (SID, port_type_byte) → count.
+    pub port_counts: std::collections::HashMap<(String, u8), u32>,
+    /// Set of (SID, port_index, is_input) triples that have a connected signal.
+    pub connected_ports: std::collections::HashSet<(String, u32, bool)>,
+    /// The subsystem path for which this cache was computed.
+    cached_path: Vec<String>,
+    /// Model generation at which the cache was computed.
+    cached_gen: u64,
+}
+
+impl ComputedViewCache {
+    /// Returns `true` if the cache is valid for the given path and generation.
+    pub fn is_valid(&self, path: &[String], generation: u64) -> bool {
+        self.cached_gen == generation && self.cached_path == path
+    }
+
+    /// Mark the cache as valid for the given path and generation.
+    pub fn mark_valid(&mut self, path: &[String], generation: u64) {
+        self.cached_path = path.to_vec();
+        self.cached_gen = generation;
+    }
+
+    /// Bump the generation counter, invalidating the cache.
+    pub fn invalidate(&mut self) {
+        self.generation += 1;
+    }
 }
 
 /// Interactive Egui application that displays and navigates a Simulink subsystem tree.
@@ -203,6 +260,10 @@ pub struct SubsystemApp {
     /// Active move/resize gesture in viewer move mode.
     pub viewer_drag_state: ViewerDragState,
 
+    /// Cached per-frame computations (line colors, port info) that are
+    /// recomputed only when the model changes.
+    pub view_cache: ComputedViewCache,
+
     /// Per-block `MiniScope` instances for interactive liveplot rendering.
     ///
     /// Keyed by a stable block identifier (SID or name). Scope instances are
@@ -268,6 +329,7 @@ impl SubsystemApp {
             layout_dirty: false,
             view_bounds: None,
             viewer_drag_state: ViewerDragState::None,
+            view_cache: ComputedViewCache::default(),
             #[cfg(feature = "dashboard")]
             scope_instances: Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
             #[cfg(feature = "dashboard")]
@@ -560,4 +622,58 @@ fn resolve_subsystem_by_vec_mut<'a>(root: &'a mut System, path: &[String]) -> Op
         current = block.subsystem.as_mut()?;
     }
     Some(current)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cache_starts_invalid() {
+        let cache = ComputedViewCache::default();
+        // Default generation is 0 and cached_gen is 0, but cached_path is empty
+        // so for a non-empty path it should be invalid.
+        assert!(!cache.is_valid(&["Root".to_string()], 0));
+    }
+
+    #[test]
+    fn cache_valid_after_mark() {
+        let mut cache = ComputedViewCache::default();
+        let path = vec!["Root".to_string()];
+        cache.mark_valid(&path, 0);
+        assert!(cache.is_valid(&path, 0));
+    }
+
+    #[test]
+    fn cache_invalid_after_invalidate() {
+        let mut cache = ComputedViewCache::default();
+        let path = vec!["Root".to_string()];
+        cache.mark_valid(&path, cache.generation);
+        assert!(cache.is_valid(&path, cache.generation));
+        cache.invalidate();
+        // Generation bumped, so old gen no longer matches
+        assert!(!cache.is_valid(&path, cache.generation));
+    }
+
+    #[test]
+    fn cache_invalid_on_path_change() {
+        let mut cache = ComputedViewCache::default();
+        let path1 = vec!["Root".to_string()];
+        let path2 = vec!["Root".to_string(), "Sub".to_string()];
+        cache.mark_valid(&path1, cache.generation);
+        assert!(cache.is_valid(&path1, cache.generation));
+        assert!(!cache.is_valid(&path2, cache.generation));
+    }
+
+    #[test]
+    fn cache_revalidates_after_invalidate() {
+        let mut cache = ComputedViewCache::default();
+        let path = vec!["Root".to_string()];
+        cache.mark_valid(&path, cache.generation);
+        cache.invalidate();
+        assert!(!cache.is_valid(&path, cache.generation));
+        // Mark valid again at new generation
+        cache.mark_valid(&path, cache.generation);
+        assert!(cache.is_valid(&path, cache.generation));
+    }
 }

@@ -2,6 +2,9 @@ pub mod types;
 pub mod helpers;
 pub mod colors;
 pub mod dialogs;
+pub mod line_coloring;
+pub mod signal_routing;
+pub mod view_transform;
 pub mod update;
 
 pub use types::{ClickAction, UpdateResponse};

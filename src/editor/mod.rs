@@ -33,13 +33,13 @@ pub use selection::{EditorSelection, SelectionRect};
 pub use state::EditorState;
 pub use ui::{
     compute_line_colors,
-    contrast_color,
     editor_update,
     editor_update_with_info,
     get_block_code,
     // helper utilities needed by integration tests
-    hash_color,
     is_code_block,
     is_subsystem_block,
     set_block_code,
 };
+// Re-export color helpers from the canonical module for backward compatibility.
+pub use crate::egui_app::colors::{contrast_color, hash_color};

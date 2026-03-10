@@ -40,6 +40,8 @@ pub use text::{highlight_query_job, matlab_syntax_job};
 pub use ui::{
     ClickAction, UpdateResponse, apply_update_response, show_info_windows, update, update_with_info,
 };
+// Expose the canonical color utility module for reuse by the editor.
+pub use ui::colors;
 
 // Expose a couple of internal helpers for use by integration tests.
 pub use ui::helpers::{block_dialog_title, clean_display_string};
