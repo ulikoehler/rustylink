@@ -7,6 +7,8 @@ use super::types::{ClickAction, UpdateResponse};
 use super::view_transform;
 use crate::block_types::BlockShape;
 use crate::editor::operations;
+#[cfg(feature = "dashboard")]
+use crate::egui_app::DashboardControlValue;
 use crate::egui_app::geometry::endpoint_pos_maybe_mirrored;
 use crate::egui_app::geometry::{parse_block_rect, parse_rect_str};
 use crate::egui_app::navigation::resolve_subsystem_by_vec;
@@ -2308,6 +2310,9 @@ pub(crate) fn update_internal(
                     icon_port_label_widths,
                 );
             }
+            #[cfg(feature = "dashboard")]
+            let _ = render_dashboard_live_overlay(app, ui, b, *r_screen, fg);
+
             // Draw block name label near the block according to NameLocation.
             // Global default can be toggled; per-block override uses `Block::show_name`.
             let show_name = b.show_name.unwrap_or(app.show_block_names_default);
@@ -2769,6 +2774,111 @@ fn print_dashboard_connected_signals(
             // Fall back to line-based connection scanning
             print_line_based_connections(block, entities);
         }
+    }
+}
+
+#[cfg(feature = "dashboard")]
+fn dashboard_live_value(app: &SubsystemApp, block: &crate::model::Block) -> Option<f64> {
+    block
+        .dashboard_binding
+        .as_ref()
+        .and_then(|binding| app.live_values.get(binding.uuid()))
+        .copied()
+}
+
+#[cfg(feature = "dashboard")]
+fn dashboard_input_control_kind(block: &crate::model::Block) -> Option<&'static str> {
+    if !matches!(
+        block.dashboard_binding,
+        Some(crate::model::DashboardBinding::ParamSource { .. })
+    ) {
+        return None;
+    }
+
+    let kind = match block.block_type.as_str() {
+        "Checkbox" | "ToggleSwitchBlock" | "SliderSwitchBlock" | "RockerSwitchBlock" => "bool",
+        "PushButtonBlock" => "pulse",
+        "KnobBlock" | "SliderBlock" | "RotarySwitchBlock" | "EditField" => "scalar",
+        _ => return None,
+    };
+
+    Some(kind)
+}
+
+#[cfg(feature = "dashboard")]
+fn dashboard_drag_speed(current: f64) -> f64 {
+    let magnitude = current.abs();
+    if magnitude >= 100.0 {
+        1.0
+    } else if magnitude >= 1.0 {
+        0.1
+    } else {
+        0.01
+    }
+}
+
+#[cfg(feature = "dashboard")]
+fn render_dashboard_live_value_badge(painter: &egui::Painter, rect: Rect, fg: Color32, value: f64) {
+    let badge_text = format!("{value:.4}");
+    let font_id = egui::FontId::proportional(11.0);
+    let badge_pos = egui::pos2(rect.center().x, rect.top() + 10.0);
+    painter.text(badge_pos, Align2::CENTER_CENTER, badge_text, font_id, fg);
+}
+
+#[cfg(feature = "dashboard")]
+fn render_dashboard_live_overlay(
+    app: &mut SubsystemApp,
+    ui: &mut egui::Ui,
+    block: &crate::model::Block,
+    rect: Rect,
+    fg: Color32,
+) -> bool {
+    if !app.live_mode_enabled {
+        return false;
+    }
+
+    let Some(live_value) = dashboard_live_value(app, block) else {
+        return false;
+    };
+
+    let Some(kind) = dashboard_input_control_kind(block) else {
+        render_dashboard_live_value_badge(ui.painter(), rect, fg, live_value);
+        return false;
+    };
+
+    let overlay_rect = rect.shrink(8.0);
+    match kind {
+        "bool" => {
+            let current = live_value >= 0.5;
+            let label = if current { "On" } else { "Off" };
+            let response = ui.put(overlay_rect, egui::Button::new(label));
+            if response.clicked() {
+                app.queue_dashboard_control(block.clone(), DashboardControlValue::Bool(!current));
+                return true;
+            }
+            false
+        }
+        "pulse" => {
+            let response = ui.put(overlay_rect, egui::Button::new("Pulse"));
+            if response.clicked() {
+                app.queue_dashboard_control(block.clone(), DashboardControlValue::PulseHigh);
+                return true;
+            }
+            false
+        }
+        "scalar" => {
+            let mut value = live_value;
+            let response = ui.put(
+                overlay_rect,
+                egui::DragValue::new(&mut value).speed(dashboard_drag_speed(live_value)),
+            );
+            if response.changed() {
+                app.queue_dashboard_control(block.clone(), DashboardControlValue::Scalar(value));
+                return true;
+            }
+            response.clicked() || response.dragged()
+        }
+        _ => false,
     }
 }
 

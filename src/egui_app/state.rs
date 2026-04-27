@@ -97,6 +97,23 @@ pub struct ScopePopout {
     pub open: bool,
 }
 
+/// A live dashboard control update emitted by the embedded viewer.
+#[cfg(feature = "dashboard")]
+#[derive(Clone, Debug)]
+pub enum DashboardControlValue {
+    Scalar(f64),
+    Bool(bool),
+    PulseHigh,
+}
+
+/// A queued dashboard control interaction awaiting consumption by the host.
+#[cfg(feature = "dashboard")]
+#[derive(Clone, Debug)]
+pub struct DashboardControlEvent {
+    pub block: Block,
+    pub value: DashboardControlValue,
+}
+
 /// Active drag interaction inside the viewer move mode.
 #[derive(Clone, Default)]
 pub enum ViewerDragState {
@@ -313,6 +330,10 @@ pub struct SubsystemApp {
     /// present, the original `block.value` is used.
     #[cfg(feature = "dashboard")]
     pub constant_edits: std::collections::HashMap<String, String>,
+
+    /// Pending live dashboard control update for the host application.
+    #[cfg(feature = "dashboard")]
+    pub pending_dashboard_control: Option<DashboardControlEvent>,
 }
 
 impl SubsystemApp {
@@ -370,6 +391,8 @@ impl SubsystemApp {
             scope_popout: None,
             #[cfg(feature = "dashboard")]
             constant_edits: std::collections::HashMap::new(),
+            #[cfg(feature = "dashboard")]
+            pending_dashboard_control: None,
         }
     }
 
@@ -417,6 +440,18 @@ impl SubsystemApp {
     /// Clear the transient notification immediately.
     pub fn clear_notification(&mut self) {
         self.transient_notification = None;
+    }
+
+    /// Queue a live dashboard control event for the host application.
+    #[cfg(feature = "dashboard")]
+    pub fn queue_dashboard_control(&mut self, block: Block, value: DashboardControlValue) {
+        self.pending_dashboard_control = Some(DashboardControlEvent { block, value });
+    }
+
+    /// Take the latest queued dashboard control event, if any.
+    #[cfg(feature = "dashboard")]
+    pub fn take_dashboard_control(&mut self) -> Option<DashboardControlEvent> {
+        self.pending_dashboard_control.take()
     }
 
     fn notify_subsystem_changed(&self) {
