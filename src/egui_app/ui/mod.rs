@@ -1,15 +1,15 @@
-pub mod types;
-pub mod helpers;
 pub mod colors;
 pub mod corner_ops;
 pub mod dialogs;
+pub mod helpers;
 pub mod line_coloring;
 pub mod signal_routing;
-pub mod view_transform;
+pub mod types;
 pub mod update;
+pub mod view_transform;
 
-pub use types::{ClickAction, UpdateResponse};
 pub use dialogs::{apply_update_response, show_info_windows};
+pub use types::{ClickAction, UpdateResponse};
 
 use crate::egui_app::state::SubsystemApp;
 use eframe::egui;

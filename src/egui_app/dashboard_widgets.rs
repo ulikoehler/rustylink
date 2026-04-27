@@ -36,7 +36,12 @@ const SCOPE_LINE: Color32 = Color32::from_rgb(30, 100, 200);
 
 /// Paint a thin rounded-rect border (the "widget frame").
 fn widget_frame(painter: &egui::Painter, rect: Rect, rounding: f32) {
-    painter.rect_stroke(rect, rounding, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        rect,
+        rounding,
+        Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Inside,
+    );
 }
 
 /// A small helper: clamp-shrink the rect and compute a font size that fits.
@@ -56,12 +61,7 @@ fn font_for_rect(rect: &Rect, scale: f32) -> f32 {
 // ─── PushButton ─────────────────────────────────────────────────────────
 
 /// Draws a push button like Simulink's Dashboard PushButton.
-pub fn render_push_button(
-    painter: &egui::Painter,
-    block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_push_button(painter: &egui::Painter, block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.85);
     let label = prop(block, "ButtonText", &block.name);
     // Button body
@@ -81,12 +81,7 @@ pub fn render_push_button(
 // ─── SliderSwitch ───────────────────────────────────────────────────────
 
 /// Draws a vertical slider switch with Off/On labels.
-pub fn render_slider_switch(
-    painter: &egui::Painter,
-    _block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_slider_switch(painter: &egui::Painter, _block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.15);
     let font = egui::FontId::proportional(fsz);
@@ -101,7 +96,12 @@ pub fn render_slider_switch(
         Pos2::new(cx + track_w / 2.0, track_bot),
     );
     painter.rect_filled(track, 3.0, Color32::from_rgb(200, 200, 205));
-    painter.rect_stroke(track, 3.0, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        track,
+        3.0,
+        Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Inside,
+    );
 
     // Thumb (at bottom = Off position)
     let thumb_h = (track_bot - track_top) * 0.25;
@@ -132,12 +132,7 @@ pub fn render_slider_switch(
 // ─── RadioButton ────────────────────────────────────────────────────────
 
 /// Draws a radio button group with 3 labelled options.
-pub fn render_radio_button(
-    painter: &egui::Painter,
-    block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_radio_button(painter: &egui::Painter, block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.15);
     let font = egui::FontId::proportional(fsz);
@@ -179,12 +174,7 @@ pub fn render_radio_button(
 // ─── ComboBox ───────────────────────────────────────────────────────────
 
 /// Draws a combo box / dropdown with a triangle indicator.
-pub fn render_combo_box(
-    painter: &egui::Painter,
-    _block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_combo_box(painter: &egui::Painter, _block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.35);
     let font = egui::FontId::proportional(fsz);
@@ -196,7 +186,12 @@ pub fn render_combo_box(
         Pos2::new(inner.right(), inner.center().y + field_h / 2.0),
     );
     painter.rect_filled(field, 3.0, BG_FIELD);
-    painter.rect_stroke(field, 3.0, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        field,
+        3.0,
+        Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Inside,
+    );
 
     // Label text
     painter.text(
@@ -222,12 +217,7 @@ pub fn render_combo_box(
 // ─── CheckBox ───────────────────────────────────────────────────────────
 
 /// Draws a checkbox with a label.
-pub fn render_checkbox(
-    painter: &egui::Painter,
-    block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_checkbox(painter: &egui::Painter, block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.35);
     let font = egui::FontId::proportional(fsz);
@@ -239,7 +229,12 @@ pub fn render_checkbox(
     let cy = inner.center().y;
     let check_rect = Rect::from_center_size(Pos2::new(cx, cy), Vec2::splat(box_sz));
     painter.rect_filled(check_rect, 2.0, BG_FIELD);
-    painter.rect_stroke(check_rect, 2.0, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        check_rect,
+        2.0,
+        Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Inside,
+    );
 
     // Label
     painter.text(
@@ -254,12 +249,7 @@ pub fn render_checkbox(
 // ─── Slider ─────────────────────────────────────────────────────────────
 
 /// Draws a horizontal slider with tick marks and scale.
-pub fn render_slider(
-    painter: &egui::Painter,
-    _block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_slider(painter: &egui::Painter, _block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.2);
     let font = egui::FontId::proportional(fsz);
@@ -308,22 +298,14 @@ pub fn render_slider(
     // Thumb
     let thumb_w = (inner.width() * 0.04).clamp(4.0, 10.0);
     let thumb_x = inner.left() + inner.width() * 0.5; // center position
-    let thumb = Rect::from_center_size(
-        Pos2::new(thumb_x, cy),
-        Vec2::new(thumb_w, track_h * 4.0),
-    );
+    let thumb = Rect::from_center_size(Pos2::new(thumb_x, cy), Vec2::new(thumb_w, track_h * 4.0));
     painter.rect_filled(thumb, 2.0, ACCENT);
 }
 
 // ─── EditField ──────────────────────────────────────────────────────────
 
 /// Draws a text edit field.
-pub fn render_edit_field(
-    painter: &egui::Painter,
-    _block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_edit_field(painter: &egui::Painter, _block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.35);
 
@@ -334,14 +316,22 @@ pub fn render_edit_field(
         Pos2::new(inner.right(), inner.center().y + field_h / 2.0),
     );
     painter.rect_filled(field, 3.0, BG_FIELD);
-    painter.rect_stroke(field, 3.0, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        field,
+        3.0,
+        Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Inside,
+    );
 
     // Blinking cursor indicator
     let cursor_x = field.left() + 6.0;
     let cursor_top = field.top() + 3.0;
     let cursor_bot = field.bottom() - 3.0;
     painter.line_segment(
-        [Pos2::new(cursor_x, cursor_top), Pos2::new(cursor_x, cursor_bot)],
+        [
+            Pos2::new(cursor_x, cursor_top),
+            Pos2::new(cursor_x, cursor_bot),
+        ],
         Stroke::new(1.0, TEXT_DARK),
     );
 
@@ -352,12 +342,7 @@ pub fn render_edit_field(
 // ─── ToggleSwitch ───────────────────────────────────────────────────────
 
 /// Draws a horizontal toggle switch (Off / On).
-pub fn render_toggle_switch(
-    painter: &egui::Painter,
-    _block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_toggle_switch(painter: &egui::Painter, _block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.25);
     let font = egui::FontId::proportional(fsz);
@@ -369,7 +354,12 @@ pub fn render_toggle_switch(
     let cy = inner.center().y;
     let track = Rect::from_center_size(Pos2::new(cx, cy), Vec2::new(track_w, track_h));
     painter.rect_filled(track, track_h / 2.0, Color32::from_rgb(190, 195, 200));
-    painter.rect_stroke(track, track_h / 2.0, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        track,
+        track_h / 2.0,
+        Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Inside,
+    );
 
     // Thumb circle (left = Off position)
     let thumb_r = track_h * 0.4;
@@ -397,12 +387,7 @@ pub fn render_toggle_switch(
 // ─── Knob ───────────────────────────────────────────────────────────────
 
 /// Draws a circular knob with tick marks (like Simulink's Knob).
-pub fn render_knob(
-    painter: &egui::Painter,
-    _block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_knob(painter: &egui::Painter, _block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.12);
     let font = egui::FontId::proportional(fsz);
@@ -415,7 +400,11 @@ pub fn render_knob(
     painter.circle_filled(Pos2::new(cx, cy), radius, Color32::from_rgb(220, 220, 225));
     painter.circle_stroke(Pos2::new(cx, cy), radius, Stroke::new(1.5, BORDER));
     // Inner circle
-    painter.circle_filled(Pos2::new(cx, cy), radius * 0.7, Color32::from_rgb(235, 235, 238));
+    painter.circle_filled(
+        Pos2::new(cx, cy),
+        radius * 0.7,
+        Color32::from_rgb(235, 235, 238),
+    );
 
     // Scale ticks (arc from ~225° to ~315° going clockwise = 225° to -45° in standard)
     let start_angle = 5.0 * PI / 4.0; // 225 degrees
@@ -426,8 +415,14 @@ pub fn render_knob(
     for i in 0..n_ticks {
         let t = i as f32 / (n_ticks - 1) as f32;
         let angle = start_angle + t * (end_angle - start_angle);
-        let outer = Pos2::new(cx + tick_r_outer * angle.cos(), cy - tick_r_outer * angle.sin());
-        let inner_p = Pos2::new(cx + tick_r_inner * angle.cos(), cy - tick_r_inner * angle.sin());
+        let outer = Pos2::new(
+            cx + tick_r_outer * angle.cos(),
+            cy - tick_r_outer * angle.sin(),
+        );
+        let inner_p = Pos2::new(
+            cx + tick_r_inner * angle.cos(),
+            cy - tick_r_inner * angle.sin(),
+        );
         painter.line_segment([inner_p, outer], Stroke::new(1.0, BORDER));
     }
 
@@ -469,12 +464,7 @@ pub fn render_knob(
 // ─── RockerSwitch ───────────────────────────────────────────────────────
 
 /// Draws a rocker switch (On/Off toggle with a rocker shape).
-pub fn render_rocker_switch(
-    painter: &egui::Painter,
-    _block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_rocker_switch(painter: &egui::Painter, _block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let fsz = font_for_rect(rect, font_scale).min(inner.width().min(inner.height()) * 0.18);
     let font = egui::FontId::proportional(fsz);
@@ -487,7 +477,12 @@ pub fn render_rocker_switch(
     // Rocker housing (vertical rounded rect)
     let housing = Rect::from_center_size(Pos2::new(cx, cy), Vec2::new(w, h));
     painter.rect_filled(housing, w * 0.4, Color32::from_rgb(200, 200, 205));
-    painter.rect_stroke(housing, w * 0.4, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        housing,
+        w * 0.4,
+        Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Inside,
+    );
 
     // Rocker element (tilted down = Off)
     let rocker_w = w * 0.85;
@@ -497,7 +492,12 @@ pub fn render_rocker_switch(
         Pos2::new(cx + rocker_w / 2.0, housing.bottom() - 1.0),
     );
     painter.rect_filled(rocker, 3.0, Color32::from_rgb(230, 230, 235));
-    painter.rect_stroke(rocker, 3.0, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        rocker,
+        3.0,
+        Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Inside,
+    );
 
     // Labels
     painter.text(
@@ -519,12 +519,7 @@ pub fn render_rocker_switch(
 // ─── RotarySwitch ───────────────────────────────────────────────────────
 
 /// Draws a rotary switch with discrete positions (Low / Medium / High).
-pub fn render_rotary_switch(
-    painter: &egui::Painter,
-    _block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_rotary_switch(painter: &egui::Painter, _block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.12);
     let font = egui::FontId::proportional(fsz);
@@ -544,7 +539,10 @@ pub fn render_rotary_switch(
     let label_r = radius + fsz * 1.2 + 4.0;
     for (i, (lbl, angle)) in labels.iter().zip(angles.iter()).enumerate() {
         let mark_end = Pos2::new(cx + mark_r * angle.cos(), cy - mark_r * angle.sin());
-        let mark_start = Pos2::new(cx + (mark_r - 3.0) * angle.cos(), cy - (mark_r - 3.0) * angle.sin());
+        let mark_start = Pos2::new(
+            cx + (mark_r - 3.0) * angle.cos(),
+            cy - (mark_r - 3.0) * angle.sin(),
+        );
         let col = if i == 0 { ACCENT_DARK } else { BORDER };
         painter.line_segment([mark_start, mark_end], Stroke::new(1.5, col));
         painter.text(
@@ -601,7 +599,10 @@ pub fn render_circular_gauge(
         let r_in = if is_major { radius - 4.0 } else { radius - 2.5 };
         let p1 = Pos2::new(cx + r_in * angle.cos(), cy - r_in * angle.sin());
         let p2 = Pos2::new(cx + r_out * angle.cos(), cy - r_out * angle.sin());
-        painter.line_segment([p1, p2], Stroke::new(if is_major { 1.5 } else { 1.0 }, TEXT_DARK));
+        painter.line_segment(
+            [p1, p2],
+            Stroke::new(if is_major { 1.5 } else { 1.0 }, TEXT_DARK),
+        );
 
         // Scale numbers for major ticks
         if is_major {
@@ -660,7 +661,10 @@ pub fn render_semi_circular_gauge(
         let r_in = if is_major { radius - 4.0 } else { radius - 2.5 };
         let p1 = Pos2::new(cx + r_in * angle.cos(), cy - r_in * angle.sin());
         let p2 = Pos2::new(cx + r_out * angle.cos(), cy - r_out * angle.sin());
-        painter.line_segment([p1, p2], Stroke::new(if is_major { 1.5 } else { 1.0 }, TEXT_DARK));
+        painter.line_segment(
+            [p1, p2],
+            Stroke::new(if is_major { 1.5 } else { 1.0 }, TEXT_DARK),
+        );
 
         if is_major {
             let val = (t * 100.0).round() as i32;
@@ -677,10 +681,7 @@ pub fn render_semi_circular_gauge(
 
     // Base line
     painter.line_segment(
-        [
-            Pos2::new(cx - radius, cy),
-            Pos2::new(cx + radius, cy),
-        ],
+        [Pos2::new(cx - radius, cy), Pos2::new(cx + radius, cy)],
         Stroke::new(1.0, BORDER),
     );
 
@@ -701,12 +702,7 @@ pub fn render_semi_circular_gauge(
 // ─── Quarter Gauge ──────────────────────────────────────────────────────
 
 /// Draws a quarter-circle (90°) gauge.
-pub fn render_quarter_gauge(
-    painter: &egui::Painter,
-    _block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_quarter_gauge(painter: &egui::Painter, _block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.12);
     let font = egui::FontId::proportional(fsz);
@@ -757,12 +753,7 @@ pub fn render_quarter_gauge(
 // ─── Linear Gauge ───────────────────────────────────────────────────────
 
 /// Draws a horizontal linear gauge (bar-style).
-pub fn render_linear_gauge(
-    painter: &egui::Painter,
-    _block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_linear_gauge(painter: &egui::Painter, _block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.18);
     let font = egui::FontId::proportional(fsz);
@@ -794,8 +785,20 @@ pub fn render_linear_gauge(
 
     // Scale labels
     let label_y = bar.bottom() + 7.0;
-    painter.text(Pos2::new(inner.left(), label_y), Align2::LEFT_TOP, "0", font.clone(), TEXT_DARK);
-    painter.text(Pos2::new(inner.right(), label_y), Align2::RIGHT_TOP, "100", font, TEXT_DARK);
+    painter.text(
+        Pos2::new(inner.left(), label_y),
+        Align2::LEFT_TOP,
+        "0",
+        font.clone(),
+        TEXT_DARK,
+    );
+    painter.text(
+        Pos2::new(inner.right(), label_y),
+        Align2::RIGHT_TOP,
+        "100",
+        font,
+        TEXT_DARK,
+    );
 
     // Filled portion (indicator at ~50%)
     let fill_frac = 0.5;
@@ -901,20 +904,27 @@ pub fn render_dashboard_scope(
 
     // X-axis labels
     let x_label_y = inner.bottom() + 2.0;
-    painter.text(Pos2::new(inner.left(), x_label_y), Align2::LEFT_TOP, "0", font.clone(), TEXT_DARK);
+    painter.text(
+        Pos2::new(inner.left(), x_label_y),
+        Align2::LEFT_TOP,
+        "0",
+        font.clone(),
+        TEXT_DARK,
+    );
     let x_max = ((n_pts as f32) * 0.8).round() as i32;
-    painter.text(Pos2::new(inner.right(), x_label_y), Align2::RIGHT_TOP, format!("{}", x_max), font, TEXT_DARK);
+    painter.text(
+        Pos2::new(inner.right(), x_label_y),
+        Align2::RIGHT_TOP,
+        format!("{}", x_max),
+        font,
+        TEXT_DARK,
+    );
 }
 
 // ─── Display (Dashboard) ────────────────────────────────────────────────
 
 /// Draws a digital display block (value readout).
-pub fn render_display_block(
-    painter: &egui::Painter,
-    _block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_display_block(painter: &egui::Painter, _block: &Block, rect: &Rect, font_scale: f32) {
     let inner = inner_rect(rect, 0.85);
     let fsz = font_for_rect(rect, font_scale).min(inner.height() * 0.50);
 
@@ -925,7 +935,12 @@ pub fn render_display_block(
         Pos2::new(inner.right(), inner.center().y + field_h / 2.0),
     );
     painter.rect_filled(field, 3.0, Color32::from_rgb(240, 245, 240));
-    painter.rect_stroke(field, 3.0, Stroke::new(1.0, BORDER), egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        field,
+        3.0,
+        Stroke::new(1.0, BORDER),
+        egui::StrokeKind::Inside,
+    );
 
     // Value text
     painter.text(
@@ -940,12 +955,7 @@ pub fn render_display_block(
 // ─── Lamp ───────────────────────────────────────────────────────────────
 
 /// Draws a circular lamp indicator (green by default).
-pub fn render_lamp(
-    painter: &egui::Painter,
-    _block: &Block,
-    rect: &Rect,
-    _font_scale: f32,
-) {
+pub fn render_lamp(painter: &egui::Painter, _block: &Block, rect: &Rect, _font_scale: f32) {
     let inner = inner_rect(rect, 0.80);
     let radius = (inner.width().min(inner.height()) * 0.35).max(6.0);
     let cx = inner.center().x;

@@ -1,9 +1,9 @@
-use eframe::egui::{self, Color32, RichText};
+use super::helpers::{block_dialog_title, is_block_subsystem};
 use super::types::UpdateResponse;
-use crate::model::EndpointRef;
 use crate::egui_app::state::{BlockDialog, ChartView, SignalDialog, SubsystemApp};
 use crate::egui_app::text::matlab_syntax_job;
-use super::helpers::{block_dialog_title, is_block_subsystem};
+use crate::model::EndpointRef;
+use eframe::egui::{self, Color32, RichText};
 
 fn build_chart_view_for_block(
     app: &SubsystemApp,
@@ -496,4 +496,3 @@ pub fn show_info_windows(app: &mut SubsystemApp, ui: &mut egui::Ui) {
     #[cfg(feature = "dashboard")]
     show_scope_popout_window(app, ui);
 }
-

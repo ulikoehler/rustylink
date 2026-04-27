@@ -1,24 +1,29 @@
-use crate::egui_app::geometry::endpoint_pos_maybe_mirrored;
-use crate::egui_app::render::{ComputedPortYCoordinates, PortLabelMaxWidths, port_label_display_name};
-use std::collections::HashMap;
-use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
-use crate::egui_app::state::{SubsystemApp, resolve_subsystem_by_vec_mut};
-use crate::block_types::BlockShape;
-use crate::egui_app::render::{get_block_type_cfg, render_block_icon, render_manual_switch, get_interior_renderer, wrap_text_to_max_width};
-#[cfg(not(feature = "dashboard"))]
-use crate::egui_app::render::render_center_glyph_maximized;
-use crate::egui_app::text::highlight_query_job;
-use crate::egui_app::navigation::resolve_subsystem_by_vec;
-use crate::egui_app::geometry::{parse_rect_str, parse_block_rect};
-use crate::editor::operations;
-use crate::egui_app::state::ViewerDragState;
-use super::types::{UpdateResponse, ClickAction};
+use super::colors::{block_base_color, contrast_color};
 use super::corner_ops;
 use super::helpers::{is_block_subsystem, record_interaction};
-use super::colors::{block_base_color, contrast_color};
 use super::line_coloring;
 use super::signal_routing;
+use super::types::{ClickAction, UpdateResponse};
 use super::view_transform;
+use crate::block_types::BlockShape;
+use crate::editor::operations;
+use crate::egui_app::geometry::endpoint_pos_maybe_mirrored;
+use crate::egui_app::geometry::{parse_block_rect, parse_rect_str};
+use crate::egui_app::navigation::resolve_subsystem_by_vec;
+#[cfg(not(feature = "dashboard"))]
+use crate::egui_app::render::render_center_glyph_maximized;
+use crate::egui_app::render::{
+    ComputedPortYCoordinates, PortLabelMaxWidths, port_label_display_name,
+};
+use crate::egui_app::render::{
+    get_block_type_cfg, get_interior_renderer, render_block_icon, render_manual_switch,
+    wrap_text_to_max_width,
+};
+use crate::egui_app::state::ViewerDragState;
+use crate::egui_app::state::{SubsystemApp, resolve_subsystem_by_vec_mut};
+use crate::egui_app::text::highlight_query_job;
+use eframe::egui::{self, Align2, Color32, Pos2, Rect, RichText, Sense, Stroke, Vec2};
+use std::collections::HashMap;
 
 pub(crate) fn update_internal(
     app: &mut SubsystemApp,
@@ -92,10 +97,24 @@ pub(crate) fn update_internal(
             {
                 app.move_mode_enabled = !app.move_mode_enabled;
             }
+            let live_label = if app.live_mode_enabled {
+                "Live: On"
+            } else {
+                "Live: Off"
+            };
+            if ui
+                .selectable_label(app.live_mode_enabled, live_label)
+                .clicked()
+            {
+                app.live_mode_enabled = !app.live_mode_enabled;
+            }
             if app.move_mode_enabled {
                 let undo_btn = egui::Button::new("Undo");
                 let redo_btn = egui::Button::new("Redo");
-                if ui.add_enabled(app.viewer_history.can_undo(), undo_btn).clicked() {
+                if ui
+                    .add_enabled(app.viewer_history.can_undo(), undo_btn)
+                    .clicked()
+                {
                     let path = app.path.clone();
                     if let Some(system) = resolve_subsystem_by_vec_mut(&mut app.root, &path) {
                         app.viewer_history.undo(system);
@@ -103,7 +122,10 @@ pub(crate) fn update_internal(
                     app.layout_dirty = true;
                     app.view_cache.invalidate();
                 }
-                if ui.add_enabled(app.viewer_history.can_redo(), redo_btn).clicked() {
+                if ui
+                    .add_enabled(app.viewer_history.can_redo(), redo_btn)
+                    .clicked()
+                {
                     let path = app.path.clone();
                     if let Some(system) = resolve_subsystem_by_vec_mut(&mut app.root, &path) {
                         app.viewer_history.redo(system);
@@ -120,19 +142,13 @@ pub(crate) fn update_internal(
             if ui.button(save_label).clicked() {
                 match app.save_layout_to_default_path() {
                     Ok(()) => app.show_notification("Layout saved", 3000),
-                    Err(err) => app.show_notification(
-                        format!("Save layout failed: {}", err),
-                        5000,
-                    ),
+                    Err(err) => app.show_notification(format!("Save layout failed: {}", err), 5000),
                 }
             }
             if ui.button("Load layout").clicked() {
                 match app.load_layout_from_default_path() {
                     Ok(()) => app.show_notification("Layout loaded", 3000),
-                    Err(err) => app.show_notification(
-                        format!("Load layout failed: {}", err),
-                        5000,
-                    ),
+                    Err(err) => app.show_notification(format!("Load layout failed: {}", err), 5000),
                 }
             }
             if ui.button("Restore layout").clicked() {
@@ -2263,6 +2279,24 @@ pub(crate) fn update_internal(
                 }
             } else if let Some(renderer) = get_interior_renderer(&b.block_type) {
                 renderer(&painter, b, r_screen, font_scale);
+            } else if app.live_mode_enabled {
+                // Live mode: show the current value for dashboard-bound blocks.
+                let live_val = b
+                    .dashboard_binding
+                    .as_ref()
+                    .and_then(|binding| app.live_values.get(binding.uuid()))
+                    .copied();
+                if let Some(val) = live_val {
+                    let font_id = egui::FontId::proportional(12.0 * font_scale);
+                    let text = format!("{val:.4}");
+                    let galley = painter.layout_no_wrap(text, font_id, fg);
+                    let pos = r_screen.center() - galley.size() * 0.5;
+                    painter.galley(pos, galley, fg);
+                } else if cfg.shape == BlockShape::FilledBlack {
+                    // Solid-fill blocks need no interior rendering.
+                } else {
+                    render_block_icon(&painter, b, r_screen, font_scale, icon_port_label_widths);
+                }
             } else if cfg.shape == BlockShape::FilledBlack {
                 // Solid-fill blocks (e.g. BusCreator/BusSelector) need no interior rendering.
             } else {
@@ -2314,7 +2348,7 @@ pub(crate) fn update_internal(
                 }
                 let min_font_px = (chevron_h * app.block_name_min_font_factor).max(1.0);
 
-                let color = app.block_name_color;
+                let color = contrast_color(ui.visuals().panel_fill);
 
                 let mut current_font_px = font_px;
                 let mut best_lines = vec![];
@@ -2574,7 +2608,8 @@ fn draw_viewer_resize_handles(
         } else {
             Color32::from_rgb(0, 120, 255)
         };
-        ui.painter().rect_filled(handle_rect.shrink(2.0), 1.0, color);
+        ui.painter()
+            .rect_filled(handle_rect.shrink(2.0), 1.0, color);
         ui.painter().rect_stroke(
             handle_rect.shrink(2.0),
             1.0,
@@ -2640,7 +2675,14 @@ fn draw_viewer_resize_handles(
                             .iter()
                             .position(|block| block.sid.as_deref() == Some(sid))
                         {
-                            undo_cmd = Some(operations::resize_block(system, block_index, nl, nt, nr, nb));
+                            undo_cmd = Some(operations::resize_block(
+                                system,
+                                block_index,
+                                nl,
+                                nt,
+                                nr,
+                                nb,
+                            ));
                             layout_changed = true;
                         }
                     }
@@ -2672,8 +2714,8 @@ fn paint_scope_glyph(painter: &egui::Painter, rect: &Rect) {
     for i in 0..n {
         let t = i as f32 / (n - 1) as f32;
         let x = inner.left() + t * inner.width();
-        let y = inner.center().y
-            - (t * 2.0 * std::f32::consts::PI * 2.0).sin() * inner.height() * 0.35;
+        let y =
+            inner.center().y - (t * 2.0 * std::f32::consts::PI * 2.0).sin() * inner.height() * 0.35;
         pts.push(Pos2::new(x, y));
     }
     for w in pts.windows(2) {
@@ -2681,7 +2723,7 @@ fn paint_scope_glyph(painter: &egui::Painter, rect: &Rect) {
     }
 }
 
-/// Print connected block/signal information for a dashboard UI block.
+// Print connected block/signal information for a dashboard UI block.
 ///
 /// Dashboard blocks do not use traditional signal lines; they use
 /// `BindingPersistence` references to `.mxarray` files that describe
@@ -2792,7 +2834,10 @@ fn print_line_based_connections(
         let all_dsts = collect_dst_sids(line);
         if all_dsts.iter().any(|d| *d == block_sid) {
             if let Some(ref src) = line.src {
-                let src_name = block_name_by_sid.get(src.sid.as_str()).copied().unwrap_or("?");
+                let src_name = block_name_by_sid
+                    .get(src.sid.as_str())
+                    .copied()
+                    .unwrap_or("?");
                 println!(
                     "    ← receives signal '{}' from block '{}' (src SID {})",
                     signal_name, src_name, src.sid

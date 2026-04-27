@@ -1,13 +1,13 @@
 #![cfg(feature = "egui")]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use camino::Utf8PathBuf;
 use eframe::egui::{self, Vec2};
 
-use crate::model::{Annotation, Block, Chart, Line, System};
 use crate::editor::operations::EditorHistory;
+use crate::model::{Annotation, Block, Chart, Line, System};
 
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 struct LayoutSnapshot {
@@ -140,7 +140,7 @@ pub enum ViewerDragState {
 /// model changes (e.g. after a drag-commit, navigation, or layout load/save).
 ///
 /// Stored in [`SubsystemApp`] and invalidated by bumping `generation`.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ComputedViewCache {
     /// Monotonically increasing counter; cached values are valid when their
     /// stored generation matches.
@@ -155,6 +155,20 @@ pub struct ComputedViewCache {
     cached_path: Vec<String>,
     /// Model generation at which the cache was computed.
     cached_gen: u64,
+}
+
+impl Default for ComputedViewCache {
+    fn default() -> Self {
+        Self {
+            // Start at 1 so the initial cached_gen=0 never matches: cache always starts invalid.
+            generation: 1,
+            line_colors: Vec::new(),
+            port_counts: std::collections::HashMap::new(),
+            connected_ports: std::collections::HashSet::new(),
+            cached_path: Vec::new(),
+            cached_gen: 0,
+        }
+    }
 }
 
 impl ComputedViewCache {
@@ -233,12 +247,6 @@ pub struct SubsystemApp {
     /// Used when avoiding collisions with other elements.
     pub block_name_min_font_factor: f32,
 
-    /// Color used to draw block name labels.
-    ///
-    /// Defaults to dark gray (`Color32::from_rgb(40, 40, 40)`).
-    /// Can be overridden at runtime, e.g. `app.block_name_color = Color32::BLACK;`.
-    pub block_name_color: egui::Color32,
-
     /// Selected block SIDs in the current view (supports multi-selection).
     pub selected_block_sids: BTreeSet<String>,
 
@@ -247,6 +255,21 @@ pub struct SubsystemApp {
 
     /// Whether interactive move/resize mode is enabled.
     pub move_mode_enabled: bool,
+
+    /// Whether "assign UI elements" mode is enabled.
+    ///
+    /// When `true`, a primary click on a block or signal triggers the
+    /// host application's element-assignment action instead of opening
+    /// the default info dialog.  Rustylink renders an "Assign: On/Off"
+    /// toggle button next to the "Edit: On/Off" button in the toolbar;
+    /// the host can also toggle this programmatically.
+    pub add_mode_enabled: bool,
+
+    /// When `true`, dashboard blocks render live values from `live_values` instead of static icons.
+    pub live_mode_enabled: bool,
+
+    /// Live values for dashboard blocks, keyed by `DashboardBinding::uuid()`.
+    pub live_values: HashMap<String, f64>,
 
     /// Default path used to save/load viewer layout overrides.
     pub layout_file_path: Option<Utf8PathBuf>,
@@ -329,10 +352,12 @@ impl SubsystemApp {
             block_name_font_factor: 0.85,
             block_name_max_char_width_factor: 1.0 / 8.0,
             block_name_min_font_factor: 0.5,
-            block_name_color: egui::Color32::from_rgb(40, 40, 40),
             selected_block_sids: BTreeSet::new(),
             selected_line_indices: BTreeSet::new(),
             move_mode_enabled: false,
+            add_mode_enabled: false,
+            live_mode_enabled: false,
+            live_values: HashMap::new(),
             layout_file_path: None,
             layout_dirty: false,
             view_bounds: None,
@@ -640,7 +665,10 @@ impl eframe::App for SubsystemApp {
 }
 
 /// Resolve a mutable reference to a subsystem by path.
-pub(crate) fn resolve_subsystem_by_vec_mut<'a>(root: &'a mut System, path: &[String]) -> Option<&'a mut System> {
+pub(crate) fn resolve_subsystem_by_vec_mut<'a>(
+    root: &'a mut System,
+    path: &[String],
+) -> Option<&'a mut System> {
     if path.is_empty() {
         return Some(root);
     }
@@ -663,17 +691,17 @@ mod tests {
     #[test]
     fn cache_starts_invalid() {
         let cache = ComputedViewCache::default();
-        // Default generation is 0 and cached_gen is 0, but cached_path is empty
-        // so for a non-empty path it should be invalid.
-        assert!(!cache.is_valid(&["Root".to_string()], 0));
+        // Cache should always start invalid (generation=1, cached_gen=0).
+        assert!(!cache.is_valid(&[], cache.generation));
+        assert!(!cache.is_valid(&["Root".to_string()], cache.generation));
     }
 
     #[test]
     fn cache_valid_after_mark() {
         let mut cache = ComputedViewCache::default();
         let path = vec!["Root".to_string()];
-        cache.mark_valid(&path, 0);
-        assert!(cache.is_valid(&path, 0));
+        cache.mark_valid(&path, cache.generation);
+        assert!(cache.is_valid(&path, cache.generation));
     }
 
     #[test]

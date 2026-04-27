@@ -248,9 +248,7 @@ impl SlxArchive {
                                     None
                                 }
                             }) {
-                                if let Some(binding) =
-                                    crate::model::parse_mxarray_binding(raw)
-                                {
+                                if let Some(binding) = crate::model::parse_mxarray_binding(raw) {
                                     binding_cache.insert(ref_value.to_string(), binding);
                                 }
                             }
@@ -347,8 +345,7 @@ impl SlxArchive {
                     crate::parser::helpers::resolve_system_reference(ref_name, current_base);
                 if let Some(sub) = lookup.get(ref_path.as_str()) {
                     let mut sub_cloned = (*sub).clone();
-                    let sub_base =
-                        ref_path.parent().unwrap_or(current_base);
+                    let sub_base = ref_path.parent().unwrap_or(current_base);
                     Self::link_system_refs_recursive(&mut sub_cloned, sub_base, lookup);
                     blk.subsystem = Some(Box::new(sub_cloned));
                 }
@@ -363,12 +360,7 @@ impl SlxArchive {
     ///
     /// Returns `(charts_by_id, chart_map)` where `chart_map` maps chart names
     /// and SID strings to chart IDs, suitable for passing to `SubsystemApp`.
-    pub fn parse_charts(
-        &self,
-    ) -> (
-        BTreeMap<u32, crate::model::Chart>,
-        BTreeMap<String, u32>,
-    ) {
+    pub fn parse_charts(&self) -> (BTreeMap<u32, crate::model::Chart>, BTreeMap<String, u32>) {
         use rayon::prelude::*;
 
         // Collect all stateflow chart XML entries
@@ -425,16 +417,17 @@ impl SlxArchive {
         let raw = self
             .get_raw(GI_PATH)
             .ok_or_else(|| anyhow!("{} not found in archive", GI_PATH))?;
-        let text = std::str::from_utf8(raw)
-            .with_context(|| format!("Non-UTF8 content in {}", GI_PATH))?;
+        let text =
+            std::str::from_utf8(raw).with_context(|| format!("Non-UTF8 content in {}", GI_PATH))?;
         let v: serde_json::Value = serde_json::from_str(text)
             .with_context(|| format!("Failed to parse JSON {}", GI_PATH))?;
         let gi_value = v
             .get("GraphicalInterface")
             .ok_or_else(|| anyhow!("Missing 'GraphicalInterface' in {}", GI_PATH))?;
         let gi: crate::parser::graphical_interface::GraphicalInterface =
-            serde_json::from_value(gi_value.clone())
-                .with_context(|| format!("Failed to deserialize GraphicalInterface in {}", GI_PATH))?;
+            serde_json::from_value(gi_value.clone()).with_context(|| {
+                format!("Failed to deserialize GraphicalInterface in {}", GI_PATH)
+            })?;
         Ok(gi.library_names())
     }
 

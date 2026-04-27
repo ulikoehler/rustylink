@@ -501,6 +501,16 @@ pub enum DashboardBinding {
     },
 }
 
+impl DashboardBinding {
+    /// Returns the UUID of this binding, regardless of variant.
+    pub fn uuid(&self) -> &str {
+        match self {
+            DashboardBinding::ParamSource { uuid, .. } => uuid,
+            DashboardBinding::SignalSpec { uuid, .. } => uuid,
+        }
+    }
+}
+
 /// Extract readable ASCII strings (length ≥ 3) from raw binary data.
 fn extract_ascii_strings(data: &[u8], min_len: usize) -> Vec<(usize, String)> {
     let mut results = Vec::new();
@@ -596,8 +606,7 @@ pub fn parse_mxarray_binding(data: &[u8]) -> Option<DashboardBinding> {
     // appear in the data region (offset > 900) of the first instance. The
     // field names repeat a second time further in the file; we stop before
     // that second copy by limiting offset.
-    let field_set: std::collections::HashSet<&str> =
-        MXARRAY_FIELD_NAMES.iter().copied().collect();
+    let field_set: std::collections::HashSet<&str> = MXARRAY_FIELD_NAMES.iter().copied().collect();
 
     let data_strings: Vec<&str> = strings
         .iter()

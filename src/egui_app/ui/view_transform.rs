@@ -81,7 +81,10 @@ impl ViewTransform {
         let new_zoom = (old_zoom * factor).clamp(0.2, 10.0);
         let s_old = self.base_scale * old_zoom;
         let s_new = self.base_scale * new_zoom;
-        let origin = Pos2::new(self.avail.left() + self.margin, self.avail.top() + self.margin);
+        let origin = Pos2::new(
+            self.avail.left() + self.margin,
+            self.avail.top() + self.margin,
+        );
         let world_x = (cursor.x - origin.x - self.pan.x) / s_old + self.bb.left();
         let world_y = (cursor.y - origin.y - self.pan.y) / s_old + self.bb.top();
         let new_pan_x = cursor.x - ((world_x - self.bb.left()) * s_new + origin.x);
@@ -100,7 +103,10 @@ pub fn preview_block_rect(
 ) -> Rect {
     use super::super::state::ViewerDragState;
     match drag_state {
-        ViewerDragState::Blocks { current_dx, current_dy } => {
+        ViewerDragState::Blocks {
+            current_dx,
+            current_dy,
+        } => {
             if block_sid.map_or(false, |sid| selected_sids.contains(sid)) {
                 rect.translate(Vec2::new(*current_dx as f32, *current_dy as f32))
             } else {
@@ -161,22 +167,46 @@ pub fn resize_handle_positions(r: &Rect) -> [(Pos2, u8); 8] {
 ///
 /// Enforces a minimum size of 10 model-units.
 pub fn compute_resized_rect(
-    l: f32, t: f32, r: f32, b: f32,
+    l: f32,
+    t: f32,
+    r: f32,
+    b: f32,
     handle: u8,
-    dx: f32, dy: f32,
+    dx: f32,
+    dy: f32,
 ) -> (i32, i32, i32, i32) {
     let min_size = 10.0;
     let (mut nl, mut nt, mut nr, mut nb) = (l, t, r, b);
 
     match handle {
-        0 => { nl = l + dx; nt = t + dy; }
-        1 => { nt = t + dy; }
-        2 => { nr = r + dx; nt = t + dy; }
-        3 => { nr = r + dx; }
-        4 => { nr = r + dx; nb = b + dy; }
-        5 => { nb = b + dy; }
-        6 => { nl = l + dx; nb = b + dy; }
-        7 => { nl = l + dx; }
+        0 => {
+            nl = l + dx;
+            nt = t + dy;
+        }
+        1 => {
+            nt = t + dy;
+        }
+        2 => {
+            nr = r + dx;
+            nt = t + dy;
+        }
+        3 => {
+            nr = r + dx;
+        }
+        4 => {
+            nr = r + dx;
+            nb = b + dy;
+        }
+        5 => {
+            nb = b + dy;
+        }
+        6 => {
+            nl = l + dx;
+            nb = b + dy;
+        }
+        7 => {
+            nl = l + dx;
+        }
         _ => {}
     }
 
@@ -195,7 +225,12 @@ pub fn compute_resized_rect(
         }
     }
 
-    (nl.round() as i32, nt.round() as i32, nr.round() as i32, nb.round() as i32)
+    (
+        nl.round() as i32,
+        nt.round() as i32,
+        nr.round() as i32,
+        nb.round() as i32,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -218,8 +253,18 @@ mod tests {
         let model_pt = Pos2::new(50.0, 25.0);
         let screen_pt = vt.to_screen(model_pt);
         let back = vt.from_screen(screen_pt);
-        assert!((back.x - model_pt.x).abs() < 0.01, "x: {} vs {}", back.x, model_pt.x);
-        assert!((back.y - model_pt.y).abs() < 0.01, "y: {} vs {}", back.y, model_pt.y);
+        assert!(
+            (back.x - model_pt.x).abs() < 0.01,
+            "x: {} vs {}",
+            back.x,
+            model_pt.x
+        );
+        assert!(
+            (back.y - model_pt.y).abs() < 0.01,
+            "y: {} vs {}",
+            back.y,
+            model_pt.y
+        );
     }
 
     #[test]
@@ -236,7 +281,11 @@ mod tests {
         let cursor = Pos2::new(250.0, 250.0);
         let world_before = vt.from_screen(cursor);
         let (new_zoom, new_pan) = vt.zoom_at(cursor, 1.5);
-        let vt2 = ViewTransform { zoom: new_zoom, pan: new_pan, ..vt };
+        let vt2 = ViewTransform {
+            zoom: new_zoom,
+            pan: new_pan,
+            ..vt
+        };
         let world_after = vt2.from_screen(cursor);
         assert!((world_before.x - world_after.x).abs() < 0.5);
         assert!((world_before.y - world_after.y).abs() < 0.5);
@@ -269,7 +318,10 @@ mod tests {
         let r = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(50.0, 30.0));
         let mut sids = std::collections::BTreeSet::new();
         sids.insert("1".to_string());
-        let state = ViewerDragState::Blocks { current_dx: 10, current_dy: -5 };
+        let state = ViewerDragState::Blocks {
+            current_dx: 10,
+            current_dy: -5,
+        };
         let result = preview_block_rect(&state, &sids, Some("1"), r);
         assert!((result.left() - 10.0).abs() < 0.01);
         assert!((result.top() - (-5.0)).abs() < 0.01);
@@ -281,7 +333,10 @@ mod tests {
         let r = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(50.0, 30.0));
         let mut sids = std::collections::BTreeSet::new();
         sids.insert("1".to_string());
-        let state = ViewerDragState::Blocks { current_dx: 10, current_dy: -5 };
+        let state = ViewerDragState::Blocks {
+            current_dx: 10,
+            current_dy: -5,
+        };
         let result = preview_block_rect(&state, &sids, Some("2"), r);
         assert_eq!(result, r);
     }
@@ -302,8 +357,7 @@ mod tests {
     #[test]
     fn compute_resized_rect_right_edge() {
         let (nl, nt, nr, nb) = compute_resized_rect(
-            0.0, 0.0, 100.0, 100.0,
-            3, // right edge
+            0.0, 0.0, 100.0, 100.0, 3, // right edge
             20.0, 0.0,
         );
         assert_eq!(nl, 0);
@@ -315,8 +369,7 @@ mod tests {
     #[test]
     fn compute_resized_rect_min_size_enforced() {
         let (nl, _nt, nr, _nb) = compute_resized_rect(
-            0.0, 0.0, 20.0, 20.0,
-            3, // right edge
+            0.0, 0.0, 20.0, 20.0, 3, // right edge
             -15.0, 0.0, // shrinking right to 5, below min_size 10
         );
         assert!(nr - nl >= 10);
@@ -331,35 +384,59 @@ mod tests {
 
         // Handle 0: top-left
         let (nl, nt, nr, nb) = compute_resized_rect(base.0, base.1, base.2, base.3, 0, dx, dy);
-        assert_eq!(nl, 5); assert_eq!(nt, 7); assert_eq!(nr, 100); assert_eq!(nb, 100);
+        assert_eq!(nl, 5);
+        assert_eq!(nt, 7);
+        assert_eq!(nr, 100);
+        assert_eq!(nb, 100);
 
         // Handle 1: top-center
         let (nl, nt, nr, nb) = compute_resized_rect(base.0, base.1, base.2, base.3, 1, dx, dy);
-        assert_eq!(nl, 0); assert_eq!(nt, 7); assert_eq!(nr, 100); assert_eq!(nb, 100);
+        assert_eq!(nl, 0);
+        assert_eq!(nt, 7);
+        assert_eq!(nr, 100);
+        assert_eq!(nb, 100);
 
         // Handle 2: top-right
         let (nl, nt, nr, nb) = compute_resized_rect(base.0, base.1, base.2, base.3, 2, dx, dy);
-        assert_eq!(nl, 0); assert_eq!(nt, 7); assert_eq!(nr, 105); assert_eq!(nb, 100);
+        assert_eq!(nl, 0);
+        assert_eq!(nt, 7);
+        assert_eq!(nr, 105);
+        assert_eq!(nb, 100);
 
         // Handle 3: right-center
         let (nl, nt, nr, nb) = compute_resized_rect(base.0, base.1, base.2, base.3, 3, dx, dy);
-        assert_eq!(nl, 0); assert_eq!(nt, 0); assert_eq!(nr, 105); assert_eq!(nb, 100);
+        assert_eq!(nl, 0);
+        assert_eq!(nt, 0);
+        assert_eq!(nr, 105);
+        assert_eq!(nb, 100);
 
         // Handle 4: bottom-right
         let (nl, nt, nr, nb) = compute_resized_rect(base.0, base.1, base.2, base.3, 4, dx, dy);
-        assert_eq!(nl, 0); assert_eq!(nt, 0); assert_eq!(nr, 105); assert_eq!(nb, 107);
+        assert_eq!(nl, 0);
+        assert_eq!(nt, 0);
+        assert_eq!(nr, 105);
+        assert_eq!(nb, 107);
 
         // Handle 5: bottom-center
         let (nl, nt, nr, nb) = compute_resized_rect(base.0, base.1, base.2, base.3, 5, dx, dy);
-        assert_eq!(nl, 0); assert_eq!(nt, 0); assert_eq!(nr, 100); assert_eq!(nb, 107);
+        assert_eq!(nl, 0);
+        assert_eq!(nt, 0);
+        assert_eq!(nr, 100);
+        assert_eq!(nb, 107);
 
         // Handle 6: bottom-left
         let (nl, nt, nr, nb) = compute_resized_rect(base.0, base.1, base.2, base.3, 6, dx, dy);
-        assert_eq!(nl, 5); assert_eq!(nt, 0); assert_eq!(nr, 100); assert_eq!(nb, 107);
+        assert_eq!(nl, 5);
+        assert_eq!(nt, 0);
+        assert_eq!(nr, 100);
+        assert_eq!(nb, 107);
 
         // Handle 7: left-center
         let (nl, nt, nr, nb) = compute_resized_rect(base.0, base.1, base.2, base.3, 7, dx, dy);
-        assert_eq!(nl, 5); assert_eq!(nt, 0); assert_eq!(nr, 100); assert_eq!(nb, 100);
+        assert_eq!(nl, 5);
+        assert_eq!(nt, 0);
+        assert_eq!(nr, 100);
+        assert_eq!(nb, 100);
     }
 
     #[test]
@@ -386,8 +463,7 @@ mod tests {
     #[test]
     fn compute_resized_rect_min_height_enforced() {
         let (_nl, nt, _nr, nb) = compute_resized_rect(
-            0.0, 0.0, 50.0, 20.0,
-            5, // bottom edge
+            0.0, 0.0, 50.0, 20.0, 5, // bottom edge
             0.0, -15.0, // shrinking height to 5, below min_size 10
         );
         assert!(nb - nt >= 10);

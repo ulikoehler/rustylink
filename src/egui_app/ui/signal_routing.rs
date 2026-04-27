@@ -170,9 +170,14 @@ pub fn register_branch_endpoints(
 pub fn compute_port_info(
     lines: &[crate::model::Line],
     blocks: &[crate::model::Block],
-) -> (std::collections::HashMap<(String, u8), u32>, std::collections::HashSet<(String, u32, bool)>) {
-    let mut port_counts: std::collections::HashMap<(String, u8), u32> = std::collections::HashMap::new();
-    let mut connected_ports: std::collections::HashSet<(String, u32, bool)> = std::collections::HashSet::new();
+) -> (
+    std::collections::HashMap<(String, u8), u32>,
+    std::collections::HashSet<(String, u32, bool)>,
+) {
+    let mut port_counts: std::collections::HashMap<(String, u8), u32> =
+        std::collections::HashMap::new();
+    let mut connected_ports: std::collections::HashSet<(String, u32, bool)> =
+        std::collections::HashSet::new();
 
     for line in lines {
         if let Some(src) = &line.src {
@@ -300,8 +305,12 @@ mod tests {
         for seg in result.windows(2) {
             let dx = (seg[0].x - seg[1].x).abs();
             let dy = (seg[0].y - seg[1].y).abs();
-            assert!(dx < f32::EPSILON || dy < f32::EPSILON,
-                "Non-orthogonal segment: {:?} -> {:?}", seg[0], seg[1]);
+            assert!(
+                dx < f32::EPSILON || dy < f32::EPSILON,
+                "Non-orthogonal segment: {:?} -> {:?}",
+                seg[0],
+                seg[1]
+            );
         }
     }
 
@@ -342,10 +351,7 @@ mod tests {
 
     #[test]
     fn move_line_point_last_index_no_crash() {
-        let mut line = test_line(
-            vec![Point { x: 5, y: 5 }],
-            vec![],
-        );
+        let mut line = test_line(vec![Point { x: 5, y: 5 }], vec![]);
         // Moving the last (only) point shouldn't panic
         move_line_point(&mut line, 0, 3, 3);
         assert_eq!(line.points[0].x, 8);
@@ -354,10 +360,7 @@ mod tests {
 
     #[test]
     fn move_branch_point_basic() {
-        let mut branch = test_branch(
-            vec![Point { x: 10, y: 10 }, Point { x: 20, y: 20 }],
-            vec![],
-        );
+        let mut branch = test_branch(vec![Point { x: 10, y: 10 }, Point { x: 20, y: 20 }], vec![]);
         move_branch_point(&mut branch, 0, 5, -5);
         assert_eq!(branch.points[0].x, 15);
         assert_eq!(branch.points[0].y, 5);
@@ -368,14 +371,8 @@ mod tests {
     #[test]
     fn move_line_layout_shifts_all() {
         let mut line = test_line(
-            vec![
-                Point { x: 0, y: 0 },
-                Point { x: 10, y: 10 },
-            ],
-            vec![test_branch(
-                vec![Point { x: 5, y: 5 }],
-                vec![],
-            )],
+            vec![Point { x: 0, y: 0 }, Point { x: 10, y: 10 }],
+            vec![test_branch(vec![Point { x: 5, y: 5 }], vec![])],
         );
         move_line_layout(&mut line, 3, -2);
         assert_eq!(line.points[0], Point { x: 3, y: -2 });
@@ -388,15 +385,9 @@ mod tests {
         let mut branches = vec![
             test_branch(
                 vec![Point { x: 1, y: 1 }],
-                vec![test_branch(
-                    vec![Point { x: 2, y: 2 }],
-                    vec![],
-                )],
+                vec![test_branch(vec![Point { x: 2, y: 2 }], vec![])],
             ),
-            test_branch(
-                vec![Point { x: 3, y: 3 }],
-                vec![],
-            ),
+            test_branch(vec![Point { x: 3, y: 3 }], vec![]),
         ];
 
         // Navigate to first branch

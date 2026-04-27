@@ -856,7 +856,8 @@ pub fn render_manual_switch(
 /// rectangle, and the current font scale factor.
 pub type InteriorRendererFn = fn(&egui::Painter, &Block, &Rect, f32);
 
-fn interior_renderer_registry() -> &'static std::collections::HashMap<&'static str, InteriorRendererFn> {
+fn interior_renderer_registry()
+-> &'static std::collections::HashMap<&'static str, InteriorRendererFn> {
     static REG: OnceLock<std::collections::HashMap<&'static str, InteriorRendererFn>> =
         OnceLock::new();
     REG.get_or_init(|| {
@@ -891,12 +892,7 @@ pub fn get_interior_renderer(block_type: &str) -> Option<InteriorRendererFn> {
 /// The `Inputs` property format used by Simulink is e.g. `|++`: the first
 /// character is an ignored spacer, the subsequent characters are the per-port
 /// operators in order ('+' or '-').
-pub fn render_sum_block(
-    painter: &egui::Painter,
-    block: &Block,
-    rect: &Rect,
-    font_scale: f32,
-) {
+pub fn render_sum_block(painter: &egui::Painter, block: &Block, rect: &Rect, font_scale: f32) {
     let operators: Vec<char> = block
         .properties
         .get("Inputs")

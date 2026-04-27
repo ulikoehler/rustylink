@@ -47,11 +47,8 @@ impl MiniScope {
 
     /// Render the miniature scope into the given UI region.
     pub fn show(&mut self, ui: &mut Ui) {
-        self.panel.render_panel(
-            ui,
-            |_plot_ui, _scope_data, _traces| {},
-            &mut self.traces,
-        );
+        self.panel
+            .render_panel(ui, |_plot_ui, _scope_data, _traces| {}, &mut self.traces);
     }
 }
 
@@ -74,8 +71,8 @@ pub fn draw_scope_glyph(ui: &mut Ui, rect: Rect) {
     for i in 0..n {
         let t = i as f32 / (n - 1) as f32;
         let x = inner.left() + t * inner.width();
-        let y = inner.center().y
-            - (t * 2.0 * std::f32::consts::PI * 2.0).sin() * inner.height() * 0.35;
+        let y =
+            inner.center().y - (t * 2.0 * std::f32::consts::PI * 2.0).sin() * inner.height() * 0.35;
         points.push(egui::pos2(x, y));
     }
 
@@ -87,5 +84,3 @@ pub fn draw_scope_glyph(ui: &mut Ui, rect: Rect) {
         painter.line_segment([w[0], w[1]], stroke);
     }
 }
-
-

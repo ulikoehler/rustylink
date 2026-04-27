@@ -60,5 +60,3 @@ pub(crate) fn record_interaction(current: &mut UpdateResponse, new: UpdateRespon
         *current = new;
     }
 }
-
-

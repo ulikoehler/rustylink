@@ -1,6 +1,6 @@
 use rustylink::editor::operations::create_default_block;
-use rustylink::parser::helpers::clean_whitespace;
 use rustylink::egui_app::block_dialog_title;
+use rustylink::parser::helpers::clean_whitespace;
 
 #[test]
 fn block_dialog_title_cleans_whitespace() {

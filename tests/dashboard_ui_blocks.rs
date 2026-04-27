@@ -8,9 +8,9 @@
 //! 5. Other dashboard blocks have 0 ports
 
 use rustylink::builtin_libraries::simulink_dashboard::{
-    is_dashboard_block_type, is_simulink_dashboard_name, DASHBOARD_BLOCK_TYPES,
+    DASHBOARD_BLOCK_TYPES, is_dashboard_block_type, is_simulink_dashboard_name,
 };
-use rustylink::model::{parse_mxarray_binding, parse_rels_xml, DashboardBinding, SlxArchive};
+use rustylink::model::{DashboardBinding, SlxArchive, parse_mxarray_binding, parse_rels_xml};
 use rustylink::parser::{SimulinkParser, ZipSource};
 
 // ── is_dashboard_block_type ────────────────────────────────────────────────
@@ -74,9 +74,7 @@ fn parse_rels_xml_basic() {
     assert!(bp151.is_some());
     let bp151 = bp151.unwrap();
     assert_eq!(bp151.target, "bdmxdata/BindingPersistence_151.mxarray");
-    assert!(bp151
-        .relationship_type
-        .contains("modelMxArray"));
+    assert!(bp151.relationship_type.contains("modelMxArray"));
 
     let sys = rels.iter().find(|r| r.id == "system_root").unwrap();
     assert_eq!(sys.target, "systems/system_root.xml");
@@ -217,16 +215,8 @@ fn display_blocks_have_one_input() {
 
     for blk in &system.blocks {
         if blk.block_type == "Display" {
-            let ins = blk
-                .port_counts
-                .as_ref()
-                .and_then(|pc| pc.ins)
-                .unwrap_or(0);
-            let outs = blk
-                .port_counts
-                .as_ref()
-                .and_then(|pc| pc.outs)
-                .unwrap_or(0);
+            let ins = blk.port_counts.as_ref().and_then(|pc| pc.ins).unwrap_or(0);
+            let outs = blk.port_counts.as_ref().and_then(|pc| pc.outs).unwrap_or(0);
             assert_eq!(
                 ins, 1,
                 "Display block '{}' should have 1 input but has {}",
@@ -272,16 +262,8 @@ fn dashboard_blocks_have_zero_ports_except_display() {
 
     for blk in &system.blocks {
         if zero_port_types.contains(&blk.block_type.as_str()) {
-            let ins = blk
-                .port_counts
-                .as_ref()
-                .and_then(|pc| pc.ins)
-                .unwrap_or(0);
-            let outs = blk
-                .port_counts
-                .as_ref()
-                .and_then(|pc| pc.outs)
-                .unwrap_or(0);
+            let ins = blk.port_counts.as_ref().and_then(|pc| pc.ins).unwrap_or(0);
+            let outs = blk.port_counts.as_ref().and_then(|pc| pc.outs).unwrap_or(0);
             assert_eq!(
                 ins, 0,
                 "Dashboard block '{}' (type={}) should have 0 inputs but has {}",
@@ -370,8 +352,7 @@ fn parser_detects_ui_blocks_from_slx() {
     }
     let file = std::fs::File::open(path).unwrap();
     let reader = std::io::BufReader::new(file);
-    let mut parser =
-        SimulinkParser::new("", ZipSource::new(reader).unwrap());
+    let mut parser = SimulinkParser::new("", ZipSource::new(reader).unwrap());
     let root = camino::Utf8PathBuf::from("simulink/systems/system_root.xml");
     let system = parser.parse_system_file(&root).unwrap();
 
@@ -676,7 +657,9 @@ mod visualization_tests {
         // still have a fallback icon.
         let map = rustylink::block_types::get_block_type_config_map();
         let guard = map.read().unwrap();
-        let cfg = guard.get("Display").expect("Display should be in config map");
+        let cfg = guard
+            .get("Display")
+            .expect("Display should be in config map");
         assert!(cfg.icon.is_some(), "Display should have an icon");
         assert!(cfg.known, "Display should be known");
         assert_eq!(cfg.default_ins, 1, "Display should have 1 default input");
@@ -704,8 +687,7 @@ mod visualization_tests {
         if !path.exists() {
             return;
         }
-        let archive = rustylink::model::SlxArchive::from_file(path)
-            .expect("failed to load SLX");
+        let archive = rustylink::model::SlxArchive::from_file(path).expect("failed to load SLX");
         let system = archive.root_system().expect("no root system");
 
         for blk in &system.blocks {

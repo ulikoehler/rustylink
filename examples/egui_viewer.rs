@@ -16,8 +16,7 @@ use rustylink::{
     egui_app,
     model::SlxArchive,
     parser::{
-        FsSource, LibraryResolver, SimulinkParser, helpers::clean_whitespace,
-        is_virtual_library,
+        FsSource, LibraryResolver, SimulinkParser, helpers::clean_whitespace, is_virtual_library,
     },
 };
 

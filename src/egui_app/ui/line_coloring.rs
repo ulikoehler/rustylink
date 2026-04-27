@@ -77,10 +77,7 @@ pub fn compute_line_adjacency(lines: &[crate::model::Line]) -> Vec<Vec<usize>> {
 /// approach that maximises hue distance between adjacent lines.
 ///
 /// Returns one `Color32` per line (indexed by line position).
-pub fn assign_line_colors(
-    adjacency: &[Vec<usize>],
-    background_luminance: f32,
-) -> Vec<Color32> {
+pub fn assign_line_colors(adjacency: &[Vec<usize>], background_luminance: f32) -> Vec<Color32> {
     let n = adjacency.len();
     if n == 0 {
         return Vec::new();
@@ -218,9 +215,7 @@ mod tests {
     fn many_lines_all_get_colors() {
         let n = 20;
         let adj: Vec<Vec<usize>> = (0..n)
-            .map(|i| {
-                (0..n).filter(|&j| j != i && (i + j) % 3 == 0).collect()
-            })
+            .map(|i| (0..n).filter(|&j| j != i && (i + j) % 3 == 0).collect())
             .collect();
         let colors = assign_line_colors(&adj, 0.9);
         assert_eq!(colors.len(), n);

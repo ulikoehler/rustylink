@@ -113,11 +113,7 @@ pub enum EditorCommand {
         dy: i32,
     },
     /// Move an entire line layout (all points + branches) by a delta.
-    MoveLineLayout {
-        line_index: usize,
-        dx: i32,
-        dy: i32,
-    },
+    MoveLineLayout { line_index: usize, dx: i32, dy: i32 },
     /// Insert a corner point into a line's point list.
     InsertCorner {
         line_index: usize,
@@ -621,11 +617,7 @@ fn apply_inverse(system: &mut System, cmd: &EditorCommand) -> EditorCommand {
                 dy: -dy,
             }
         }
-        EditorCommand::MoveLineLayout {
-            line_index,
-            dx,
-            dy,
-        } => {
+        EditorCommand::MoveLineLayout { line_index, dx, dy } => {
             if let Some(line) = system.lines.get_mut(*line_index) {
                 for point in &mut line.points {
                     point.x -= dx;
@@ -690,10 +682,7 @@ fn apply_inverse(system: &mut System, cmd: &EditorCommand) -> EditorCommand {
 // ────────────────────────────────────────────────────────────────────────────
 
 /// Navigate a branch tree by index path, returning a mutable reference.
-fn navigate_branch_mut<'a>(
-    branches: &'a mut [Branch],
-    path: &[usize],
-) -> Option<&'a mut Branch> {
+fn navigate_branch_mut<'a>(branches: &'a mut [Branch], path: &[usize]) -> Option<&'a mut Branch> {
     let (first, rest) = path.split_first()?;
     let branch = branches.get_mut(*first)?;
     if rest.is_empty() {

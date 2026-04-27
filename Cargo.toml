@@ -21,15 +21,15 @@ html-escape = "0.2"
 quick-xml = "0.38"
 bincode = { version = "2.0.1", features = ["serde"] }
 indexmap = { version = "2", features = ["serde"] }
+once_cell = "1.20"
 
 [features]
 # Optional GUI visualization using egui/eframe
-highlight = ["dep:syntect", "dep:once_cell"]
+highlight = ["dep:syntect"]
 egui = [
 	"dep:eframe",
 	"dep:egui",
 	"dep:egui_extras",
-	"dep:once_cell",
 	"dep:resvg",
 	"dep:rust-embed",
 	"dep:syntect",
@@ -53,10 +53,6 @@ features = ["wgpu"]
 
 [dependencies.syntect]
 version = "4.6"
-optional = true
-
-[dependencies.once_cell]
-version = "1.20"
 optional = true
 
 [dependencies.egui_extras]
