@@ -466,10 +466,16 @@ fn show_block_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
 /// Show a scope popout window with an interactive liveplot.
 #[cfg(feature = "dashboard")]
 fn show_scope_popout_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
+    let viewer_instance_id = app.instance_id;
     if let Some(popout) = &mut app.scope_popout {
         let mut open_flag = popout.open;
         let scope_key = popout.scope_key.clone();
         egui::Window::new(format!("Scope: {}", popout.title))
+            .id(egui::Id::new((
+                "rustylink_viewer",
+                viewer_instance_id,
+                ("scope", "window", scope_key.as_str()),
+            )))
             .open(&mut open_flag)
             .resizable(true)
             .default_size([400.0, 300.0])
@@ -477,9 +483,13 @@ fn show_scope_popout_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
             .min_height(150.0)
             .show(ui.ctx(), |ui| {
                 let mut scopes = app.scope_instances.lock().unwrap();
-                let scope = scopes
-                    .entry(scope_key.clone())
-                    .or_insert_with(|| crate::egui_app::scope_widget::MiniScope::new(&scope_key));
+                let scope = scopes.entry(scope_key.clone()).or_insert_with(|| {
+                    crate::egui_app::scope_widget::MiniScope::new((
+                        viewer_instance_id,
+                        "scope_popout",
+                        scope_key.as_str(),
+                    ))
+                });
                 scope.show(ui);
             });
         popout.open = open_flag;

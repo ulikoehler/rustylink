@@ -2,6 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use camino::Utf8PathBuf;
 use eframe::egui::{self, Vec2};
@@ -188,6 +189,8 @@ impl Default for ComputedViewCache {
     }
 }
 
+static NEXT_VIEWER_INSTANCE_ID: AtomicU64 = AtomicU64::new(1);
+
 impl ComputedViewCache {
     /// Returns `true` if the cache is valid for the given path and generation.
     pub fn is_valid(&self, path: &[String], generation: u64) -> bool {
@@ -209,6 +212,7 @@ impl ComputedViewCache {
 /// Interactive Egui application that displays and navigates a Simulink subsystem tree.
 #[derive(Clone)]
 pub struct SubsystemApp {
+    pub instance_id: u64,
     pub root: System,
     /// Snapshot of the root system at construction / last load, used for "Restore layout".
     pub original_root: System,
@@ -347,6 +351,7 @@ impl SubsystemApp {
         let all = collect_subsystems_paths(&root);
         let original_root = root.clone();
         Self {
+            instance_id: NEXT_VIEWER_INSTANCE_ID.fetch_add(1, Ordering::Relaxed),
             root,
             original_root,
             path: initial_path,
@@ -470,6 +475,10 @@ impl SubsystemApp {
     /// Restore the default block click behavior.
     pub fn clear_block_click_handler(&mut self) {
         self.block_click_handler = None;
+    }
+
+    pub fn egui_id(&self, key: impl std::hash::Hash) -> egui::Id {
+        egui::Id::new(("rustylink_viewer", self.instance_id, key))
     }
 
     /// Register a custom button in the signal dialog.

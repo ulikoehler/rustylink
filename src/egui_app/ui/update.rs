@@ -37,7 +37,7 @@ pub(crate) fn update_internal(
     let mut clear_search = false;
     let path_snapshot = app.path.clone();
 
-    egui::TopBottomPanel::top("top").show_inside(ui, |ui| {
+    egui::TopBottomPanel::top(app.egui_id("top_panel")).show_inside(ui, |ui| {
         ui.horizontal(|ui| {
             let up_label = egui::RichText::new("⬆ Up");
             let up = ui.add_enabled(!path_snapshot.is_empty(), egui::Button::new(up_label));
@@ -2548,7 +2548,13 @@ pub(crate) fn update_internal(
             let mut scopes = app.scope_instances.lock().unwrap();
             let scope = scopes
                 .entry(scope_key.clone())
-                .or_insert_with(|| crate::egui_app::scope_widget::MiniScope::new(scope_key));
+                .or_insert_with(|| {
+                    crate::egui_app::scope_widget::MiniScope::new((
+                        app.instance_id,
+                        "embedded_scope",
+                        scope_key.as_str(),
+                    ))
+                });
             ui.scope_builder(
                 egui::UiBuilder::new().max_rect(*scope_rect),
                 |child_ui| {
