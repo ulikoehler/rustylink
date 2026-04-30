@@ -470,6 +470,7 @@ fn show_scope_popout_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
     if let Some(popout) = &mut app.scope_popout {
         let mut open_flag = popout.open;
         let scope_key = popout.scope_key.clone();
+        let storage_key = format!("popout::{scope_key}");
         egui::Window::new(format!("Scope: {}", popout.title))
             .id(egui::Id::new((
                 "rustylink_viewer",
@@ -483,7 +484,7 @@ fn show_scope_popout_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
             .min_height(150.0)
             .show(ui.ctx(), |ui| {
                 let mut scopes = app.scope_instances.lock().unwrap();
-                let scope = scopes.entry(scope_key.clone()).or_insert_with(|| {
+                let scope = scopes.entry(storage_key.clone()).or_insert_with(|| {
                     crate::egui_app::scope_widget::MiniScope::new((
                         viewer_instance_id,
                         "scope_popout",

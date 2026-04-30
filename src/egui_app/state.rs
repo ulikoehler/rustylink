@@ -481,6 +481,16 @@ impl SubsystemApp {
         egui::Id::new(("rustylink_viewer", self.instance_id, key))
     }
 
+    #[cfg(feature = "dashboard")]
+    pub fn embedded_scope_storage_key(&self, scope_key: &str) -> String {
+        format!("embedded::{scope_key}")
+    }
+
+    #[cfg(feature = "dashboard")]
+    pub fn popout_scope_storage_key(&self, scope_key: &str) -> String {
+        format!("popout::{scope_key}")
+    }
+
     /// Register a custom button in the signal dialog.
     pub fn add_signal_dialog_button<F, G>(
         &mut self,

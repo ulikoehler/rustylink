@@ -2546,8 +2546,9 @@ pub(crate) fn update_internal(
         #[cfg(feature = "dashboard")]
         for (scope_key, scope_rect) in &deferred_scope_rects {
             let mut scopes = app.scope_instances.lock().unwrap();
+            let storage_key = app.embedded_scope_storage_key(scope_key);
             let scope = scopes
-                .entry(scope_key.clone())
+                .entry(storage_key)
                 .or_insert_with(|| {
                     crate::egui_app::scope_widget::MiniScope::new((
                         app.instance_id,

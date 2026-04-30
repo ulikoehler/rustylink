@@ -7,6 +7,7 @@
 use eframe::egui::{Pos2, Rect, Vec2};
 
 /// Immutable snapshot of the viewer's coordinate transform for a single frame.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug)]
 pub struct ViewTransform {
     /// Bounding-box in model space that is being fitted into the viewport.
@@ -23,6 +24,7 @@ pub struct ViewTransform {
     pub pan: Vec2,
 }
 
+#[cfg(test)]
 impl ViewTransform {
     /// Compute a new `ViewTransform` from the given content bounds and viewport.
     pub fn new(bb: Rect, avail: Rect, margin: f32, zoom: f32, pan: Vec2) -> Self {

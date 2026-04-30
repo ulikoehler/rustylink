@@ -75,10 +75,10 @@ features = ["compression"]
 [dependencies.liveplot]
 #git = "https://github.com/ulikoehler/liveplot-rs"
 #branch = "master"
-version = "2.0"
+version = "2.0.1"
 optional = true
 default-features = false
-features = ["tiles"]
+features = ["tiles", "fft", "parquet"]
 
 [dev-dependencies]
 tempfile = "3.10"
