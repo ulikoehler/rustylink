@@ -61,7 +61,13 @@ impl ConnectionTarget {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+/// How often a system re-resolves its children while their input contexts are
+/// still changing (chains of sibling subsystems feeding one another).  Only
+/// children whose context actually changed are resolved again, so a pass over
+/// a settled system costs nothing but the comparison.
+const MAX_CHILD_RESOLVE_PASSES: usize = 8;
+
+#[derive(Debug, Clone, Default, PartialEq)]
 struct ParentSubsystemContext {
     incoming_by_port: BTreeMap<u32, Vec<ConnectionTarget>>,
     outgoing_by_port: BTreeMap<u32, Vec<ConnectionTarget>>,
@@ -166,37 +172,56 @@ impl ConnectionTargetResolver {
             &mut line_targets,
         );
 
+        // Resolving a child needs the targets of the lines feeding it, and a
+        // line fed by a *sibling* subsystem only gets its real targets once
+        // that sibling has been resolved.  So alternate between resolving the
+        // children and re-propagating this system's lines until the children's
+        // contexts stop changing; a child whose context is unchanged is not
+        // resolved again, which keeps the common case a single pass.
         let mut child_summaries: HashMap<String, ChildSubsystemSummary> = HashMap::new();
-        for block in &system.blocks {
-            if let Some(subsystem) = &block.subsystem {
-                let child_path = child_system_path(system_path, &block.name);
-                let parent_ctx = ParentSubsystemContext {
-                    incoming_by_port: incoming_targets_by_port(system, block, &line_targets),
-                    outgoing_by_port: outgoing_targets_by_port(system, block, &line_targets),
-                };
-                let summary = self.resolve_system(subsystem, &child_path, Some(&parent_ctx));
-                if let Some(sid) = &block.sid {
-                    child_summaries.insert(sid.clone(), summary);
+        let mut child_contexts: HashMap<&str, ParentSubsystemContext> = HashMap::new();
+        for _ in 0..MAX_CHILD_RESOLVE_PASSES {
+            let mut resolved_any = false;
+            for block in &system.blocks {
+                if let Some(subsystem) = &block.subsystem {
+                    let child_ctx = ParentSubsystemContext {
+                        incoming_by_port: incoming_targets_by_port(system, block, &line_targets),
+                        outgoing_by_port: outgoing_targets_by_port(system, block, &line_targets),
+                    };
+                    if child_contexts.get(block.name.as_str()) == Some(&child_ctx) {
+                        continue;
+                    }
+                    let child_path = child_system_path(system_path, &block.name);
+                    let summary = self.resolve_system(subsystem, &child_path, Some(&child_ctx));
+                    child_contexts.insert(block.name.as_str(), child_ctx);
+                    if let Some(sid) = &block.sid {
+                        child_summaries.insert(sid.clone(), summary);
+                    }
+                    resolved_any = true;
                 }
             }
-        }
 
-        self.propagate_line_targets(
-            system,
-            system_path,
-            &block_lookup,
-            parent_ctx,
-            &child_summaries,
-            &mut line_targets,
-        );
-        self.propagate_line_metadata_upward(
-            system,
-            system_path,
-            &block_lookup,
-            parent_ctx,
-            &child_summaries,
-            &mut line_targets,
-        );
+            self.propagate_line_targets(
+                system,
+                system_path,
+                &block_lookup,
+                parent_ctx,
+                &child_summaries,
+                &mut line_targets,
+            );
+            self.propagate_line_metadata_upward(
+                system,
+                system_path,
+                &block_lookup,
+                parent_ctx,
+                &child_summaries,
+                &mut line_targets,
+            );
+
+            if !resolved_any {
+                break;
+            }
+        }
 
         for (line, targets) in system.lines.iter().zip(line_targets.iter()) {
             self.line_targets.insert(
@@ -373,22 +398,28 @@ impl ConnectionTargetResolver {
             let mut changed = false;
 
             for (index, line) in system.lines.iter().enumerate() {
-                let Some(dst) = &line.dst else {
-                    continue;
-                };
-                let Some(block) = block_lookup.get(dst.sid.as_str()).copied() else {
-                    continue;
-                };
-
-                let propagated = self.upstream_propagated_targets(
-                    system,
-                    system_path,
-                    block,
-                    line,
-                    parent_ctx,
-                    child_summaries,
-                    line_targets,
-                );
+                // A branched line ends at several blocks at once, and each of
+                // them can hand metadata back upstream.
+                let mut propagated = Vec::new();
+                let mut crosses_boundary = false;
+                for dst in line_destination_endpoints(line) {
+                    let Some(block) = block_lookup.get(dst.sid.as_str()).copied() else {
+                        continue;
+                    };
+                    propagated.extend(self.upstream_propagated_targets(
+                        system,
+                        system_path,
+                        block,
+                        dst,
+                        parent_ctx,
+                        child_summaries,
+                        line_targets,
+                    ));
+                    crosses_boundary |= matches!(
+                        block.block_type.as_str(),
+                        "SubSystem" | "Reference" | "Outport"
+                    );
+                }
                 if propagated.is_empty() {
                     continue;
                 }
@@ -397,10 +428,7 @@ impl ConnectionTargetResolver {
                     line,
                     &line_targets[index],
                     &propagated,
-                    matches!(
-                        block.block_type.as_str(),
-                        "SubSystem" | "Reference" | "Outport"
-                    ),
+                    crosses_boundary,
                 );
                 if merged != line_targets[index] {
                     line_targets[index] = merged;
@@ -462,19 +490,20 @@ impl ConnectionTargetResolver {
             else {
                 continue;
             };
-            let input_index = incoming.dst.as_ref().map(|dst| dst.port_index).unwrap_or(1);
             let signal_name = explicit_line_signal_name(incoming);
-            for mut target in line_targets[line_index].clone() {
-                let next_signal_name = signal_name.clone().or(target.signal_name.clone());
-                let next_resolve_signal = signal_name
-                    .clone()
-                    .or_else(|| target.signal_name.clone())
-                    .or_else(|| resolve_signal_value(&target.resolve).map(str::to_string))
-                    .or_else(|| Some(format!("signal{input_index}")));
-                set_signal_name_only(&mut target, next_signal_name);
-                set_signal_resolve(&mut target, next_resolve_signal);
-                target.origin = ConnectionTargetOrigin::BusCreator;
-                targets.push(target);
+            for input_index in input_port_indices(block, incoming) {
+                for mut target in line_targets[line_index].clone() {
+                    let next_signal_name = signal_name.clone().or(target.signal_name.clone());
+                    let next_resolve_signal = signal_name
+                        .clone()
+                        .or_else(|| target.signal_name.clone())
+                        .or_else(|| resolve_signal_value(&target.resolve).map(str::to_string))
+                        .or_else(|| Some(format!("signal{input_index}")));
+                    set_signal_name_only(&mut target, next_signal_name);
+                    set_signal_resolve(&mut target, next_resolve_signal);
+                    target.origin = ConnectionTargetOrigin::BusCreator;
+                    targets.push(target);
+                }
             }
         }
         targets
@@ -544,14 +573,15 @@ impl ConnectionTargetResolver {
             else {
                 continue;
             };
-            let input_index = incoming.dst.as_ref().map(|dst| dst.port_index).unwrap_or(1);
             let signal_name = explicit_line_signal_name(incoming);
-            for mut target in line_targets[line_index].clone() {
-                target.resolve = Some(ConnectionTargetResolve::Index(input_index));
-                let next_signal_name = signal_name.clone().or(target.signal_name.clone());
-                set_signal_name_only(&mut target, next_signal_name);
-                target.origin = ConnectionTargetOrigin::Mux;
-                targets.push(target);
+            for input_index in input_port_indices(block, incoming) {
+                for mut target in line_targets[line_index].clone() {
+                    target.resolve = Some(ConnectionTargetResolve::Index(input_index));
+                    let next_signal_name = signal_name.clone().or(target.signal_name.clone());
+                    set_signal_name_only(&mut target, next_signal_name);
+                    target.origin = ConnectionTargetOrigin::Mux;
+                    targets.push(target);
+                }
             }
         }
         targets
@@ -631,7 +661,7 @@ impl ConnectionTargetResolver {
         system: &System,
         system_path: &[String],
         block: &Block,
-        line: &Line,
+        dst: &EndpointRef,
         parent_ctx: Option<&ParentSubsystemContext>,
         child_summaries: &HashMap<String, ChildSubsystemSummary>,
         line_targets: &[Vec<ConnectionTarget>],
@@ -639,7 +669,7 @@ impl ConnectionTargetResolver {
         match block.block_type.as_str() {
             "BusCreator" => self.bus_creator_upstream_targets(system, block, line_targets),
             "BusSelector" => self.bus_selector_upstream_targets(system, block, line_targets),
-            "Mux" => self.mux_upstream_targets(system, block, line, line_targets),
+            "Mux" => self.mux_upstream_targets(system, block, dst.port_index, line_targets),
             "Demux" => self.demux_upstream_targets(system, block, line_targets),
             "Inport" => outgoing_line_indices_for_block(system, block)
                 .into_iter()
@@ -651,11 +681,8 @@ impl ConnectionTargetResolver {
                 .unwrap_or_default(),
             "SubSystem" | "Reference" => child_summaries
                 .get(block.sid.as_deref().unwrap_or_default())
-                .and_then(|summary| {
-                    line.dst
-                        .as_ref()
-                        .and_then(|dst| summary.incoming_by_port.get(&dst.port_index))
-                })
+                .filter(|_| !is_control_port_type(&dst.port_type))
+                .and_then(|summary| summary.incoming_by_port.get(&dst.port_index))
                 .map(|targets| {
                     let mut propagated =
                         boundary_targets(targets, self.full_block_path(system_path, &block.name));
@@ -699,13 +726,9 @@ impl ConnectionTargetResolver {
         &self,
         system: &System,
         block: &Block,
-        line: &Line,
+        input_index: u32,
         line_targets: &[Vec<ConnectionTarget>],
     ) -> Vec<ConnectionTarget> {
-        let Some(input_index) = line.dst.as_ref().map(|dst| dst.port_index) else {
-            return Vec::new();
-        };
-
         outgoing_line_indices_for_block(system, block)
             .into_iter()
             .flat_map(|(line_index, _)| {
@@ -849,6 +872,71 @@ fn boundary_port_index(block: &Block) -> u32 {
         .unwrap_or(1)
 }
 
+/// The data input ports of `block_sid` that `line` ends at, counting every
+/// branch: a branched signal reaches a port through `line.branches`, where the
+/// line's own `dst` says nothing about which port that is.  Control endpoints
+/// (`enable`, `trigger`, …) are skipped — they belong to the matching control
+/// port block, not to the numbered `Inport`s.
+fn line_data_input_ports(line: &Line, block_sid: &str) -> BTreeSet<u32> {
+    fn collect(dst: Option<&EndpointRef>, block_sid: &str, ports: &mut BTreeSet<u32>) {
+        if let Some(dst) = dst
+            && dst.sid == block_sid
+            && !is_control_port_type(&dst.port_type)
+        {
+            ports.insert(dst.port_index);
+        }
+    }
+
+    fn collect_branches(branches: &[Branch], block_sid: &str, ports: &mut BTreeSet<u32>) {
+        for branch in branches {
+            collect(branch.dst.as_ref(), block_sid, ports);
+            collect_branches(&branch.branches, block_sid, ports);
+        }
+    }
+
+    let mut ports = BTreeSet::new();
+    collect(line.dst.as_ref(), block_sid, &mut ports);
+    collect_branches(&line.branches, block_sid, &mut ports);
+    ports
+}
+
+/// The input ports of `block` that `line` ends at, falling back to port 1 when
+/// the wiring does not say (a block without a SID).
+fn input_port_indices(block: &Block, line: &Line) -> Vec<u32> {
+    let ports = block
+        .sid
+        .as_deref()
+        .map(|sid| line_data_input_ports(line, sid))
+        .unwrap_or_default();
+    if ports.is_empty() {
+        vec![1]
+    } else {
+        ports.into_iter().collect()
+    }
+}
+
+/// Every endpoint a line ends at: its own `dst` plus the destination of every
+/// branch, because a branched line has no `dst` of its own.
+fn line_destination_endpoints(line: &Line) -> Vec<&EndpointRef> {
+    fn collect<'a>(branches: &'a [Branch], out: &mut Vec<&'a EndpointRef>) {
+        for branch in branches {
+            out.extend(branch.dst.as_ref());
+            collect(&branch.branches, out);
+        }
+    }
+
+    let mut endpoints: Vec<&EndpointRef> = line.dst.as_ref().into_iter().collect();
+    collect(&line.branches, &mut endpoints);
+    endpoints
+}
+
+fn is_control_port_type(port_type: &str) -> bool {
+    matches!(
+        port_type.to_ascii_lowercase().as_str(),
+        "enable" | "trigger" | "ifaction" | "action" | "reset" | "state" | "event"
+    )
+}
+
 fn incoming_targets_by_port(
     system: &System,
     block: &Block,
@@ -860,13 +948,7 @@ fn incoming_targets_by_port(
     };
 
     for (line, targets) in system.lines.iter().zip(line_targets.iter()) {
-        if line_targets_block_sid(line, block_sid) {
-            let port_index = line
-                .dst
-                .as_ref()
-                .filter(|dst| dst.sid == block_sid)
-                .map(|dst| dst.port_index)
-                .unwrap_or(1);
+        for port_index in line_data_input_ports(line, block_sid) {
             by_port
                 .entry(port_index)
                 .or_insert_with(Vec::new)
@@ -1137,10 +1219,13 @@ fn apply_line_resolve_hint(
         return;
     }
 
-    if let Some(dst) = &line.dst
-        && let Some(block) = block_lookup.get(dst.sid.as_str())
-        && block.block_type == "Mux"
-    {
+    // The mux input this line ends at – for a branched line that is one of the
+    // branch endpoints, not `line.dst`.
+    if let Some(dst) = line_destination_endpoints(line).into_iter().find(|dst| {
+        block_lookup
+            .get(dst.sid.as_str())
+            .is_some_and(|block| block.block_type == "Mux")
+    }) {
         target.resolve = Some(ConnectionTargetResolve::Index(dst.port_index));
         return;
     }

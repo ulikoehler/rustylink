@@ -8,6 +8,9 @@ use eframe::egui::{Pos2, Rect};
 pub enum PortSide {
     In,
     Out,
+    /// Top edge: where the control ports (enable, trigger, reset, …) of a
+    /// subsystem enter.
+    Top,
 }
 
 /// Parse the block rectangle from a Simulink block's `Position` property.
@@ -62,7 +65,20 @@ pub fn port_anchor_pos(r: Rect, side: PortSide, port_index: u32, num_ports: Opti
     match side {
         PortSide::Out => Pos2::new(r.right(), y),
         PortSide::In => Pos2::new(r.left(), y),
+        PortSide::Top => Pos2::new(
+            r.left() + (idx1 as f32) / (n as f32 + 1.0) * r.width(),
+            r.top(),
+        ),
     }
+}
+
+/// Whether an endpoint's port type denotes a control port – one that enters a
+/// subsystem through its top edge instead of the input side.
+pub fn is_control_port_type(port_type: &str) -> bool {
+    matches!(
+        port_type.to_ascii_lowercase().as_str(),
+        "enable" | "trigger" | "ifaction" | "action" | "reset" | "state" | "event"
+    )
 }
 
 /// Determine the port side on screen for a given endpoint type, considering mirroring.
@@ -70,6 +86,7 @@ pub fn port_side_for(port_type: &str, mirrored: bool) -> PortSide {
     match (port_type, mirrored) {
         ("out", false) | ("in", true) => PortSide::Out,
         ("in", false) | ("out", true) => PortSide::In,
+        (other, _m) if is_control_port_type(other) => PortSide::Top,
         (_other, _m) => PortSide::In,
     }
 }

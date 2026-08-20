@@ -349,7 +349,7 @@ pub(crate) fn port_label_display_name(
         .unwrap_or_else(fallback_name)
 }
 
-fn subsystem_boundary_port_name(
+pub(crate) fn subsystem_boundary_port_name(
     block: &Block,
     index: u32,
     logical_is_input: bool,
@@ -372,7 +372,7 @@ fn subsystem_boundary_port_name(
         .iter()
         .filter(|child| child.block_type == boundary_type)
         .find(|child| subsystem_boundary_port_index(child) == index)
-        .and_then(boundary_block_display_name)
+        .and_then(|child| boundary_block_display_name(child, index))
 }
 
 fn subsystem_boundary_port_index(block: &Block) -> u32 {
@@ -384,25 +384,27 @@ fn subsystem_boundary_port_index(block: &Block) -> u32 {
         .unwrap_or(1)
 }
 
-/// Strip Simulink's default `In<N>` / `Out<N>` boundary-block naming so a
-/// subsystem shows the port *number* (what the Inport block's own icon draws),
-/// while user-chosen names such as `u` or `theta` are kept verbatim.
-fn simplify_boundary_name(name: &str) -> String {
+/// Replace Simulink's default `In<N>` / `Out<N>` boundary-block naming with the
+/// port *number* (what the Inport block's own icon draws), while user-chosen
+/// names such as `u` or `theta` are kept verbatim.  The number is the port's,
+/// not the one in the block name: reordering the ports of a subsystem renumbers
+/// them while the boundary blocks keep the names they were created with.
+fn simplify_boundary_name(name: &str, port_index: u32) -> String {
     for prefix in ["In", "Out"] {
         if let Some(rest) = name.strip_prefix(prefix)
             && !rest.is_empty()
             && rest.chars().all(|c| c.is_ascii_digit())
         {
-            return rest.to_string();
+            return port_index.to_string();
         }
     }
     name.to_string()
 }
 
-fn boundary_block_display_name(block: &Block) -> Option<String> {
+fn boundary_block_display_name(block: &Block, port_index: u32) -> Option<String> {
     let name = block.name.trim();
     if !name.is_empty() {
-        return Some(simplify_boundary_name(name));
+        return Some(simplify_boundary_name(name, port_index));
     }
 
     block

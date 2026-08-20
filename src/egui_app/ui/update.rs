@@ -12,7 +12,6 @@ use super::zoom_controls::show_zoom_controls;
 use crate::editor::operations;
 #[cfg(feature = "dashboard")]
 use crate::egui_app::DashboardControlValue;
-use crate::egui_app::geometry::endpoint_pos_maybe_mirrored;
 use crate::egui_app::geometry::{parse_block_rect, parse_rect_str};
 use crate::egui_app::navigation::resolve_subsystem_by_vec;
 use crate::egui_app::render::wrap_text_to_max_width;
@@ -1475,11 +1474,8 @@ pub(crate) fn update_internal(
                 continue;
             };
             let mut offsets_pts: Vec<Pos2> = Vec::new();
-            let num_src = port_counts
-                .get(&(src.sid.clone(), if src.port_type == "out" { 1 } else { 0 }))
-                .copied();
             let mirrored_src = sid_mirrored.get(&src.sid).copied().unwrap_or(false);
-            let mut cur = endpoint_pos_maybe_mirrored(*sr, src, num_src, mirrored_src);
+            let mut cur = signal_routing::endpoint_pos(*sr, src, &port_counts, mirrored_src);
             offsets_pts.push(cur);
             for off in &line.points {
                 cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
@@ -1498,20 +1494,12 @@ pub(crate) fn update_internal(
             }
             if let Some(dst) = line.dst.as_ref()
                 && let Some(dr) = sid_map.get(&dst.sid) {
-                    let num_dst = port_counts
-                        .get(&(dst.sid.clone(), if dst.port_type == "out" { 1 } else { 0 }))
-                        .copied();
                     let mirrored_dst = owned_blocks
                         .iter()
                         .find(|b| b.sid.as_ref() == Some(&dst.sid))
                         .and_then(|b| b.block_mirror)
                         .unwrap_or(false);
-                    let dst_pt = endpoint_pos_maybe_mirrored(
-                        *dr,
-                        dst,
-                        num_dst,
-                        mirrored_dst,
-                    );
+                    let dst_pt = signal_routing::endpoint_pos(*dr, dst, &port_counts, mirrored_dst);
                     let dst_screen = to_screen(dst_pt);
                     screen_pts.push(dst_screen);
                     if dst.port_type == "in" {
@@ -1620,18 +1608,9 @@ pub(crate) fn update_internal(
             signal_routing::push_orthogonal_segments(&screen_pts, out);
             if let Some(dstb) = &br.dst
                 && let Some(dr) = sid_map.get(&dstb.sid) {
-                    let key = (
-                        dstb.sid.clone(),
-                        if dstb.port_type == "out" { 1 } else { 0 },
-                    );
-                    let num_dst = port_counts.get(&key).copied();
                     let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
-                    let end_pt = crate::egui_app::geometry::endpoint_pos_maybe_mirrored(
-                        *dr,
-                        dstb,
-                        num_dst,
-                        mirrored_dst,
-                    );
+                    let end_pt =
+                        signal_routing::endpoint_pos(*dr, dstb, port_counts, mirrored_dst);
                     let a = to_screen(*pts.last().unwrap_or(&cur));
                     let b = to_screen(end_pt);
                     signal_routing::push_orthogonal_segments(&[a, b], out);
@@ -1708,18 +1687,9 @@ pub(crate) fn update_internal(
             }
             if let Some(dstb) = &br.dst
                 && let Some(dr) = sid_map.get(&dstb.sid) {
-                    let key = (
-                        dstb.sid.clone(),
-                        if dstb.port_type == "out" { 1 } else { 0 },
-                    );
-                    let num_dst = port_counts.get(&key).copied();
                     let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
-                    let end_pt = endpoint_pos_maybe_mirrored(
-                        *dr,
-                        dstb,
-                        num_dst,
-                        mirrored_dst,
-                    );
+                    let end_pt =
+                        signal_routing::endpoint_pos(*dr, dstb, port_counts, mirrored_dst);
                     let last = *pts.last().unwrap_or(&cur);
                     let a = to_screen(last);
                     let b = to_screen(end_pt);
@@ -2771,12 +2741,9 @@ pub(crate) fn update_internal(
                     );
                 }
             }
-            // Enable/trigger ports enter through the block's top edge.
-            let control_count = b
-                .port_counts
-                .as_ref()
-                .map(|p| p.control_count())
-                .unwrap_or(0);
+            // Enable/trigger/reset/event ports enter through the top edge.
+            let control_count =
+                crate::simulink_libraries::renderers::subsystem_control_port_count(b);
             for i in 0..control_count {
                 let x = r_screen.left()
                     + (i as f32 + 1.0) / (control_count as f32 + 1.0) * r_screen.width();

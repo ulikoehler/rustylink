@@ -203,6 +203,12 @@ fn write_port_counts(out: &mut String, pc: &PortCounts, level: usize) {
     if let Some(trigger) = pc.trigger {
         out.push_str(&format!(" trigger=\"{}\"", trigger));
     }
+    if let Some(reset) = pc.reset {
+        out.push_str(&format!(" reset=\"{}\"", reset));
+    }
+    if let Some(event) = pc.event {
+        out.push_str(&format!(" event=\"{}\"", event));
+    }
     out.push_str("/>\n");
 }
 

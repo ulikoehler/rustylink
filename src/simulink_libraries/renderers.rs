@@ -536,12 +536,7 @@ pub fn static_subsystem(
 
     // The control pictograms sit under the top-edge ports they belong to, and
     // reuse the port pictograms of the Integrator/Delay reset ports.
-    let controls: Vec<&str> = content
-        .enabled
-        .then_some(LEVEL_PULSE)
-        .into_iter()
-        .chain(content.triggered)
-        .collect();
+    let controls = control_port_glyphs(&content);
     let size = (rect.width() / (controls.len() as f32 + 1.0))
         .min(rect.height() * 0.34)
         .min(16.0 * ctx.font_scale)
@@ -598,11 +593,182 @@ pub fn static_subsystem(
     true
 }
 
+/// Static renderer for the Data Store Read/Write blocks: the name of the store
+/// they access, framed by the rules Simulink draws above and below it.
+pub fn static_data_store_access(
+    painter: &Painter,
+    _block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let name = ctx
+        .metadata
+        .get("DataStoreName")
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("A");
+    let spec = format!("p 0.14,0.18 0.86,0.18; p 0.14,0.82 0.86,0.82; t 0.50,0.50,0.46 {name}");
+    crate::egui_app::render::draw_plot_icon(
+        painter,
+        rect,
+        ctx.font_scale,
+        &spec,
+        ctx.text_color,
+        ctx.port_label_widths,
+    );
+    true
+}
+
+/// Static renderer for the blocks that write into another block's state or
+/// parameters: a diamond carrying `x` (state) or `p` (parameter).  The block
+/// they act on is named in the label Simulink prints beside the diamond.
+pub fn static_state_parameter_access(
+    painter: &Painter,
+    block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let glyph = if block.block_type == "ParameterWriter" {
+        "p"
+    } else {
+        "x"
+    };
+    let colors = body_colors(ctx);
+    let center = rect.center();
+    painter.add(eframe::egui::Shape::convex_polygon(
+        vec![
+            eframe::egui::pos2(center.x, rect.top()),
+            eframe::egui::pos2(rect.right(), center.y),
+            eframe::egui::pos2(center.x, rect.bottom()),
+            eframe::egui::pos2(rect.left(), center.y),
+        ],
+        colors.fill,
+        eframe::egui::Stroke::new((1.4 * ctx.font_scale).max(0.75), colors.border),
+    ));
+    painter.text(
+        center,
+        eframe::egui::Align2::CENTER_CENTER,
+        glyph,
+        eframe::egui::FontId::proportional(
+            (rect.height() * 0.5)
+                .min(24.0 * ctx.font_scale)
+                .clamp(1.0, 24.0),
+        ),
+        colors.text,
+    );
+    true
+}
+
+/// Static renderer for the ResetPort block: the pictogram of the edge it
+/// resets on – the same one its subsystem shows at the reset port it adds.
+pub fn static_reset_port(
+    painter: &Painter,
+    _block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let spec =
+        reset_spec(ctx.metadata.get("ResetTriggerType").or(Some("rising"))).unwrap_or(RISING_EDGE);
+    crate::egui_app::render::draw_plot_icon(
+        painter,
+        rect,
+        ctx.font_scale,
+        spec,
+        ctx.text_color,
+        ctx.port_label_widths,
+    );
+    true
+}
+
+/// The pictograms of the subsystem's top-edge control ports, in the order
+/// Simulink places them: enable, trigger, reset, lifecycle event.  A reset port
+/// is annotated with `R` and an event port with the event's name, both drawn
+/// beside the pictogram.
+fn control_port_glyphs(content: &SubsystemContent) -> Vec<String> {
+    let mut glyphs: Vec<String> = Vec::new();
+    if content.enabled {
+        glyphs.push(LEVEL_PULSE.to_string());
+    }
+    if let Some(trigger) = content.triggered {
+        glyphs.push(trigger.to_string());
+    }
+    if let Some(reset) = content.reset {
+        glyphs.push(format!("{reset}; t 1.32,0.78,0.50 R"));
+    }
+    if let Some(event) = content.event_port.as_ref() {
+        glyphs.push(format!(
+            "{}; t 2.20,0.50,0.50 {}",
+            event_port_glyph(&event.kind),
+            event.caption
+        ));
+    }
+    glyphs
+}
+
+/// The lifecycle pictogram of an event port, drawn inside its own square.
+fn event_port_glyph(kind: &EventKind) -> &'static str {
+    match kind {
+        EventKind::Reset => "sa 0.50,0.58,0.34,0.80,1.70;",
+        EventKind::Terminate => "s 0.50,0.58,0.34,0.00,1.00; p 0.50,0.36 0.50,0.80;",
+        EventKind::Initialize => "s 0.50,0.58,0.34,0.80,1.70; p 0.50,0.14 0.50,0.58;",
+        EventKind::Reinitialize => "sa 0.50,0.58,0.34,0.80,1.70; p 0.50,0.14 0.50,0.58;",
+    }
+}
+
+/// The endpoint types of the subsystem's top-edge ports, left to right, in the
+/// same order [`control_port_glyphs`] draws their pictograms.  This is what
+/// turns an `enable:1` / `trigger:1` endpoint – both numbered 1, each in its
+/// own type's numbering – into the slot it occupies on the edge.  Falls back to
+/// the model's `<PortCounts>` for a subsystem whose contents are not loaded.
+pub fn subsystem_control_port_types(block: &Block) -> Vec<&'static str> {
+    if block.subsystem.is_none() {
+        let Some(counts) = block.port_counts.as_ref() else {
+            return Vec::new();
+        };
+        return [
+            ("enable", counts.enable),
+            ("trigger", counts.trigger),
+            ("reset", counts.reset),
+            ("event", counts.event),
+        ]
+        .into_iter()
+        .flat_map(|(port_type, count)| std::iter::repeat_n(port_type, count.unwrap_or(0) as usize))
+        .collect();
+    }
+
+    let content = SubsystemContent::of(block);
+    let mut types = Vec::new();
+    if content.enabled {
+        types.push("enable");
+    }
+    if content.triggered.is_some() {
+        types.push("trigger");
+    }
+    if content.reset.is_some() {
+        types.push("reset");
+    }
+    if content.event_port.is_some() {
+        types.push("event");
+    }
+    types
+}
+
+/// How many ports a subsystem carries on its top edge, derived from the blocks
+/// it contains so the port markers and their pictograms always agree.
+pub fn subsystem_control_port_count(block: &Block) -> u32 {
+    subsystem_control_port_types(block).len() as u32
+}
+
 /// The parts of a subsystem's contents that shape how Simulink draws it.
 struct SubsystemContent {
     enabled: bool,
     /// The pictogram of a contained `TriggerPort`, per its `TriggerType`.
     triggered: Option<&'static str>,
+    /// The pictogram of a contained `ResetPort`, per its `ResetTriggerType`.
+    reset: Option<&'static str>,
+    /// The lifecycle event a nested function subsystem exposes on the parent's
+    /// top edge (`<PortCounts event="1"/>`).
+    event_port: Option<SubsystemEvent>,
     for_each: bool,
     /// The lifecycle event a contained `EventListener` responds to – what
     /// distinguishes initialize/reset/reinitialize/terminate function
@@ -663,13 +829,37 @@ impl SubsystemContent {
         let mut content = SubsystemContent {
             enabled: false,
             triggered: None,
+            reset: None,
+            event_port: None,
             for_each: false,
             event: None,
         };
         if let Some(system) = block.subsystem.as_deref() {
             for child in &system.blocks {
+                // A function subsystem nested inside this one surfaces its
+                // event as a port on this block's top edge.
+                if let Some(nested) = child.subsystem.as_deref()
+                    && let Some(listener) = nested
+                        .blocks
+                        .iter()
+                        .find(|inner| inner.block_type == "EventListener")
+                {
+                    content.event_port = Some(SubsystemEvent::of(listener));
+                }
                 match child.block_type.as_str() {
                     "EnablePort" => content.enabled = true,
+                    "ResetPort" => {
+                        content.reset = Some(
+                            reset_spec(
+                                child
+                                    .properties
+                                    .get("ResetTriggerType")
+                                    .map(String::as_str)
+                                    .or(Some("rising")),
+                            )
+                            .unwrap_or(RISING_EDGE),
+                        )
+                    }
                     "TriggerPort" => {
                         content.triggered = Some(
                             reset_spec(

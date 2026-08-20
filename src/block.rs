@@ -591,6 +591,8 @@ pub fn parse_block_shallow(node: Node, base_dir: &Utf8Path) -> Result<Block> {
                     outs: count("out"),
                     enable: count("enable"),
                     trigger: count("trigger"),
+                    reset: count("reset"),
+                    event: count("event"),
                 });
                 child_order.push(BlockChildKind::PortCounts);
             }

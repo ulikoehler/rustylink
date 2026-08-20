@@ -84,73 +84,9 @@ pub fn port_label_defined_name(
         names.get(index.checked_sub(1)? as usize).cloned()
     };
 
-    subsystem_boundary_port_name(block, index, logical_is_input)
+    render::subsystem_boundary_port_name(block, index, logical_is_input)
         .or_else(|| crate::simulink_libraries::render::port_label(block, index, logical_is_input))
         .or_else(catalog_name)
-        .filter(|name| !name.is_empty())
-}
-
-fn subsystem_boundary_port_name(
-    block: &crate::model::Block,
-    index: u32,
-    logical_is_input: bool,
-) -> Option<String> {
-    let boundary_type = match block.block_type.as_str() {
-        "SubSystem" | "Reference" => {
-            if logical_is_input {
-                "Inport"
-            } else {
-                "Outport"
-            }
-        }
-        _ => return None,
-    };
-
-    block
-        .subsystem
-        .as_ref()?
-        .blocks
-        .iter()
-        .filter(|child| child.block_type == boundary_type)
-        .find(|child| subsystem_boundary_port_index(child) == index)
-        .and_then(boundary_block_display_name)
-}
-
-fn subsystem_boundary_port_index(block: &crate::model::Block) -> u32 {
-    block
-        .properties
-        .get("Port")
-        .or_else(|| block.properties.get("PortNumber"))
-        .and_then(|value| value.trim().parse::<u32>().ok())
-        .unwrap_or(1)
-}
-
-/// Strip Simulink's default `In<N>` / `Out<N>` boundary-block naming so a
-/// subsystem shows the port *number* (what the Inport block's own icon draws),
-/// while user-chosen names such as `u` or `theta` are kept verbatim.
-fn simplify_boundary_name(name: &str) -> String {
-    for prefix in ["In", "Out"] {
-        if let Some(rest) = name.strip_prefix(prefix)
-            && !rest.is_empty()
-            && rest.chars().all(|c| c.is_ascii_digit())
-        {
-            return rest.to_string();
-        }
-    }
-    name.to_string()
-}
-
-fn boundary_block_display_name(block: &crate::model::Block) -> Option<String> {
-    let name = block.name.trim();
-    if !name.is_empty() {
-        return Some(simplify_boundary_name(name));
-    }
-
-    block
-        .properties
-        .get("Name")
-        .or_else(|| block.properties.get("name"))
-        .map(|name| name.trim().to_string())
         .filter(|name| !name.is_empty())
 }
 

@@ -27,9 +27,8 @@ use crate::model::EndpointRef;
 
 use crate::egui_app::navigation::resolve_subsystem_by_vec;
 use crate::egui_app::{
-    BlockDialog, SignalDialog, endpoint_pos_maybe_mirrored, get_block_type_cfg,
-    highlight_query_job, parse_block_rect, parse_rect_str, show_zoom_controls,
-    wrap_text_to_max_width,
+    BlockDialog, SignalDialog, get_block_type_cfg, highlight_query_job, parse_block_rect,
+    parse_rect_str, show_zoom_controls, wrap_text_to_max_width,
 };
 
 use super::operations;
@@ -818,34 +817,8 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
                 sid_mirrored.insert(sid.clone(), b.block_mirror.unwrap_or(false));
             }
         }
-        let mut port_counts: HashMap<(String, u8), u32> = HashMap::new();
-        fn reg_ep(ep: &EndpointRef, port_counts: &mut HashMap<(String, u8), u32>) {
-            let key = (ep.sid.clone(), if ep.port_type == "out" { 1 } else { 0 });
-            let idx1 = if ep.port_index == 0 { 1 } else { ep.port_index };
-            port_counts
-                .entry(key)
-                .and_modify(|v| *v = (*v).max(idx1))
-                .or_insert(idx1);
-        }
-        fn reg_branch(br: &crate::model::Branch, port_counts: &mut HashMap<(String, u8), u32>) {
-            if let Some(dst) = &br.dst {
-                reg_ep(dst, port_counts);
-            }
-            for sub in &br.branches {
-                reg_branch(sub, port_counts);
-            }
-        }
-        for line in &sys_lines {
-            if let Some(src) = &line.src {
-                reg_ep(src, &mut port_counts);
-            }
-            if let Some(dst) = &line.dst {
-                reg_ep(dst, &mut port_counts);
-            }
-            for br in &line.branches {
-                reg_branch(br, &mut port_counts);
-            }
-        }
+        let (port_counts, _connected_ports) =
+            crate::egui_app::ui::signal_routing::compute_port_info(&sys_lines, &owned_blocks);
 
         // Color lines with graph coloring
         let line_colors = compute_line_colors(&sys_lines, &port_counts);
@@ -857,11 +830,13 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             let Some(sr) = sid_map.get(&src.sid) else {
                 continue;
             };
-            let num_src = port_counts
-                .get(&(src.sid.clone(), if src.port_type == "out" { 1 } else { 0 }))
-                .copied();
             let mirrored_src = sid_mirrored.get(&src.sid).copied().unwrap_or(false);
-            let mut cur = endpoint_pos_maybe_mirrored(*sr, src, num_src, mirrored_src);
+            let mut cur = crate::egui_app::ui::signal_routing::endpoint_pos(
+                *sr,
+                src,
+                &port_counts,
+                mirrored_src,
+            );
             let mut offsets_pts = vec![cur];
             for off in &line.points {
                 cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
@@ -873,11 +848,13 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             if let Some(dst) = line.dst.as_ref()
                 && let Some(dr) = sid_map.get(&dst.sid)
             {
-                let num_dst = port_counts
-                    .get(&(dst.sid.clone(), if dst.port_type == "out" { 1 } else { 0 }))
-                    .copied();
                 let mirrored_dst = sid_mirrored.get(&dst.sid).copied().unwrap_or(false);
-                let dst_pt = endpoint_pos_maybe_mirrored(*dr, dst, num_dst, mirrored_dst);
+                let dst_pt = crate::egui_app::ui::signal_routing::endpoint_pos(
+                    *dr,
+                    dst,
+                    &port_counts,
+                    mirrored_dst,
+                );
                 screen_pts.push(to_screen(dst_pt));
             }
 
@@ -1282,10 +1259,12 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
                     port_type: src_port_type.clone(),
                     port_index: src_port_index,
                 };
-                let num_ports = port_counts
-                    .get(&(src_sid.clone(), if src_port_type == "out" { 1 } else { 0 }))
-                    .copied();
-                let model_pos = endpoint_pos_maybe_mirrored(*sr, &ep, num_ports, mirrored);
+                let model_pos = crate::egui_app::ui::signal_routing::endpoint_pos(
+                    *sr,
+                    &ep,
+                    &port_counts,
+                    mirrored,
+                );
                 Some(to_screen(model_pos))
             } else {
                 sid_screen_map.get(src_sid).map(|sr| {
@@ -2081,13 +2060,9 @@ fn draw_branch_rec(
     if let Some(dstb) = &br.dst
         && let Some(dr) = sid_map.get(&dstb.sid)
     {
-        let key = (
-            dstb.sid.clone(),
-            if dstb.port_type == "out" { 1 } else { 0 },
-        );
-        let num_dst = port_counts.get(&key).copied();
         let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
-        let end_pt = endpoint_pos_maybe_mirrored(*dr, dstb, num_dst, mirrored_dst);
+        let end_pt =
+            crate::egui_app::ui::signal_routing::endpoint_pos(*dr, dstb, port_counts, mirrored_dst);
         let a = to_screen(*pts.last().unwrap_or(&cur));
         let b = to_screen(end_pt);
         if dstb.port_type == "in" {

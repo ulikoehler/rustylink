@@ -148,3 +148,38 @@ fn subsystem_port_labels_use_internal_boundary_block_names() {
         "SubsystemOutput"
     );
 }
+
+#[test]
+fn subsystem_port_numbers_follow_the_port_property_not_the_block_name() {
+    // Reordering a subsystem's ports renumbers them while the boundary blocks
+    // keep the default names they were created with, so `In2` can be port 1.
+    let boundary = |block_type: &str, name: &str, port: &str| {
+        let mut child =
+            rustylink::editor::operations::create_default_block(block_type, name, 0, 0, 0, 0);
+        child
+            .properties
+            .insert("Port".to_string(), port.to_string());
+        child
+    };
+
+    let mut block =
+        rustylink::editor::operations::create_default_block("SubSystem", "SubSystem", 0, 0, 2, 2);
+    block.subsystem = Some(Box::new(System {
+        properties: IndexMap::new(),
+        blocks: vec![
+            boundary("Inport", "In2", "1"),
+            boundary("Inport", "In1", "2"),
+            boundary("Outport", "Out2", "1"),
+            boundary("Outport", "Out1", "2"),
+        ],
+        lines: Vec::new(),
+        annotations: Vec::new(),
+        chart: None,
+    }));
+
+    let cfg = get_block_type_cfg(&block);
+    assert_eq!(port_label_display_name(&block, 1, true, &cfg), "1");
+    assert_eq!(port_label_display_name(&block, 2, true, &cfg), "2");
+    assert_eq!(port_label_display_name(&block, 1, false, &cfg), "1");
+    assert_eq!(port_label_display_name(&block, 2, false, &cfg), "2");
+}

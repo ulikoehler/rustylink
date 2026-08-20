@@ -241,9 +241,9 @@ pub enum NameLocation {
     Right,
 }
 
-/// Represents the `<PortCounts in="…" out="…" enable="…" trigger="…"/>` XML
-/// element.  The control ports (`enable`/`trigger`) sit on the top edge of the
-/// block rather than on the input side.
+/// Represents the `<PortCounts in="…" out="…" enable="…" trigger="…"
+/// reset="…" event="…"/>` XML element.  The control ports (everything but
+/// `in`/`out`) sit on the top edge of the block rather than on the input side.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PortCounts {
     pub ins: Option<u32>,
@@ -252,12 +252,19 @@ pub struct PortCounts {
     pub enable: Option<u32>,
     #[serde(default)]
     pub trigger: Option<u32>,
+    #[serde(default)]
+    pub reset: Option<u32>,
+    #[serde(default)]
+    pub event: Option<u32>,
 }
 
 impl PortCounts {
     /// Number of control ports on the block's top edge.
     pub fn control_count(&self) -> u32 {
-        self.enable.unwrap_or(0) + self.trigger.unwrap_or(0)
+        self.enable.unwrap_or(0)
+            + self.trigger.unwrap_or(0)
+            + self.reset.unwrap_or(0)
+            + self.event.unwrap_or(0)
     }
 }
 
