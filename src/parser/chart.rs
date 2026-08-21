@@ -210,7 +210,6 @@ pub fn annotate_matlab_function_names(
                             .script
                             .as_deref()
                             .and_then(script_function_name)
-                            .map(str::to_string)
                     })
                 })
                 .filter(|name| !name.trim().is_empty());
@@ -228,15 +227,90 @@ pub fn annotate_matlab_function_names(
 }
 
 /// The function name of a MATLAB script: `function [x,y] = test(u,v)` → `test`.
-fn script_function_name(script: &str) -> Option<&str> {
-    let header = script
-        .lines()
-        .map(str::trim)
-        .find(|line| line.starts_with("function"))?;
+///
+/// Handles MATLAB line continuation (`...`): when the `function` declaration
+/// spans multiple lines, the continuation lines are joined before the name is
+/// extracted, so a header like
+/// ```text
+/// function [out] = ...
+///     myFunc(u)
+/// ```
+/// yields `myFunc`.
+fn script_function_name(script: &str) -> Option<String> {
+    let mut lines = script.lines().map(str::trim);
+    // Find the first line of the function declaration.
+    let first = lines.find(|line| line.starts_with("function"))?;
+    // Join continuation lines (lines ending with `...`) into a single header.
+    let mut header = first.to_string();
+    while header.trim_end().ends_with("...") {
+        // Drop the trailing `...` (and any whitespace before it).
+        let cut = header.trim_end().len() - 3;
+        header.truncate(cut);
+        if let Some(next) = lines.next() {
+            header.push(' ');
+            header.push_str(next);
+        } else {
+            break;
+        }
+    }
+    let header = header.trim();
     let after_outputs = header
         .rsplit_once('=')
         .map(|(_, r)| r)
         .unwrap_or(header.strip_prefix("function").unwrap_or(header));
     let name = after_outputs.split('(').next()?.trim();
-    (!name.is_empty()).then_some(name)
+    (!name.is_empty()).then_some(name.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::script_function_name;
+
+    #[test]
+    fn single_line_function_header() {
+        assert_eq!(
+            script_function_name("function y = fcn(u)\ny = u;"),
+            Some("fcn".to_string())
+        );
+    }
+
+    #[test]
+    fn multi_output_function_header() {
+        assert_eq!(
+            script_function_name("function [x,y] = test(u,v)\ny = u;\nx=v;"),
+            Some("test".to_string())
+        );
+    }
+
+    #[test]
+    fn function_header_with_continuation_line() {
+        let script = "function [out] = ...\n    myFunc(u)\ny = u;";
+        assert_eq!(
+            script_function_name(script),
+            Some("myFunc".to_string())
+        );
+    }
+
+    #[test]
+    fn function_header_with_multiple_continuation_lines() {
+        let script = "function ...\n  result ...\n  = ...\n  compute(x)\ny = x;";
+        assert_eq!(
+            script_function_name(script),
+            Some("compute".to_string())
+        );
+    }
+
+    #[test]
+    fn function_header_no_outputs_with_continuation() {
+        let script = "function ...\n  doit(u)\ny = u;";
+        assert_eq!(
+            script_function_name(script),
+            Some("doit".to_string())
+        );
+    }
+
+    #[test]
+    fn no_function_header_returns_none() {
+        assert_eq!(script_function_name("y = u;"), None);
+    }
 }

@@ -653,7 +653,12 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_aliases(&["Multiport Switch"])
         .with_description("Select one of N inputs based on control signal")
         .with_ports(IOPorts::Variable(4), IOPorts::Fixed(1))
-        .with_metadata_keys(&[MetadataKey::with_default("Inputs", "")])
+        .with_metadata_keys(&[
+            MetadataKey::with_default("Inputs", ""),
+            MetadataKey::with_default("DataPortOrder", "One-based contiguous"),
+            MetadataKey::new("DataPortIndices"),
+            MetadataKey::new("DataPortForDefault"),
+        ])
         .with_static_renderer(renderers::static_multiport_switch)
         .with_port_labels(
             PortLabelPolicy::MetadataDependent(renderers::multiport_switch_port_labels),

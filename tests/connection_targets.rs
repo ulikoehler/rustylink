@@ -2469,3 +2469,932 @@ fn branched_line_picks_up_child_metadata_of_the_subsystem_it_branches_into() {
         "metadata of the branched-into subsystem must reach the line: {targets:#?}"
     );
 }
+
+// ===========================================================================
+// Tests for staggered BusCreator hierarchical resolve paths (Issue 1)
+// ===========================================================================
+
+#[test]
+fn bus_creator_staggered_preserves_leaf_resolve() {
+    // bus_a = BusCreator(a, signal2, c)
+    // bus_c = BusCreator1(bus_a, d)  -- staggered
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, None)], None, &[]),
+            block("Constant", "C", "3", vec![port("out", 1, Some("c"))], None, &[]),
+            block("Constant", "D", "4", vec![port("out", 1, Some("d"))], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "5",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("in", 3, None),
+                    port("out", 1, Some("bus_a")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusCreator",
+                "BusCreator1",
+                "6",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus_c")),
+                ],
+                None,
+                &[],
+            ),
+            block("Display", "Sink", "7", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "5", 1, Some("a")),
+            line("2", 1, "5", 2, None),
+            line("3", 1, "5", 3, Some("c")),
+            line("5", 1, "6", 1, Some("bus_a")),
+            line("4", 1, "6", 2, Some("d")),
+            line("6", 1, "7", 1, Some("bus_c")),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    let targets = resolver.line_targets_for_line(&[], &system.lines[5]);
+
+    // bus_c should contain: bus_a.a, bus_a.signal2, bus_a.c, d
+    let resolves: Vec<_> = targets
+        .iter()
+        .filter_map(|t| match &t.resolve {
+            Some(ConnectionTargetResolve::Signal(s)) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+
+    assert!(
+        resolves.iter().any(|r| r == "bus_a.a"),
+        "expected bus_a.a in {resolves:?}"
+    );
+    assert!(
+        resolves.iter().any(|r| r == "bus_a.signal2"),
+        "expected bus_a.signal2 in {resolves:?}"
+    );
+    assert!(
+        resolves.iter().any(|r| r == "bus_a.c"),
+        "expected bus_a.c in {resolves:?}"
+    );
+    assert!(
+        resolves.iter().any(|r| r == "d"),
+        "expected d in {resolves:?}"
+    );
+}
+
+#[test]
+fn bus_selector_hierarchical_matches_leaf_in_nested_bus() {
+    // bus_a = BusCreator(a, b)
+    // bus_c = BusCreator1(bus_a, d)  -- staggered
+    // BusSelector selects bus_c.bus_a.b
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block("Constant", "D", "3", vec![port("out", 1, Some("d"))], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "4",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus_a")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusCreator",
+                "BusCreator1",
+                "5",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus_c")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusSelector",
+                "BusSelector",
+                "6",
+                vec![port("in", 1, None), port("out", 1, None)],
+                None,
+                &[("OutputSignals", "bus_a.b")],
+            ),
+            block("Display", "Sink", "7", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "4", 1, Some("a")),
+            line("2", 1, "4", 2, Some("b")),
+            line("4", 1, "5", 1, Some("bus_a")),
+            line("3", 1, "5", 2, Some("d")),
+            line("5", 1, "6", 1, Some("bus_c")),
+            line("6", 1, "7", 1, None),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    let targets = resolver.line_targets_for_line(&[], &system.lines[5]);
+
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].path, "model/B");
+    assert_eq!(
+        targets[0].resolve,
+        Some(ConnectionTargetResolve::Signal("bus_a.b".to_string()))
+    );
+    assert_eq!(targets[0].origin, ConnectionTargetOrigin::BusSelector);
+}
+
+#[test]
+fn bus_selector_hierarchical_prefix_match_for_subbus() {
+    // bus_a = BusCreator(a, b)
+    // bus_c = BusCreator1(bus_a, d)  -- staggered
+    // BusSelector selects bus_c.bus_a (sub-bus) → should return all leaves under bus_c.bus_a
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block("Constant", "D", "3", vec![port("out", 1, Some("d"))], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "4",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus_a")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusCreator",
+                "BusCreator1",
+                "5",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus_c")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusSelector",
+                "BusSelector",
+                "6",
+                vec![port("in", 1, None), port("out", 1, None)],
+                None,
+                &[("OutputSignals", "bus_a")],
+            ),
+            block("Display", "Sink", "7", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "4", 1, Some("a")),
+            line("2", 1, "4", 2, Some("b")),
+            line("4", 1, "5", 1, Some("bus_a")),
+            line("3", 1, "5", 2, Some("d")),
+            line("5", 1, "6", 1, Some("bus_c")),
+            line("6", 1, "7", 1, None),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    let targets = resolver.line_targets_for_line(&[], &system.lines[5]);
+
+    // Should return all leaves under bus_c.bus_a: bus_a.a and bus_a.b
+    // (NOT bus_c.d, which is not under bus_c.bus_a)
+    let paths: Vec<_> = targets.iter().map(|t| t.path.clone()).collect();
+    assert!(
+        paths.iter().any(|p| p == "model/A"),
+        "expected model/A in {paths:?}"
+    );
+    assert!(
+        paths.iter().any(|p| p == "model/B"),
+        "expected model/B in {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|p| p == "model/D"),
+        "model/D should NOT be in {paths:?}"
+    );
+}
+
+#[test]
+fn bus_selector_hierarchical_disambiguates_duplicate_names() {
+    // bus_x = BusCreator(c, a)
+    // bus_y = BusCreator(c, b)  -- both have element "c"
+    // bus_top = BusCreator2(bus_x, bus_y)
+    // BusSelector selects bus_top.bus_x.c → should match only the "c" under bus_x
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "Cx", "1", vec![port("out", 1, Some("c"))], None, &[]),
+            block("Constant", "Ax", "2", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "Cy", "3", vec![port("out", 1, Some("c"))], None, &[]),
+            block("Constant", "By", "4", vec![port("out", 1, Some("b"))], None, &[]),
+            block(
+                "BusCreator",
+                "BusX",
+                "5",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus_x")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusCreator",
+                "BusY",
+                "6",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus_y")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusCreator",
+                "BusTop",
+                "7",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus_top")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusSelector",
+                "BusSelector",
+                "8",
+                vec![port("in", 1, None), port("out", 1, None)],
+                None,
+                &[("OutputSignals", "bus_x.c")],
+            ),
+            block("Display", "Sink", "9", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "5", 1, Some("c")),
+            line("2", 1, "5", 2, Some("a")),
+            line("3", 1, "6", 1, Some("c")),
+            line("4", 1, "6", 2, Some("b")),
+            line("5", 1, "7", 1, Some("bus_x")),
+            line("6", 1, "7", 2, Some("bus_y")),
+            line("7", 1, "8", 1, Some("bus_top")),
+            line("8", 1, "9", 1, None),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    let targets = resolver.line_targets_for_line(&[], &system.lines[7]);
+
+    // Should match only Cx (bus_x.c), NOT Cy (bus_y.c)
+    assert_eq!(targets.len(), 1);
+    assert_eq!(targets[0].path, "model/Cx");
+    assert_eq!(
+        targets[0].resolve,
+        Some(ConnectionTargetResolve::Signal("bus_x.c".to_string()))
+    );
+}
+
+// ===========================================================================
+// Tests for BusAssignment propagation (Issue 2)
+// ===========================================================================
+
+#[test]
+fn bus_assignment_passes_through_unassigned_signals() {
+    // bus = BusCreator(a, b)
+    // BusAssignment with AssignedSignals=a, replacement from in:2
+    // Output should contain b (pass-through) and the replacement for a
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block("Constant", "Rep", "3", vec![port("out", 1, None)], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "4",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusAssignment",
+                "BusAssignment",
+                "5",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, None),
+                ],
+                None,
+                &[("AssignedSignals", "a")],
+            ),
+            block("Display", "Sink", "6", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "4", 1, Some("a")),
+            line("2", 1, "4", 2, Some("b")),
+            line("4", 1, "5", 1, Some("bus")),
+            line("3", 1, "5", 2, None),
+            line("5", 1, "6", 1, None),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    let targets = resolver.line_targets_for_line(&[], &system.lines[4]);
+
+    // Should have: replacement target with resolve "a" (from Constant Rep),
+    // and pass-through target with resolve "b" (from Constant B).
+    // The original "a" target (from Constant A) should be filtered out.
+    let paths: Vec<_> = targets.iter().map(|t| t.path.clone()).collect();
+    assert!(
+        paths.iter().any(|p| p == "model/Rep"),
+        "expected replacement target model/Rep in {paths:?}"
+    );
+    assert!(
+        paths.iter().any(|p| p == "model/B"),
+        "expected pass-through target model/B in {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|p| p == "model/A"),
+        "original model/A should be filtered out, but found in {paths:?}"
+    );
+
+    // Check resolves
+    let rep_target = targets.iter().find(|t| t.path == "model/Rep").unwrap();
+    assert_eq!(
+        rep_target.resolve,
+        Some(ConnectionTargetResolve::Signal("a".to_string()))
+    );
+    let b_target = targets.iter().find(|t| t.path == "model/B").unwrap();
+    assert_eq!(
+        b_target.resolve,
+        Some(ConnectionTargetResolve::Signal("b".to_string()))
+    );
+}
+
+#[test]
+fn bus_assignment_replaces_assigned_leaf_signal() {
+    // bus = BusCreator(a, b)
+    // BusAssignment with AssignedSignals=b, replacement from in:2
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block("Constant", "RepB", "3", vec![port("out", 1, None)], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "4",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusAssignment",
+                "BusAssignment",
+                "5",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, None),
+                ],
+                None,
+                &[("AssignedSignals", "b")],
+            ),
+            block("Display", "Sink", "6", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "4", 1, Some("a")),
+            line("2", 1, "4", 2, Some("b")),
+            line("4", 1, "5", 1, Some("bus")),
+            line("3", 1, "5", 2, None),
+            line("5", 1, "6", 1, None),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    let targets = resolver.line_targets_for_line(&[], &system.lines[4]);
+
+    // The replacement target should have resolve "b"
+    let rep_target = targets.iter().find(|t| t.path == "model/RepB");
+    assert!(rep_target.is_some(), "expected replacement target in {targets:?}");
+    assert_eq!(
+        rep_target.unwrap().resolve,
+        Some(ConnectionTargetResolve::Signal("b".to_string()))
+    );
+
+    // The original "b" target should be filtered out
+    assert!(
+        !targets.iter().any(|t| t.path == "model/B"),
+        "original model/B should be filtered out"
+    );
+
+    // The "a" target should pass through
+    assert!(
+        targets.iter().any(|t| t.path == "model/A"),
+        "model/A should pass through"
+    );
+}
+
+#[test]
+fn bus_assignment_replaces_assigned_subbus() {
+    // bus_a = BusCreator(a, b)
+    // bus_c = BusCreator1(bus_a, d)  -- staggered
+    // BusAssignment with AssignedSignals=bus_a, replacement from in:2 (new BusCreator)
+    // The replacement BusCreator creates a new sub-bus with its own elements.
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block("Constant", "D", "3", vec![port("out", 1, Some("d"))], None, &[]),
+            block("Constant", "RepA", "8", vec![port("out", 1, Some("rep_a"))], None, &[]),
+            block("Constant", "RepB", "9", vec![port("out", 1, Some("rep_b"))], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "4",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus_a")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusCreator",
+                "BusCreator1",
+                "5",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus_c")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusCreator",
+                "RepBus",
+                "10",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, None),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusAssignment",
+                "BusAssignment",
+                "6",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, None),
+                ],
+                None,
+                &[("AssignedSignals", "bus_a")],
+            ),
+            block("Display", "Sink", "7", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "4", 1, Some("a")),
+            line("2", 1, "4", 2, Some("b")),
+            line("4", 1, "5", 1, Some("bus_a")),
+            line("3", 1, "5", 2, Some("d")),
+            line("5", 1, "6", 1, Some("bus_c")),
+            line("8", 1, "10", 1, Some("rep_a")),
+            line("9", 1, "10", 2, Some("rep_b")),
+            line("10", 1, "6", 2, None),
+            line("6", 1, "7", 1, None),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    let targets = resolver.line_targets_for_line(&[], &system.lines[8]);
+
+    // The replacement targets should have resolves like "bus_a.rep_a", "bus_a.rep_b"
+    let rep_targets: Vec<_> = targets
+        .iter()
+        .filter(|t| t.path == "model/RepA" || t.path == "model/RepB")
+        .collect();
+    assert!(
+        !rep_targets.is_empty(),
+        "expected replacement targets in {targets:?}"
+    );
+
+    let rep_resolves: Vec<_> = rep_targets
+        .iter()
+        .filter_map(|t| match &t.resolve {
+            Some(ConnectionTargetResolve::Signal(s)) => Some(s.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        rep_resolves.iter().any(|r| r == "bus_a.rep_a"),
+        "expected bus_a.rep_a in {rep_resolves:?}"
+    );
+    assert!(
+        rep_resolves.iter().any(|r| r == "bus_a.rep_b"),
+        "expected bus_a.rep_b in {rep_resolves:?}"
+    );
+
+    // The original bus_a targets (model/A, model/B) should be filtered out
+    assert!(
+        !targets.iter().any(|t| t.path == "model/A"),
+        "original model/A should be filtered out"
+    );
+    assert!(
+        !targets.iter().any(|t| t.path == "model/B"),
+        "original model/B should be filtered out"
+    );
+
+    // The "d" target should pass through
+    assert!(
+        targets.iter().any(|t| t.path == "model/D"),
+        "model/D should pass through"
+    );
+}
+
+#[test]
+fn bus_assignment_with_multiple_assignments() {
+    // bus = BusCreator(a, b, c)
+    // BusAssignment with AssignedSignals=a,b, replacements from in:2, in:3
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block("Constant", "C", "3", vec![port("out", 1, Some("c"))], None, &[]),
+            block("Constant", "RepA", "4", vec![port("out", 1, None)], None, &[]),
+            block("Constant", "RepB", "5", vec![port("out", 1, None)], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "6",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("in", 3, None),
+                    port("out", 1, Some("bus")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusAssignment",
+                "BusAssignment",
+                "7",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("in", 3, None),
+                    port("out", 1, None),
+                ],
+                None,
+                &[("AssignedSignals", "a,b")],
+            ),
+            block("Display", "Sink", "8", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "6", 1, Some("a")),
+            line("2", 1, "6", 2, Some("b")),
+            line("3", 1, "6", 3, Some("c")),
+            line("6", 1, "7", 1, Some("bus")),
+            line("4", 1, "7", 2, None),
+            line("5", 1, "7", 3, None),
+            line("7", 1, "8", 1, None),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    let targets = resolver.line_targets_for_line(&[], &system.lines[6]);
+
+    // Replacements
+    let rep_a = targets.iter().find(|t| t.path == "model/RepA");
+    assert!(rep_a.is_some(), "expected RepA in {targets:?}");
+    assert_eq!(
+        rep_a.unwrap().resolve,
+        Some(ConnectionTargetResolve::Signal("a".to_string()))
+    );
+
+    let rep_b = targets.iter().find(|t| t.path == "model/RepB");
+    assert!(rep_b.is_some(), "expected RepB in {targets:?}");
+    assert_eq!(
+        rep_b.unwrap().resolve,
+        Some(ConnectionTargetResolve::Signal("b".to_string()))
+    );
+
+    // Pass-through: c should be present, a and b should be filtered out
+    assert!(
+        targets.iter().any(|t| t.path == "model/C"),
+        "model/C should pass through"
+    );
+    assert!(
+        !targets.iter().any(|t| t.path == "model/A"),
+        "model/A should be filtered out"
+    );
+    assert!(
+        !targets.iter().any(|t| t.path == "model/B"),
+        "model/B should be filtered out"
+    );
+}
+
+// ===========================================================================
+// Tests for signal_names contamination fix (Issue 3)
+// ===========================================================================
+
+#[test]
+fn signal_names_not_contaminated_across_subsystem_boundary() {
+    // A bus with elements a and b goes through a SubSystem.
+    // The target for signal "a" should NOT have "b" in its signal_names.
+    let child_system = System {
+        properties: IndexMap::new(),
+        blocks: vec![
+            block(
+                "Inport",
+                "In1",
+                "10",
+                vec![port("out", 1, None)],
+                None,
+                &[("Port", "1")],
+            ),
+            block(
+                "Outport",
+                "Out1",
+                "11",
+                vec![port("in", 1, None)],
+                None,
+                &[("Port", "1")],
+            ),
+        ],
+        lines: vec![line("10", 1, "11", 1, None)],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "3",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "SubSystem",
+                "Sub",
+                "4",
+                vec![port("in", 1, None), port("out", 1, None)],
+                Some(child_system),
+                &[],
+            ),
+            block("Display", "SinkA", "5", vec![port("in", 1, None)], None, &[]),
+            block("Display", "SinkB", "6", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "3", 1, Some("a")),
+            line("2", 1, "3", 2, Some("b")),
+            line("3", 1, "4", 1, Some("bus")),
+            line("4", 1, "5", 1, None),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    // Get the targets for the line going INTO the subsystem (bus line)
+    let targets = resolver.line_targets_for_line(&[], &system.lines[2]);
+
+    // Find the target for signal "a" (from Constant A)
+    let a_target = targets.iter().find(|t| t.path == "model/A");
+    assert!(a_target.is_some(), "expected target for model/A in {targets:?}");
+    let a_target = a_target.unwrap();
+
+    // signal_names should contain "a" and "bus" (the bus element name),
+    // but NOT "b"
+    assert!(
+        a_target.signal_names.iter().any(|n| n == "a"),
+        "signal_names should contain 'a': {:?}",
+        a_target.signal_names
+    );
+    assert!(
+        !a_target.signal_names.iter().any(|n| n == "b"),
+        "signal_names should NOT contain 'b' (from different signal line): {:?}",
+        a_target.signal_names
+    );
+}
+
+#[test]
+fn signal_names_keeps_default_name_for_unnamed_input() {
+    // BusCreator with an unnamed input (default name "signal1").
+    // "signal1" should appear in signal_names for that target.
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, None)], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "3",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus")),
+                ],
+                None,
+                &[],
+            ),
+            block("Display", "Sink", "4", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "3", 1, Some("a")),
+            line("2", 1, "3", 2, None),
+            line("3", 1, "4", 1, Some("bus")),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    let targets = resolver.line_targets_for_line(&[], &system.lines[2]);
+
+    // Find the target for the unnamed input (from Constant B)
+    let b_target = targets.iter().find(|t| t.path == "model/B");
+    assert!(b_target.is_some(), "expected target for model/B in {targets:?}");
+    let b_target = b_target.unwrap();
+
+    // signal_names should contain "signal2" (the default name for port 2)
+    assert!(
+        b_target.signal_names.iter().any(|n| n == "signal2"),
+        "signal_names should contain 'signal2': {:?}",
+        b_target.signal_names
+    );
+    // It should NOT contain "a" (from the other bus element)
+    assert!(
+        !b_target.signal_names.iter().any(|n| n == "a"),
+        "signal_names should NOT contain 'a': {:?}",
+        b_target.signal_names
+    );
+}
+
+#[test]
+fn testpoint_still_propagates_across_subsystem_boundary() {
+    // A bus crossing a SubSystem boundary where the output line has a
+    // testpoint. The testpoint should propagate back to the source blocks,
+    // but signal_names should not be cross-contaminated.
+    let child_system = System {
+        properties: IndexMap::new(),
+        blocks: vec![
+            block(
+                "Inport",
+                "In1",
+                "10",
+                vec![port("out", 1, None)],
+                None,
+                &[("Port", "1")],
+            ),
+            block(
+                "Outport",
+                "Out1",
+                "11",
+                vec![port("in", 1, None)],
+                None,
+                &[("Port", "1")],
+            ),
+        ],
+        lines: vec![line("10", 1, "11", 1, None)],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let mut output_line = line("4", 1, "5", 1, None);
+    output_line
+        .properties
+        .insert("TestPoint".to_string(), "on".to_string());
+
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "3",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "SubSystem",
+                "Sub",
+                "4",
+                vec![port("in", 1, None), port("out", 1, None)],
+                Some(child_system),
+                &[],
+            ),
+            block("Display", "Sink", "5", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "3", 1, Some("a")),
+            line("2", 1, "3", 2, Some("b")),
+            line("3", 1, "4", 1, Some("bus")),
+            output_line,
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    // Get the targets for the bus line going into the subsystem
+    let targets = resolver.line_targets_for_line(&[], &system.lines[2]);
+
+    // Both targets (a and b) should have testpoint=true because the
+    // output line has a testpoint, and it propagates across the
+    // boundary to all bus elements.
+    for target in &targets {
+        if target.path == "model/A" || target.path == "model/B" {
+            assert!(
+                target.testpoint,
+                "testpoint should propagate to {}: {:?}",
+                target.path,
+                target
+            );
+        }
+    }
+
+    // But signal_names should not be cross-contaminated
+    let a_target = targets.iter().find(|t| t.path == "model/A").unwrap();
+    assert!(
+        !a_target.signal_names.iter().any(|n| n == "b"),
+        "signal_names for 'a' should NOT contain 'b': {:?}",
+        a_target.signal_names
+    );
+}

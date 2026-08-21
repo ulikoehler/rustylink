@@ -484,35 +484,21 @@ pub fn static_lookup_table(
 /// control criterion (`Criteria` against `Threshold`, e.g. `> 0`) beside it.
 pub fn static_switch(
     painter: &Painter,
-    _block: &Block,
+    block: &Block,
     rect: &Rect,
     ctx: &RenderContext<'_>,
 ) -> bool {
     let criteria = ctx.metadata.get("Criteria").unwrap_or("u2 >= Threshold");
-    let op = criteria
-        .split_whitespace()
-        .find(|t| t.starts_with('>') || t.starts_with('~') || t.starts_with('='))
-        .unwrap_or(">=");
     let threshold = ctx.metadata.get("Threshold").unwrap_or("0").trim();
     let threshold = if threshold.is_empty() { "0" } else { threshold };
-    let spec = format!(
-        concat!(
-            "p 0.04,0.18 0.24,0.18; d 0.28,0.18 0.05;",
-            "p 0.04,0.50 0.20,0.50; p 0.14,0.44 0.20,0.50 0.14,0.56;",
-            "p 0.04,0.82 0.24,0.82; d 0.28,0.82 0.05;",
-            "p 0.28,0.18 0.86,0.50; p 0.86,0.50 0.97,0.50;",
-            "t 0.62,0.80,0.26 {op} {threshold}"
-        ),
-        op = op,
-        threshold = threshold
-    );
-    crate::egui_app::render::draw_plot_icon(
+    crate::egui_app::render::render_switch(
         painter,
+        block,
         rect,
         ctx.font_scale,
-        &spec,
-        ctx.text_color,
-        ctx.port_label_widths,
+        criteria,
+        threshold,
+        ctx.port_y,
     );
     true
 }
@@ -1474,57 +1460,86 @@ pub fn static_multiport_switch(
     ctx: &RenderContext<'_>,
 ) -> bool {
     let data_inputs = multiport_switch_data_inputs(block, ctx.metadata);
-    // Ports are spaced evenly down the left edge: the control input on top,
-    // then one contact per data input, the first of which the lever selects.
-    let total = data_inputs + 1;
-    let port_y = |index: u32| (index as f32 + 1.0) / (total as f32 + 1.0);
-    let control_y = port_y(0);
-    let mut spec = format!(
-        "p 0.0,{control_y:.3} 0.30,{control_y:.3}; p 0.30,{:.3} 0.30,{:.3};",
-        control_y - 0.06,
-        control_y + 0.06
-    );
-    let first_contact_y = port_y(1);
-    spec.push_str(&format!(
-        "p 0.72,{first_contact_y:.3} 0.90,0.50; p 0.90,0.50 1.0,0.50;"
-    ));
-    for i in 0..data_inputs {
-        let y = port_y(i + 1);
-        spec.push_str(&format!(
-            "p 0.0,{y:.3} 0.64,{y:.3}; r 0.64,{:.3} 0.72,{:.3};",
-            y - 0.035,
-            y + 0.035
-        ));
-    }
-    crate::egui_app::render::draw_plot_icon(
+    crate::egui_app::render::render_multiport_switch(
         painter,
+        block,
         rect,
         ctx.font_scale,
-        &spec,
-        ctx.text_color,
-        ctx.port_label_widths,
+        data_inputs,
+        ctx.port_y,
     );
     true
 }
 
-/// Number of data inputs a Multiport Switch exposes (the port count minus the
-/// control input, or the configured `Inputs` count).
-fn multiport_switch_data_inputs(block: &Block, meta: &super::metadata::BlockMetadata) -> u32 {
-    meta.get("Inputs")
+/// Number of numbered data inputs a Multiport Switch exposes, excluding the
+/// optional additional default (`*`) port.
+///
+/// The count comes from the `Inputs` property when set, otherwise from the
+/// number of indices in `DataPortIndices` (when `DataPortOrder = Specify
+/// indices`), or from the block's port count minus the control input.
+fn multiport_switch_numbered_data_inputs(
+    block: &Block,
+    meta: &super::metadata::BlockMetadata,
+) -> u32 {
+    if let Some(n) = meta
+        .get("Inputs")
         .and_then(|s| s.trim().parse::<u32>().ok())
-        .or_else(|| {
-            block
-                .port_counts
-                .as_ref()
-                .and_then(|c| c.ins)
-                .map(|n| n.saturating_sub(1))
-        })
+    {
+        return n.max(1);
+    }
+    let order = meta.get("DataPortOrder").unwrap_or("One-based contiguous");
+    if order.trim().eq_ignore_ascii_case("Specify indices") {
+        let count = parse_data_port_indices(meta.get("DataPortIndices")).len() as u32;
+        return count.max(1);
+    }
+    block
+        .port_counts
+        .as_ref()
+        .and_then(|c| c.ins)
+        .map(|n| n.saturating_sub(1))
         .unwrap_or(3)
         .max(1)
 }
 
+/// Whether the Multiport Switch has an additional default (`*`) data port
+/// beyond the numbered ones.
+fn multiport_switch_has_additional_default(meta: &super::metadata::BlockMetadata) -> bool {
+    meta.get("DataPortForDefault")
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("Additional data port"))
+}
+
+/// Number of data inputs a Multiport Switch exposes (numbered inputs plus the
+/// optional additional default `*` port).
+fn multiport_switch_data_inputs(block: &Block, meta: &super::metadata::BlockMetadata) -> u32 {
+    let numbered = multiport_switch_numbered_data_inputs(block, meta);
+    if multiport_switch_has_additional_default(meta) {
+        numbered + 1
+    } else {
+        numbered
+    }
+}
+
+/// Parse a `DataPortIndices` value like `"{6,8,15}"` into a list of index
+/// strings.
+fn parse_data_port_indices(raw: Option<&str>) -> Vec<String> {
+    let Some(raw) = raw else {
+        return Vec::new();
+    };
+    raw.trim()
+        .trim_start_matches('{')
+        .trim_end_matches('}')
+        .split([',', ' '])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect()
+}
+
 /// Input port labels for the Multiport Switch: the unlabelled control input
-/// followed by the data inputs, the last of which is also the default (`*`).
+/// followed by the data inputs.  Numbering depends on `DataPortOrder`
+/// (one-based, zero-based, or individual indices from `DataPortIndices`).
+/// The default (`*`) port is labeled just `*` when it is an additional port,
+/// or `*, N` when the last numbered port doubles as the default.
 pub fn multiport_switch_port_labels(
     block: &Block,
     meta: &super::metadata::BlockMetadata,
@@ -1533,14 +1548,39 @@ pub fn multiport_switch_port_labels(
     if !is_input {
         return Vec::new();
     }
-    let data = multiport_switch_data_inputs(block, meta);
-    let mut labels = vec![String::new()];
-    for i in 1..=data {
-        labels.push(if i == data {
-            format!("*, {i}")
+    let numbered = multiport_switch_numbered_data_inputs(block, meta);
+    let has_additional = multiport_switch_has_additional_default(meta);
+    let total_data = if has_additional { numbered + 1 } else { numbered };
+
+    // Build the list of number labels for the numbered data ports.
+    let order = meta.get("DataPortOrder").unwrap_or("One-based contiguous");
+    let number_labels: Vec<String> = if order.trim().eq_ignore_ascii_case("Specify indices") {
+        let indices = parse_data_port_indices(meta.get("DataPortIndices"));
+        (0..numbered)
+            .map(|i| {
+                indices
+                    .get(i as usize)
+                    .cloned()
+                    .unwrap_or_else(|| (i + 1).to_string())
+            })
+            .collect()
+    } else if order.trim().eq_ignore_ascii_case("Zero-based contiguous") {
+        (0..numbered).map(|i| i.to_string()).collect()
+    } else {
+        (1..=numbered).map(|i| i.to_string()).collect()
+    };
+
+    let mut labels = vec![String::new()]; // control input (port 1)
+    for i in 0..total_data {
+        if has_additional && i == numbered {
+            // Additional default port: just `*`.
+            labels.push("*".to_string());
+        } else if !has_additional && i == numbered - 1 {
+            // Last numbered port doubles as default: `*, N`.
+            labels.push(format!("*, {}", number_labels[i as usize]));
         } else {
-            i.to_string()
-        });
+            labels.push(number_labels[i as usize].clone());
+        }
     }
     labels
 }
@@ -1641,7 +1681,9 @@ pub fn static_scope(
 
 #[cfg(test)]
 mod tests {
-    use super::{format_coeff, format_polynomial};
+    use super::{format_coeff, format_polynomial, multiport_switch_port_labels};
+    use crate::model::{Block, PortCounts};
+    use crate::simulink_libraries::metadata::BlockMetadata;
 
     #[test]
     fn polynomial_from_bracketed_vector() {
@@ -1662,5 +1704,75 @@ mod tests {
     fn coefficient_formatting_trims_trailing_zeros() {
         assert_eq!(format_coeff(3.0), "3");
         assert_eq!(format_coeff(2.5), "2.5");
+    }
+
+    /// Build a minimal MultiPortSwitch block with `ins` input ports.
+    fn multiport_block(ins: u32) -> Block {
+        let mut block = super::super::stubs::create_stub_block("MultiPortSwitch", ins, 1);
+        block.port_counts = Some(PortCounts {
+            ins: Some(ins),
+            outs: Some(1),
+            ..Default::default()
+        });
+        block
+    }
+
+    #[test]
+    fn multiport_switch_one_based_default_last_port() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("Inputs", "3");
+        // Default: One-based contiguous, last port is default.
+        let labels = multiport_switch_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["", "1", "2", "*, 3"]);
+    }
+
+    #[test]
+    fn multiport_switch_zero_based_default_last_port() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("DataPortOrder", "Zero-based contiguous");
+        // No Inputs property → falls back to port_counts.ins - 1 = 3.
+        let labels = multiport_switch_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["", "0", "1", "*, 2"]);
+    }
+
+    #[test]
+    fn multiport_switch_specify_indices_default_last_port() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("DataPortOrder", "Specify indices");
+        meta.insert("DataPortIndices", "{6,8,15}");
+        let labels = multiport_switch_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["", "6", "8", "*, 15"]);
+    }
+
+    #[test]
+    fn multiport_switch_specify_indices_additional_default() {
+        let block = multiport_block(5);
+        let mut meta = BlockMetadata::default();
+        meta.insert("DataPortOrder", "Specify indices");
+        meta.insert("DataPortIndices", "{6,8,15}");
+        meta.insert("DataPortForDefault", "Additional data port");
+        let labels = multiport_switch_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["", "6", "8", "15", "*"]);
+    }
+
+    #[test]
+    fn multiport_switch_one_based_additional_default() {
+        let block = multiport_block(5);
+        let mut meta = BlockMetadata::default();
+        meta.insert("Inputs", "4");
+        meta.insert("DataPortForDefault", "Additional data port");
+        let labels = multiport_switch_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["", "1", "2", "3", "4", "*"]);
+    }
+
+    #[test]
+    fn multiport_switch_output_labels_are_empty() {
+        let block = multiport_block(4);
+        let meta = BlockMetadata::default();
+        let labels = multiport_switch_port_labels(&block, &meta, false);
+        assert!(labels.is_empty());
     }
 }

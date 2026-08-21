@@ -1531,6 +1531,274 @@ pub fn render_manual_switch(
     }
 }
 
+/// Custom renderer for a MultiPortSwitch block.
+///
+/// Draws a selector lever routing the numbered data inputs to the output.
+/// Port 1 is the control input (topmost on the left edge), ports 2..=N+1 are
+/// the data inputs, and output port 1 is on the right edge.  The lever connects
+/// from the first data contact to the output, matching Simulink's default
+/// selection.  All line endpoints align to the exact Y-positions of the ports
+/// so connecting lines meet them cleanly.
+pub fn render_multiport_switch(
+    painter: &egui::Painter,
+    block: &Block,
+    rect: &Rect,
+    _font_scale: f32,
+    data_inputs: u32,
+    coords: Option<&ComputedPortYCoordinates>,
+) {
+    let mut max_in: u32 = 0;
+    let mut max_out: u32 = 0;
+    for p in &block.ports {
+        let idx = p.index.unwrap_or(0).max(1);
+        if p.port_type == "in" {
+            max_in = max_in.max(idx);
+        }
+        if p.port_type == "out" {
+            max_out = max_out.max(idx);
+        }
+    }
+    // total inputs = control(1) + data_inputs
+    let total_in = data_inputs + 1;
+    if max_in == 0 {
+        max_in = total_in;
+    }
+    if max_out == 0 {
+        max_out = 1;
+    }
+
+    use super::geometry::PortSide;
+    let mirrored = block.block_mirror.unwrap_or(false);
+    let in_side = if mirrored { PortSide::Out } else { PortSide::In };
+    let out_side = if mirrored { PortSide::In } else { PortSide::Out };
+
+    let stroke_w = 1.5_f32;
+    let col_active = Color32::from_rgb(32, 32, 32);
+    let col_inactive = Color32::from_rgb(110, 110, 110);
+    let r_contact = (rect.height() * 0.04).clamp(2.0, 5.0);
+    let pad = 10.0_f32; // horizontal inset for contact circles
+
+    // Port Y positions: control = port 1, data = ports 2..=total_in
+    let port_y = |index: u32| {
+        coords
+            .and_then(|c| c.inputs.get(&index).copied())
+            .unwrap_or_else(|| {
+                super::geometry::port_anchor_pos(*rect, in_side, index, Some(max_in)).y
+            })
+    };
+    let out_y = coords
+        .and_then(|c| c.outputs.get(&1).copied())
+        .unwrap_or_else(|| super::geometry::port_anchor_pos(*rect, out_side, 1, Some(max_out)).y);
+
+    let in_x = if mirrored { rect.right() } else { rect.left() };
+    let out_x = if mirrored { rect.left() } else { rect.right() };
+    let contact_x = if mirrored {
+        rect.right() - pad
+    } else {
+        rect.left() + pad
+    };
+    let out_contact_x = if mirrored {
+        rect.left() + pad
+    } else {
+        rect.right() - pad
+    };
+
+    let stroke = Stroke::new(stroke_w, col_active);
+
+    // Control input lead (port 1): short horizontal line from border to a
+    // vertical bar representing the control contact.
+    let control_y = port_y(1);
+    painter.line_segment(
+        [Pos2::new(in_x, control_y), Pos2::new(contact_x, control_y)],
+        stroke,
+    );
+    // Vertical bar for the control contact.
+    let bar_half = r_contact * 1.5;
+    painter.line_segment(
+        [
+            Pos2::new(contact_x, control_y - bar_half),
+            Pos2::new(contact_x, control_y + bar_half),
+        ],
+        stroke,
+    );
+
+    // Data input leads (ports 2..=total_in): horizontal line from border to
+    // contact circle.
+    for i in 0..data_inputs {
+        let port_idx = i + 2;
+        let y = port_y(port_idx);
+        painter.line_segment(
+            [Pos2::new(in_x, y), Pos2::new(contact_x, y)],
+            stroke,
+        );
+        // Contact circle: first one is active (selected), rest inactive.
+        let col = if i == 0 { col_active } else { col_inactive };
+        painter.circle_stroke(Pos2::new(contact_x, y), r_contact, Stroke::new(stroke_w, col));
+    }
+
+    // Output lead: from output contact circle to output border.
+    let out_center = Pos2::new(out_contact_x, out_y);
+    painter.line_segment(
+        [Pos2::new(out_contact_x, out_y), Pos2::new(out_x, out_y)],
+        stroke,
+    );
+    painter.circle_stroke(out_center, r_contact, Stroke::new(stroke_w, col_active));
+
+    // Lever: from first data contact to output contact.
+    let first_data_y = port_y(2);
+    let lever_start = Pos2::new(contact_x, first_data_y);
+    let lever_end = out_center;
+    painter.line_segment([lever_start, lever_end], stroke);
+}
+
+/// Custom renderer for a Switch block.
+///
+/// Draws a pass-through lever with the control criterion beside it.  Port 1
+/// (top) and port 3 (bottom) are data inputs, port 2 (middle) is the control
+/// input, and output port 1 is on the right edge.  The lever connects from
+/// port 1 (top data, default selected) to the output.  All line endpoints
+/// align to the exact Y-positions of the ports.
+pub fn render_switch(
+    painter: &egui::Painter,
+    block: &Block,
+    rect: &Rect,
+    font_scale: f32,
+    criteria: &str,
+    threshold: &str,
+    coords: Option<&ComputedPortYCoordinates>,
+) {
+    let mut max_in: u32 = 0;
+    let mut max_out: u32 = 0;
+    for p in &block.ports {
+        let idx = p.index.unwrap_or(0).max(1);
+        if p.port_type == "in" {
+            max_in = max_in.max(idx);
+        }
+        if p.port_type == "out" {
+            max_out = max_out.max(idx);
+        }
+    }
+    if max_in == 0 {
+        max_in = 3;
+    }
+    if max_out == 0 {
+        max_out = 1;
+    }
+
+    use super::geometry::PortSide;
+    let mirrored = block.block_mirror.unwrap_or(false);
+    let in_side = if mirrored { PortSide::Out } else { PortSide::In };
+    let out_side = if mirrored { PortSide::In } else { PortSide::Out };
+
+    let stroke_w = 1.5_f32;
+    let col_active = Color32::from_rgb(32, 32, 32);
+    let col_inactive = Color32::from_rgb(110, 110, 110);
+    let r_contact = (rect.height() * 0.04).clamp(2.0, 5.0);
+    let pad = 10.0_f32;
+
+    let port_y = |index: u32| {
+        coords
+            .and_then(|c| c.inputs.get(&index).copied())
+            .unwrap_or_else(|| {
+                super::geometry::port_anchor_pos(*rect, in_side, index, Some(max_in)).y
+            })
+    };
+    let out_y = coords
+        .and_then(|c| c.outputs.get(&1).copied())
+        .unwrap_or_else(|| super::geometry::port_anchor_pos(*rect, out_side, 1, Some(max_out)).y);
+
+    let in_x = if mirrored { rect.right() } else { rect.left() };
+    let out_x = if mirrored { rect.left() } else { rect.right() };
+    let contact_x = if mirrored {
+        rect.right() - pad
+    } else {
+        rect.left() + pad
+    };
+    let out_contact_x = if mirrored {
+        rect.left() + pad
+    } else {
+        rect.right() - pad
+    };
+
+    let stroke = Stroke::new(stroke_w, col_active);
+
+    // Port 1 = top data input (u1), port 2 = control (u2), port 3 = bottom data (u3)
+    let u1_y = port_y(1);
+    let u2_y = port_y(2);
+    let u3_y = port_y(3);
+
+    // Data input leads with contact circles.
+    // Top data (port 1): active (selected by default).
+    painter.line_segment(
+        [Pos2::new(in_x, u1_y), Pos2::new(contact_x, u1_y)],
+        stroke,
+    );
+    painter.circle_stroke(
+        Pos2::new(contact_x, u1_y),
+        r_contact,
+        Stroke::new(stroke_w, col_active),
+    );
+    // Bottom data (port 3): inactive.
+    painter.line_segment(
+        [Pos2::new(in_x, u3_y), Pos2::new(contact_x, u3_y)],
+        stroke,
+    );
+    painter.circle_stroke(
+        Pos2::new(contact_x, u3_y),
+        r_contact,
+        Stroke::new(stroke_w, col_inactive),
+    );
+
+    // Control input lead (port 2): short horizontal line with a vertical bar.
+    painter.line_segment(
+        [Pos2::new(in_x, u2_y), Pos2::new(contact_x, u2_y)],
+        stroke,
+    );
+    let bar_half = r_contact * 1.5;
+    painter.line_segment(
+        [
+            Pos2::new(contact_x, u2_y - bar_half),
+            Pos2::new(contact_x, u2_y + bar_half),
+        ],
+        stroke,
+    );
+
+    // Output lead and contact.
+    let out_center = Pos2::new(out_contact_x, out_y);
+    painter.line_segment(
+        [Pos2::new(out_contact_x, out_y), Pos2::new(out_x, out_y)],
+        stroke,
+    );
+    painter.circle_stroke(out_center, r_contact, Stroke::new(stroke_w, col_active));
+
+    // Lever: from top data contact (port 1, default selected) to output.
+    let lever_start = Pos2::new(contact_x, u1_y);
+    painter.line_segment([lever_start, out_center], stroke);
+
+    // Criteria text (e.g. ">= 0") near the bottom-right of the block.
+    let op = criteria
+        .split_whitespace()
+        .find(|t| {
+            t.starts_with('>') || t.starts_with('~') || t.starts_with('=')
+        })
+        .unwrap_or(">=");
+    let threshold = if threshold.is_empty() { "0" } else { threshold };
+    let text = format!("{op} {threshold}");
+    let font_px = (rect.height() * 0.22 * font_scale).clamp(6.0, 16.0);
+    let text_pos = if mirrored {
+        Pos2::new(rect.left() + rect.width() * 0.35, rect.bottom() - rect.height() * 0.15)
+    } else {
+        Pos2::new(rect.right() - rect.width() * 0.35, rect.bottom() - rect.height() * 0.15)
+    };
+    painter.text(
+        text_pos,
+        Align2::CENTER_CENTER,
+        &text,
+        egui::FontId::proportional(font_px),
+        col_active,
+    );
+}
+
 /// Draw the interior labels (+/-) for a Sum block.
 ///
 /// The surrounding circle fill and stroke are drawn in the main ui loop's

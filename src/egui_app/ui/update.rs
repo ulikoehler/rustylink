@@ -1439,7 +1439,6 @@ pub(crate) fn update_internal(
                 total,
             } => {
                 ui.vertical_centered(|ui| {
-                    ui.add_space(ui.available_height() / 3.0);
                     ui.label(format!("Resolving signal targets… {}/{}", current, total));
                     ui.add_space(8.0);
                     ui.add(egui::ProgressBar::new(progress));
