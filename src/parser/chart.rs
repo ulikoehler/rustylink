@@ -205,12 +205,13 @@ pub fn annotate_matlab_function_names(
                 .and_then(|id| charts.get(id));
             let name = chart
                 .and_then(|chart| {
-                    chart.eml_name.clone().or_else(|| {
-                        chart
-                            .script
-                            .as_deref()
-                            .and_then(script_function_name)
-                    })
+                    // Prefer the script's function declaration (authoritative)
+                    // over `eml_name`, which may carry the chart name instead.
+                    chart
+                        .script
+                        .as_deref()
+                        .and_then(script_function_name)
+                        .or_else(|| chart.eml_name.clone())
                 })
                 .filter(|name| !name.trim().is_empty());
             if let Some(name) = name {
@@ -312,5 +313,21 @@ mod tests {
     #[test]
     fn no_function_header_returns_none() {
         assert_eq!(script_function_name("y = u;"), None);
+    }
+
+    #[test]
+    fn function_header_with_continuation_in_arguments() {
+        let script = concat!(
+            "function [q_des, dq_des, ddq_des, running_1__ready_0, q_ref_out] = ...\n",
+            "    JojoJointInterpolator(dq_ref, ddq_ref, eigenvalues, dt, ...\n",
+            "    consider_position_constraints, consider_velocity_constraints, ...\n",
+            "    q_lowerlimit, q_upperlimit, dq_lowerlimit, dq_upperlimit, follow_q_meas, ...\n",
+            "    q_target, update_q_target, shortcut_update, reset, dq_measured, q_measured)\n",
+            "y = u;"
+        );
+        assert_eq!(
+            script_function_name(script),
+            Some("JojoJointInterpolator".to_string())
+        );
     }
 }

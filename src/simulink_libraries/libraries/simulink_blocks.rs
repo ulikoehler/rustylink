@@ -626,14 +626,18 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
     // ═══════════════════════════════════════════════════════════════════════
     //  Signal Routing
     // ═══════════════════════════════════════════════════════════════════════
-    // Simulink labels this with the signals being replaced, e.g.
-    // `Bus / Bus := signal1`; it is not one of the solid black bus bars.
+    // BusAssignment has no icon; input port labels come from AssignedSignals.
+    // The first input port is always labeled "Bus", ports 2..N are the
+    // assigned signal names.
     SimulinkBlockDefinition::new("BusAssignment", "Signal Routing")
         .with_aliases(&["Bus Assignment"])
         .with_description("Assign signals to a bus")
-        .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
+        .with_ports(IOPorts::Variable(2), IOPorts::Fixed(1))
         .with_metadata_keys(&[MetadataKey::with_default("AssignedSignals", "")])
-        .with_block_label(BlockLabelPolicy::MetadataDependent(labels::bus_assignment)),
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(renderers::bus_assignment_port_labels),
+            PortLabelPolicy::None,
+        ),
 
     SimulinkBlockDefinition::new("GotoTagVisibility", "Signal Routing")
         .with_aliases(&["Goto Tag Visibility"])
@@ -660,6 +664,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             MetadataKey::new("DataPortForDefault"),
         ])
         .with_static_renderer(renderers::static_multiport_switch)
+        .with_live_renderer(renderers::live_multiport_switch)
         .with_port_labels(
             PortLabelPolicy::MetadataDependent(renderers::multiport_switch_port_labels),
             PortLabelPolicy::None,
@@ -682,7 +687,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             MetadataKey::with_default("Criteria", "u2 >= Threshold"),
             MetadataKey::with_default("Threshold", "0"),
         ])
-        .with_static_renderer(renderers::static_switch),
+        .with_static_renderer(renderers::static_switch)
+        .with_live_renderer(renderers::live_switch),
 
     // ═══════════════════════════════════════════════════════════════════════
     //  Sinks

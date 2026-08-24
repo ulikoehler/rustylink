@@ -1543,9 +1543,28 @@ pub fn render_multiport_switch(
     painter: &egui::Painter,
     block: &Block,
     rect: &Rect,
-    _font_scale: f32,
+    font_scale: f32,
     data_inputs: u32,
     coords: Option<&ComputedPortYCoordinates>,
+    port_label_widths: Option<PortLabelMaxWidths>,
+) {
+    render_multiport_switch_with_selection(
+        painter, block, rect, font_scale, data_inputs, coords, port_label_widths, 0,
+    )
+}
+
+/// Like [`render_multiport_switch`] but draws the lever to the `selected`-th
+/// data contact (0-based) instead of always the first.  Used by the live
+/// renderer to reflect the control signal value.
+pub fn render_multiport_switch_with_selection(
+    painter: &egui::Painter,
+    block: &Block,
+    rect: &Rect,
+    font_scale: f32,
+    data_inputs: u32,
+    coords: Option<&ComputedPortYCoordinates>,
+    port_label_widths: Option<PortLabelMaxWidths>,
+    selected: u32,
 ) {
     let mut max_in: u32 = 0;
     let mut max_out: u32 = 0;
@@ -1576,7 +1595,21 @@ pub fn render_multiport_switch(
     let col_active = Color32::from_rgb(32, 32, 32);
     let col_inactive = Color32::from_rgb(110, 110, 110);
     let r_contact = (rect.height() * 0.04).clamp(2.0, 5.0);
-    let pad = 10.0_f32; // horizontal inset for contact circles
+
+    // Compute horizontal insets that clear the port labels.
+    let label_pad = 4.0 * font_scale;
+    let label_gap = 2.0 * font_scale;
+    let margin_x = rect.width() * 0.10;
+    let left_inset = if let Some(w) = port_label_widths {
+        margin_x.max(label_pad + w.left + label_gap)
+    } else {
+        margin_x
+    };
+    let right_inset = if let Some(w) = port_label_widths {
+        margin_x.max(label_pad + w.right + label_gap)
+    } else {
+        margin_x
+    };
 
     // Port Y positions: control = port 1, data = ports 2..=total_in
     let port_y = |index: u32| {
@@ -1593,14 +1626,14 @@ pub fn render_multiport_switch(
     let in_x = if mirrored { rect.right() } else { rect.left() };
     let out_x = if mirrored { rect.left() } else { rect.right() };
     let contact_x = if mirrored {
-        rect.right() - pad
+        rect.right() - left_inset
     } else {
-        rect.left() + pad
+        rect.left() + left_inset
     };
     let out_contact_x = if mirrored {
-        rect.left() + pad
+        rect.left() + right_inset
     } else {
-        rect.right() - pad
+        rect.right() - right_inset
     };
 
     let stroke = Stroke::new(stroke_w, col_active);
@@ -1624,6 +1657,7 @@ pub fn render_multiport_switch(
 
     // Data input leads (ports 2..=total_in): horizontal line from border to
     // contact circle.
+    let selected = selected.min(data_inputs.saturating_sub(1));
     for i in 0..data_inputs {
         let port_idx = i + 2;
         let y = port_y(port_idx);
@@ -1631,8 +1665,8 @@ pub fn render_multiport_switch(
             [Pos2::new(in_x, y), Pos2::new(contact_x, y)],
             stroke,
         );
-        // Contact circle: first one is active (selected), rest inactive.
-        let col = if i == 0 { col_active } else { col_inactive };
+        // Contact circle: selected one is active, rest inactive.
+        let col = if i == selected { col_active } else { col_inactive };
         painter.circle_stroke(Pos2::new(contact_x, y), r_contact, Stroke::new(stroke_w, col));
     }
 
@@ -1644,9 +1678,9 @@ pub fn render_multiport_switch(
     );
     painter.circle_stroke(out_center, r_contact, Stroke::new(stroke_w, col_active));
 
-    // Lever: from first data contact to output contact.
-    let first_data_y = port_y(2);
-    let lever_start = Pos2::new(contact_x, first_data_y);
+    // Lever: from selected data contact to output contact.
+    let selected_data_y = port_y(selected + 2);
+    let lever_start = Pos2::new(contact_x, selected_data_y);
     let lever_end = out_center;
     painter.line_segment([lever_start, lever_end], stroke);
 }
@@ -1666,6 +1700,26 @@ pub fn render_switch(
     criteria: &str,
     threshold: &str,
     coords: Option<&ComputedPortYCoordinates>,
+    port_label_widths: Option<PortLabelMaxWidths>,
+) {
+    render_switch_with_selection(
+        painter, block, rect, font_scale, criteria, threshold, coords, port_label_widths, true,
+    )
+}
+
+/// Like [`render_switch`] but draws the lever to the top data input (port 1)
+/// when `selected_top` is true, or the bottom data input (port 3) when false.
+/// Used by the live renderer to reflect the control signal value.
+pub fn render_switch_with_selection(
+    painter: &egui::Painter,
+    block: &Block,
+    rect: &Rect,
+    font_scale: f32,
+    criteria: &str,
+    threshold: &str,
+    coords: Option<&ComputedPortYCoordinates>,
+    port_label_widths: Option<PortLabelMaxWidths>,
+    selected_top: bool,
 ) {
     let mut max_in: u32 = 0;
     let mut max_out: u32 = 0;
@@ -1694,7 +1748,21 @@ pub fn render_switch(
     let col_active = Color32::from_rgb(32, 32, 32);
     let col_inactive = Color32::from_rgb(110, 110, 110);
     let r_contact = (rect.height() * 0.04).clamp(2.0, 5.0);
-    let pad = 10.0_f32;
+
+    // Compute horizontal insets that clear the port labels.
+    let label_pad = 4.0 * font_scale;
+    let label_gap = 2.0 * font_scale;
+    let margin_x = rect.width() * 0.10;
+    let left_inset = if let Some(w) = port_label_widths {
+        margin_x.max(label_pad + w.left + label_gap)
+    } else {
+        margin_x
+    };
+    let right_inset = if let Some(w) = port_label_widths {
+        margin_x.max(label_pad + w.right + label_gap)
+    } else {
+        margin_x
+    };
 
     let port_y = |index: u32| {
         coords
@@ -1710,14 +1778,14 @@ pub fn render_switch(
     let in_x = if mirrored { rect.right() } else { rect.left() };
     let out_x = if mirrored { rect.left() } else { rect.right() };
     let contact_x = if mirrored {
-        rect.right() - pad
+        rect.right() - left_inset
     } else {
-        rect.left() + pad
+        rect.left() + left_inset
     };
     let out_contact_x = if mirrored {
-        rect.left() + pad
+        rect.left() + right_inset
     } else {
-        rect.right() - pad
+        rect.right() - right_inset
     };
 
     let stroke = Stroke::new(stroke_w, col_active);
@@ -1728,7 +1796,7 @@ pub fn render_switch(
     let u3_y = port_y(3);
 
     // Data input leads with contact circles.
-    // Top data (port 1): active (selected by default).
+    // Top data (port 1): active when selected_top.
     painter.line_segment(
         [Pos2::new(in_x, u1_y), Pos2::new(contact_x, u1_y)],
         stroke,
@@ -1736,9 +1804,9 @@ pub fn render_switch(
     painter.circle_stroke(
         Pos2::new(contact_x, u1_y),
         r_contact,
-        Stroke::new(stroke_w, col_active),
+        Stroke::new(stroke_w, if selected_top { col_active } else { col_inactive }),
     );
-    // Bottom data (port 3): inactive.
+    // Bottom data (port 3): active when !selected_top.
     painter.line_segment(
         [Pos2::new(in_x, u3_y), Pos2::new(contact_x, u3_y)],
         stroke,
@@ -1746,7 +1814,7 @@ pub fn render_switch(
     painter.circle_stroke(
         Pos2::new(contact_x, u3_y),
         r_contact,
-        Stroke::new(stroke_w, col_inactive),
+        Stroke::new(stroke_w, if selected_top { col_inactive } else { col_active }),
     );
 
     // Control input lead (port 2): short horizontal line with a vertical bar.
@@ -1771,8 +1839,9 @@ pub fn render_switch(
     );
     painter.circle_stroke(out_center, r_contact, Stroke::new(stroke_w, col_active));
 
-    // Lever: from top data contact (port 1, default selected) to output.
-    let lever_start = Pos2::new(contact_x, u1_y);
+    // Lever: from selected data contact to output.
+    let lever_y = if selected_top { u1_y } else { u3_y };
+    let lever_start = Pos2::new(contact_x, lever_y);
     painter.line_segment([lever_start, out_center], stroke);
 
     // Criteria text (e.g. ">= 0") near the bottom-right of the block.

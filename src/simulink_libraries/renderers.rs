@@ -499,6 +499,210 @@ pub fn static_switch(
         criteria,
         threshold,
         ctx.port_y,
+        ctx.port_label_widths,
+    );
+    true
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Live renderers for Switch and MultiPortSwitch.
+//
+// These trace the incoming line to the control input port, find the source
+// block, and use its live value to determine which data input the lever
+// connects to.  They are display-only (not clickable).
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Recursively check if a branch (or its sub-branches) terminates at the given
+/// block SID and input port index.
+fn branch_hits_port(branch: &crate::model::Branch, sid: &str, port_index: u32) -> bool {
+    if branch
+        .dst
+        .as_ref()
+        .is_some_and(|dst| dst.sid == sid && dst.port_index == port_index)
+    {
+        return true;
+    }
+    branch
+        .branches
+        .iter()
+        .any(|child| branch_hits_port(child, sid, port_index))
+}
+
+/// Find the live value of the signal feeding a specific input port of `block`.
+///
+/// Traces the incoming line (or branch) to the given `control_port_index`,
+/// finds the source block, and looks up its live value.
+fn control_input_live_value(
+    app: &crate::egui_app::state::SubsystemApp,
+    block: &Block,
+    control_port_index: u32,
+) -> Option<f64> {
+    let system = app.current_system()?;
+    let block_sid = block.sid.as_deref()?;
+    for line in &system.lines {
+        let hits_control = line
+            .dst
+            .as_ref()
+            .is_some_and(|dst| dst.sid == block_sid && dst.port_index == control_port_index)
+            || line
+                .branches
+                .iter()
+                .any(|b| branch_hits_port(b, block_sid, control_port_index));
+        if hits_control {
+            if let Some(src) = &line.src {
+                if let Some(src_block) = system
+                    .blocks
+                    .iter()
+                    .find(|b| b.sid.as_deref() == Some(src.sid.as_str()))
+                {
+                    return app
+                        .live_block_values
+                        .get(&app.live_value_key_for_block(src_block))
+                        .and_then(crate::live_values::LiveValueEntry::first_f64);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Evaluate a Switch `Criteria` string against the control value and threshold.
+///
+/// Supported criteria forms:
+/// - `u2 >= Threshold` / `u2 > Threshold`
+/// - `u2 ~= 0` (or any literal threshold)
+/// - `u2 <= Threshold` / `u2 < Threshold`
+///
+/// Returns `true` when the criteria is met (lever to top data input).
+pub fn evaluate_switch_criteria(criteria: &str, control_value: f64, threshold: f64) -> bool {
+    let trimmed = criteria.trim();
+    // Find the comparison operator.
+    for op in [">=", "<=", "~=", ">", "<", "=="] {
+        if let Some(idx) = trimmed.find(op) {
+            let lhs = trimmed[..idx].trim();
+            let _ = lhs; // always "u2" or similar; we use control_value directly
+            let rhs = trimmed[idx + op.len()..].trim();
+            // rhs can be "Threshold" (use threshold param) or a literal number.
+            let rhs_val: f64 = if rhs.eq_ignore_ascii_case("Threshold") {
+                threshold
+            } else {
+                rhs.parse().unwrap_or(threshold)
+            };
+            return match op {
+                ">=" => control_value >= rhs_val,
+                "<=" => control_value <= rhs_val,
+                "~=" => (control_value - rhs_val).abs() > f64::EPSILON,
+                ">" => control_value > rhs_val,
+                "<" => control_value < rhs_val,
+                "==" => (control_value - rhs_val).abs() <= f64::EPSILON,
+                _ => false,
+            };
+        }
+    }
+    // Default: treat as `>= threshold`.
+    control_value >= threshold
+}
+
+/// Determine which data input (0-based index) a MultiPortSwitch should select
+/// based on the control value and the block's numbering configuration.
+pub fn compute_multiport_selection(
+    block: &Block,
+    meta: &super::metadata::BlockMetadata,
+    control_value: f64,
+    data_inputs: u32,
+) -> u32 {
+    let numbered = multiport_switch_numbered_data_inputs(block, meta);
+    let has_additional = multiport_switch_has_additional_default(meta);
+    let order = meta.get("DataPortOrder").unwrap_or("One-based contiguous");
+
+    let control_int = control_value as i64;
+
+    // Build the list of index values for the numbered data ports.
+    let indices: Vec<i64> = if order.trim().eq_ignore_ascii_case("Specify indices") {
+        parse_data_port_indices(meta.get("DataPortIndices"))
+            .iter()
+            .map(|s| s.parse::<i64>().unwrap_or(0))
+            .collect()
+    } else if order.trim().eq_ignore_ascii_case("Zero-based contiguous") {
+        (0..numbered as i64).collect()
+    } else {
+        (1..=numbered as i64).collect()
+    };
+
+    // Find which numbered port matches the control value.
+    for (i, &idx) in indices.iter().enumerate() {
+        if idx == control_int {
+            return i as u32;
+        }
+    }
+
+    // No match: select the default port.
+    if has_additional {
+        // Additional port is after the numbered ports.
+        numbered
+    } else {
+        // Last numbered port is the default.
+        numbered.saturating_sub(1)
+    }
+    .min(data_inputs.saturating_sub(1))
+}
+
+/// Live renderer for the Switch block: draws the lever to the top data input
+/// when the control criteria is met, or the bottom data input otherwise.
+pub fn live_switch(
+    app: &mut crate::egui_app::state::SubsystemApp,
+    ui: &mut eframe::egui::Ui,
+    block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let Some(control_value) = control_input_live_value(app, block, 2) else {
+        return false;
+    };
+    let criteria = ctx.metadata.get("Criteria").unwrap_or("u2 >= Threshold");
+    let threshold_str = ctx.metadata.get("Threshold").unwrap_or("0").trim();
+    let threshold_val: f64 = threshold_str.parse().unwrap_or(0.0);
+    let threshold = if threshold_str.is_empty() { "0" } else { threshold_str };
+    let criteria_met = evaluate_switch_criteria(criteria, control_value, threshold_val);
+    let painter = ui.painter().with_clip_rect(*rect);
+    crate::egui_app::render::render_switch_with_selection(
+        &painter,
+        block,
+        rect,
+        ctx.font_scale,
+        criteria,
+        threshold,
+        ctx.port_y,
+        ctx.port_label_widths,
+        criteria_met,
+    );
+    true
+}
+
+/// Live renderer for the MultiPortSwitch block: draws the lever to the data
+/// input selected by the control signal value.
+pub fn live_multiport_switch(
+    app: &mut crate::egui_app::state::SubsystemApp,
+    ui: &mut eframe::egui::Ui,
+    block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let Some(control_value) = control_input_live_value(app, block, 1) else {
+        return false;
+    };
+    let data_inputs = multiport_switch_data_inputs(block, ctx.metadata);
+    let selected = compute_multiport_selection(block, ctx.metadata, control_value, data_inputs);
+    let painter = ui.painter().with_clip_rect(*rect);
+    crate::egui_app::render::render_multiport_switch_with_selection(
+        &painter,
+        block,
+        rect,
+        ctx.font_scale,
+        data_inputs,
+        ctx.port_y,
+        ctx.port_label_widths,
+        selected,
     );
     true
 }
@@ -1467,6 +1671,7 @@ pub fn static_multiport_switch(
         ctx.font_scale,
         data_inputs,
         ctx.port_y,
+        ctx.port_label_widths,
     );
     true
 }
@@ -1585,6 +1790,31 @@ pub fn multiport_switch_port_labels(
     labels
 }
 
+/// Input port labels for the BusAssignment block: the first port is always
+/// "Bus", and ports 2..N are the assigned signal names from the
+/// `AssignedSignals` property (comma-separated).
+pub fn bus_assignment_port_labels(
+    _block: &Block,
+    meta: &super::metadata::BlockMetadata,
+    is_input: bool,
+) -> Vec<String> {
+    if !is_input {
+        return Vec::new();
+    }
+    let assigned: Vec<String> = meta
+        .get("AssignedSignals")
+        .map(|s| {
+            s.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut labels = vec!["Bus".to_string()];
+    labels.extend(assigned);
+    labels
+}
+
 /// Static renderer for the C Function block: a bold `C` with the two raised
 /// plus signs of the C++ logo.
 pub fn static_c_function(
@@ -1681,7 +1911,10 @@ pub fn static_scope(
 
 #[cfg(test)]
 mod tests {
-    use super::{format_coeff, format_polynomial, multiport_switch_port_labels};
+    use super::{
+        bus_assignment_port_labels, compute_multiport_selection, evaluate_switch_criteria,
+        format_coeff, format_polynomial, multiport_switch_port_labels,
+    };
     use crate::model::{Block, PortCounts};
     use crate::simulink_libraries::metadata::BlockMetadata;
 
@@ -1773,6 +2006,109 @@ mod tests {
         let block = multiport_block(4);
         let meta = BlockMetadata::default();
         let labels = multiport_switch_port_labels(&block, &meta, false);
+        assert!(labels.is_empty());
+    }
+
+    #[test]
+    fn switch_criteria_ge_threshold() {
+        assert!(evaluate_switch_criteria("u2 >= Threshold", 5.0, 0.0));
+        assert!(evaluate_switch_criteria("u2 >= Threshold", 0.0, 0.0));
+        assert!(!evaluate_switch_criteria("u2 >= Threshold", -1.0, 0.0));
+    }
+
+    #[test]
+    fn switch_criteria_gt_threshold() {
+        assert!(evaluate_switch_criteria("u2 > Threshold", 5.0, 0.0));
+        assert!(!evaluate_switch_criteria("u2 > Threshold", 0.0, 0.0));
+    }
+
+    #[test]
+    fn switch_criteria_ne_literal() {
+        assert!(evaluate_switch_criteria("u2 ~= 0", 5.0, 0.0));
+        assert!(!evaluate_switch_criteria("u2 ~= 0", 0.0, 0.0));
+    }
+
+    #[test]
+    fn switch_criteria_le_threshold() {
+        assert!(evaluate_switch_criteria("u2 <= Threshold", -1.0, 0.0));
+        assert!(evaluate_switch_criteria("u2 <= Threshold", 0.0, 0.0));
+        assert!(!evaluate_switch_criteria("u2 <= Threshold", 1.0, 0.0));
+    }
+
+    #[test]
+    fn multiport_selection_one_based() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("Inputs", "3");
+        // control=2 → select data port index 1 (0-based)
+        assert_eq!(compute_multiport_selection(&block, &meta, 2.0, 3), 1);
+        // control=1 → select data port index 0
+        assert_eq!(compute_multiport_selection(&block, &meta, 1.0, 3), 0);
+        // control=5 (out of range) → default = last port (index 2)
+        assert_eq!(compute_multiport_selection(&block, &meta, 5.0, 3), 2);
+    }
+
+    #[test]
+    fn multiport_selection_zero_based() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("DataPortOrder", "Zero-based contiguous");
+        // control=0 → select data port index 0
+        assert_eq!(compute_multiport_selection(&block, &meta, 0.0, 3), 0);
+        // control=2 → select data port index 2
+        assert_eq!(compute_multiport_selection(&block, &meta, 2.0, 3), 2);
+        // control=5 (out of range) → default = last port (index 2)
+        assert_eq!(compute_multiport_selection(&block, &meta, 5.0, 3), 2);
+    }
+
+    #[test]
+    fn multiport_selection_specify_indices() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("DataPortOrder", "Specify indices");
+        meta.insert("DataPortIndices", "{6,8,15}");
+        // control=8 → select index 1 (the "8" port)
+        assert_eq!(compute_multiport_selection(&block, &meta, 8.0, 3), 1);
+        // control=6 → select index 0
+        assert_eq!(compute_multiport_selection(&block, &meta, 6.0, 3), 0);
+        // control=10 (no match) → default = last numbered port (index 2)
+        assert_eq!(compute_multiport_selection(&block, &meta, 10.0, 3), 2);
+    }
+
+    #[test]
+    fn multiport_selection_specify_indices_additional_default() {
+        let block = multiport_block(5);
+        let mut meta = BlockMetadata::default();
+        meta.insert("DataPortOrder", "Specify indices");
+        meta.insert("DataPortIndices", "{6,8,15}");
+        meta.insert("DataPortForDefault", "Additional data port");
+        // control=10 (no match) → additional default port (index 3)
+        assert_eq!(compute_multiport_selection(&block, &meta, 10.0, 4), 3);
+    }
+
+    #[test]
+    fn bus_assignment_port_labels_basic() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("AssignedSignals", "bus_b.e,bus_c.d,bus_c.bus_a");
+        let labels = bus_assignment_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["Bus", "bus_b.e", "bus_c.d", "bus_c.bus_a"]);
+    }
+
+    #[test]
+    fn bus_assignment_port_labels_empty() {
+        let block = multiport_block(2);
+        let mut meta = BlockMetadata::default();
+        let labels = bus_assignment_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["Bus"]);
+    }
+
+    #[test]
+    fn bus_assignment_port_labels_output_empty() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("AssignedSignals", "a,b");
+        let labels = bus_assignment_port_labels(&block, &meta, false);
         assert!(labels.is_empty());
     }
 }

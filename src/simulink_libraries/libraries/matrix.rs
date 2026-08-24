@@ -89,7 +89,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             "d 0.26,0.26 0.045; d 0.50,0.26 0.045; d 0.74,0.26 0.045;",
             "d 0.26,0.50 0.045; d 0.50,0.50 0.045; d 0.74,0.50 0.045;",
             "d 0.26,0.74 0.045; d 0.50,0.74 0.045; d 0.74,0.74 0.045;",
-            "r 0.42,0.18 0.82,0.58"
+            "r 0.38,0.14 0.86,0.62"
         ))),
     SimulinkBlockDefinition::new("Transpose", CAT)
         .with_description("Transpose a matrix")
