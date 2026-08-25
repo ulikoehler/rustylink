@@ -106,6 +106,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_block_label(BlockLabelPolicy::MetadataDependent(
             labels::matlab_function_name,
         ))
+        .with_static_renderer(renderers::static_matlab_function)
         .with_port_labels(
             PortLabelPolicy::MetadataDependent(port_labels_from_model),
             PortLabelPolicy::MetadataDependent(port_labels_from_model),
