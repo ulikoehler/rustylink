@@ -2041,9 +2041,9 @@ pub fn static_c_function(
     true
 }
 
-/// Static renderer for the MATLAB Function block: the membrane logo Simulink
-/// stamps on the block, with the name of the function the block runs beneath
-/// it (`fcn`, `test`, … – taken from the block's MATLAB source, not its name).
+/// Static renderer for the MATLAB Function block: a bold `M`, with the name of
+/// the function the block runs beneath it (`fcn`, `test`, … – taken from the
+/// block's MATLAB source, not from its name).
 pub fn static_matlab_function(
     painter: &Painter,
     _block: &Block,
@@ -2056,24 +2056,30 @@ pub fn static_matlab_function(
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .unwrap_or("fcn");
-    // The membrane: the peaked sheet of the MATLAB logo, drawn as its ridge,
-    // the fold behind it and the rim it sits on.
-    let spec = format!(
-        concat!(
-            "p 0.22,0.56 0.30,0.36 0.38,0.20 0.46,0.12 0.54,0.22 0.62,0.42 0.72,0.58;",
-            "p 0.34,0.56 0.42,0.36 0.48,0.26 0.54,0.38 0.62,0.56;",
-            "p 0.18,0.54 0.28,0.62 0.42,0.66 0.58,0.66 0.70,0.62 0.78,0.54;",
-            "t 0.50,0.86,0.28 {name}"
+    // A bold `M` as line art: strokes keep their weight at any block size,
+    // where a glyph would have to be squeezed into the block's aspect ratio.
+    let side = (rect.width() * 0.42).min(rect.height() * 0.42);
+    let center = eframe::egui::pos2(rect.center().x, rect.top() + rect.height() * 0.36);
+    let x = |u: f32| center.x + (u - 0.5) * side;
+    let y = |v: f32| center.y + (v - 0.5) * side;
+    painter.add(eframe::egui::Shape::line(
+        vec![
+            eframe::egui::pos2(x(0.05), y(1.0)),
+            eframe::egui::pos2(x(0.05), y(0.0)),
+            eframe::egui::pos2(x(0.50), y(0.62)),
+            eframe::egui::pos2(x(0.95), y(0.0)),
+            eframe::egui::pos2(x(0.95), y(1.0)),
+        ],
+        eframe::egui::Stroke::new((side * 0.16).max(1.0), ctx.text_color),
+    ));
+    painter.text(
+        eframe::egui::pos2(rect.center().x, rect.top() + rect.height() * 0.78),
+        eframe::egui::Align2::CENTER_CENTER,
+        name,
+        eframe::egui::FontId::proportional(
+            (rect.height() * 0.28).min(16.0 * ctx.font_scale).max(1.0),
         ),
-        name = name
-    );
-    crate::egui_app::render::draw_plot_icon(
-        painter,
-        rect,
-        ctx.font_scale,
-        &spec,
         ctx.text_color,
-        ctx.port_label_widths,
     );
     true
 }
