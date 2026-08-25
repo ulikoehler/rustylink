@@ -427,12 +427,7 @@ impl ConnectionTargetResolver {
                     "Demux" => self.demux_targets(system, block, src.port_index, line_targets),
                     "Inport" => parent_ctx
                         .and_then(|ctx| ctx.incoming_by_port.get(&boundary_port_index(block)))
-                        .map(|targets| {
-                            boundary_targets(
-                                targets,
-                                self.full_block_path(system_path, &block.name),
-                            )
-                        })
+                        .cloned()
                         .unwrap_or_else(|| {
                             self.base_line_targets(system, system_path, block_lookup, line)
                         }),
@@ -440,10 +435,7 @@ impl ConnectionTargetResolver {
                         .get(&src.sid)
                         .and_then(|summary| summary.outgoing_by_port.get(&src.port_index))
                         .map(|targets| {
-                            let mut propagated = boundary_targets(
-                                targets,
-                                self.full_block_path(system_path, &block.name),
-                            );
+                            let mut propagated = targets.clone();
                             // When the signal originates from a Reference block,
                             // tag the propagated targets so downstream matchers
                             // know to use prefix path matching.
@@ -878,7 +870,7 @@ impl ConnectionTargetResolver {
     fn upstream_propagated_targets(
         &self,
         system: &System,
-        system_path: &[String],
+        _system_path: &[String],
         block: &Block,
         dst: &EndpointRef,
         parent_ctx: Option<&ParentSubsystemContext>,
@@ -904,8 +896,7 @@ impl ConnectionTargetResolver {
                 .filter(|_| !is_control_port_type(&dst.port_type))
                 .and_then(|summary| summary.incoming_by_port.get(&dst.port_index))
                 .map(|targets| {
-                    let mut propagated =
-                        boundary_targets(targets, self.full_block_path(system_path, &block.name));
+                    let mut propagated = targets.clone();
                     if block.block_type == "Reference" {
                         for t in &mut propagated {
                             t.block_type = Some("Reference".to_string());
@@ -938,7 +929,21 @@ impl ConnectionTargetResolver {
     ) -> Vec<ConnectionTarget> {
         outgoing_line_indices_for_block(system, block)
             .into_iter()
-            .flat_map(|(line_index, _)| line_targets[line_index].clone())
+            .flat_map(|(line_index, _)| {
+                line_targets[line_index]
+                    .iter()
+                    .cloned()
+                    .map(|mut target| {
+                        // BusSelector output names (e.g. "<bus_a>") are NOT the
+                        // bus's signal names. Clear them so merge_upstream_metadata
+                        // does not overwrite the bus line's signal_name. Testpoint
+                        // is preserved for cross-boundary propagation.
+                        target.signal_name = None;
+                        target.signal_names.clear();
+                        target
+                    })
+                    .collect::<Vec<_>>()
+            })
             .collect()
     }
 
@@ -1229,10 +1234,7 @@ fn child_outgoing_targets_by_port(
         }
         targets.retain(|target| !inport_boundary_paths.contains(&target.path));
         if !targets.is_empty() {
-            by_port.insert(
-                port_index,
-                boundary_targets(&targets, resolver.full_block_path(system_path, &block.name)),
-            );
+            by_port.insert(port_index, dedup_targets(targets));
         }
     }
     by_port
@@ -1258,15 +1260,6 @@ fn child_incoming_targets_by_port(
         }
     }
     by_port
-}
-
-fn boundary_targets(targets: &[ConnectionTarget], boundary_path: String) -> Vec<ConnectionTarget> {
-    let mut combined = targets.to_vec();
-    combined.extend(targets.iter().cloned().map(|mut target| {
-        target.path = boundary_path.clone();
-        target
-    }));
-    dedup_targets(combined)
 }
 
 fn apply_local_line_metadata(line: &Line, targets: &mut [ConnectionTarget]) {
