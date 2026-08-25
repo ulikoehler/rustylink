@@ -420,12 +420,15 @@ fn display_still_hides_input_port_labels() {
 
 /// The subsystem variants of the reference model must expose exactly the
 /// top-edge control ports their contents ask for: an enable and a trigger port
-/// for the enabled+triggered subsystem, a reset port for the resettable ones,
-/// and the reinitialize event port of a nested function subsystem.
+/// for the enabled+triggered subsystem and a reset port for the resettable
+/// ones.  The reinitialize event port of a nested function subsystem is *not*
+/// a top-edge port – Simulink puts it on the input side.
 #[test]
 fn subsystem_control_ports_come_from_the_contained_port_blocks() {
     use rustylink::model::SlxArchive;
-    use rustylink::simulink_libraries::renderers::subsystem_control_port_count;
+    use rustylink::simulink_libraries::renderers::{
+        subsystem_control_port_count, subsystem_event_input_count,
+    };
 
     let file = std::fs::File::open("simulink_test_models/Simulink_Blocks.slx")
         .expect("open Simulink_Blocks.slx");
@@ -445,7 +448,63 @@ fn subsystem_control_ports_come_from_the_contained_port_blocks() {
     assert_eq!(count_of("Enabled Subsystem"), 1);
     assert_eq!(count_of("Enabled and Triggered Subsystem"), 2);
     assert_eq!(count_of("Resettable Subsystem"), 1);
-    assert_eq!(count_of("Atomic Subsystem with Reinit"), 1);
+    assert_eq!(count_of("Atomic Subsystem with Reinit"), 0);
+
+    let events_of = |name: &str| {
+        system
+            .blocks
+            .iter()
+            .find(|b| b.name == name)
+            .map(subsystem_event_input_count)
+            .unwrap_or_else(|| panic!("{name} missing from the model"))
+    };
+    assert_eq!(events_of("Atomic Subsystem with Reinit"), 1);
+    assert_eq!(events_of("Subsystem"), 0);
+}
+
+/// The reinitialize port of `Atomic Subsystem with Reinit` enters on the input
+/// side above the two data inputs, and pushes them down a slot.
+#[test]
+fn reinit_event_port_sits_above_the_data_inputs() {
+    use eframe::egui::{Pos2, Rect};
+    use rustylink::egui_app::ui::signal_routing::{compute_port_info, endpoint_pos};
+    use rustylink::model::{EndpointRef, SlxArchive};
+
+    let file = std::fs::File::open("simulink_test_models/Simulink_Blocks.slx")
+        .expect("open Simulink_Blocks.slx");
+    let archive = SlxArchive::from_reader(std::io::BufReader::new(file)).expect("read archive");
+    let system = archive.assembled_root_system().expect("assemble root");
+
+    let block = system
+        .blocks
+        .iter()
+        .find(|b| b.name == "Atomic Subsystem with Reinit")
+        .expect("subsystem missing from the model");
+    let sid = block.sid.clone().expect("subsystem has a SID");
+    let (counts, _) = compute_port_info(&system.lines, &system.blocks);
+    let rect = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(100.0, 120.0));
+    let at = |port_type: &str, index: u32| {
+        endpoint_pos(
+            rect,
+            &EndpointRef {
+                sid: sid.clone(),
+                port_index: index,
+                port_type: port_type.to_string(),
+            },
+            &counts,
+            false,
+        )
+    };
+
+    let event = at("event", 1);
+    let in1 = at("in", 1);
+    let in2 = at("in", 2);
+    // All three on the left edge, event first, then the data inputs.
+    for p in [event, in1, in2] {
+        assert_eq!(p.x, rect.left());
+    }
+    assert!(event.y < in1.y, "{event:?} must sit above {in1:?}");
+    assert!(in1.y < in2.y, "{in1:?} must sit above {in2:?}");
 }
 
 /// Control ports are numbered per type, so an `enable:1` and a `trigger:1`

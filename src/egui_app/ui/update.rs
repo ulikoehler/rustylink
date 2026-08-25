@@ -2510,11 +2510,14 @@ pub(crate) fn update_internal(
                     continue;
                 };
                 let cfg = get_block_type_cfg(b);
+                let event_ins =
+                    crate::simulink_libraries::renderers::subsystem_event_input_count(b);
                 let in_count = b
                     .port_counts
                     .as_ref()
                     .and_then(|p| p.ins)
-                    .unwrap_or(cfg.default_ins);
+                    .unwrap_or(cfg.default_ins)
+                    + event_ins;
                 let out_count = b
                     .port_counts
                     .as_ref()
@@ -2539,8 +2542,8 @@ pub(crate) fn update_internal(
                         port_label_requests.push((sid.clone(), index, is_input, y));
                     }
                 };
-                for (i, p) in ins.iter().enumerate() {
-                    request(i, true, p.y);
+                for (i, p) in ins.iter().enumerate().skip(event_ins as usize) {
+                    request(i - event_ins as usize, true, p.y);
                 }
                 for (i, p) in outs.iter().enumerate() {
                     request(i, false, p.y);
@@ -2701,11 +2704,14 @@ pub(crate) fn update_internal(
             // Chevrons are hidden for ports that have at least one connection.
             // For base blocks port_counts may be absent; fall back to the
             // virtual-library defaults carried in BlockTypeConfig.
+            // Lifecycle event ports take the first slots on the input side.
+            let event_ins = crate::simulink_libraries::renderers::subsystem_event_input_count(b);
             let in_count = b
                 .port_counts
                 .as_ref()
                 .and_then(|p| p.ins)
-                .unwrap_or(cfg.default_ins);
+                .unwrap_or(cfg.default_ins)
+                + event_ins;
             let out_count = b
                 .port_counts
                 .as_ref()
@@ -2726,8 +2732,15 @@ pub(crate) fn update_internal(
                 let block_sid = b.sid.as_deref().unwrap_or("");
                 for (i, p) in ins.iter().enumerate() {
                     let port_idx = (i as u32) + 1;
-                    // Skip chevron if this input port is connected
-                    if connected_ports.contains(&(block_sid.to_string(), port_idx, true)) {
+                    // Skip chevron if this input port is connected; an event
+                    // port is never wired through the data-input numbering.
+                    if port_idx > event_ins
+                        && connected_ports.contains(&(
+                            block_sid.to_string(),
+                            port_idx - event_ins,
+                            true,
+                        ))
+                    {
                         continue;
                     }
                     let ovr_placement = overrides

@@ -151,6 +151,22 @@ pub fn port_kind(port_type: &str) -> u8 {
 /// port count; no endpoint maps to it, so it cannot collide with the counts.
 const CONTROL_SLOT_KIND: u8 = 3;
 
+/// Bucket holding how many lifecycle event ports a subsystem carries on its
+/// input side.  They occupy the first slots there, so the data inputs of such
+/// a block are pushed down by this many.
+const EVENT_IN_KIND: u8 = 4;
+
+/// How many event ports precede the data inputs of the block `sid`.
+pub fn event_input_offset(
+    port_counts: &std::collections::HashMap<(String, u8), u32>,
+    sid: &str,
+) -> u32 {
+    port_counts
+        .get(&(sid.to_string(), EVENT_IN_KIND))
+        .copied()
+        .unwrap_or(0)
+}
+
 fn control_slot_key(sid: &str, port_type: &str) -> (String, u8) {
     (
         format!("{sid}\u{1}{}", port_type.to_ascii_lowercase()),
@@ -169,14 +185,25 @@ pub fn endpoint_pos(
     port_counts: &std::collections::HashMap<(String, u8), u32>,
     mirrored: bool,
 ) -> Pos2 {
+    let is_event = ep.port_type.eq_ignore_ascii_case("event");
+    // An event port sits on the input side, so it shares the input count.
+    let count_kind = if is_event {
+        0
+    } else {
+        port_kind(&ep.port_type)
+    };
     let kind = port_kind(&ep.port_type);
-    let num_ports = port_counts.get(&(ep.sid.clone(), kind)).copied();
-    let index = if kind == 2 {
+    let num_ports = port_counts.get(&(ep.sid.clone(), count_kind)).copied();
+    let index = if is_event {
+        ep.port_index
+    } else if kind == 2 {
         port_counts
             .get(&control_slot_key(&ep.sid, &ep.port_type))
             .copied()
             .map(|slot| slot + ep.port_index.saturating_sub(1))
             .unwrap_or(ep.port_index)
+    } else if kind == 0 {
+        ep.port_index + event_input_offset(port_counts, &ep.sid)
     } else {
         ep.port_index
     };
@@ -252,7 +279,11 @@ pub fn compute_port_info(
         if let Some(sid) = &b.sid
             && let Some(pc) = &b.port_counts
         {
-            if let Some(ins) = pc.ins {
+            let events = crate::simulink_libraries::renderers::subsystem_event_input_count(b);
+            if events > 0 {
+                port_counts.insert((sid.clone(), EVENT_IN_KIND), events);
+            }
+            if let Some(ins) = pc.ins.map(|ins| ins + events) {
                 let key = (sid.clone(), 0u8);
                 port_counts
                     .entry(key)

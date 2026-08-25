@@ -634,6 +634,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Assign signals to a bus")
         .with_ports(IOPorts::Variable(2), IOPorts::Fixed(1))
         .with_metadata_keys(&[MetadataKey::with_default("AssignedSignals", "")])
+        .with_static_renderer(renderers::static_nothing)
         .with_port_labels(
             PortLabelPolicy::MetadataDependent(renderers::bus_assignment_port_labels),
             PortLabelPolicy::MetadataDependent(renderers::bus_assignment_port_labels),

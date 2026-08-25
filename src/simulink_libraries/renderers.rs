@@ -748,6 +748,49 @@ pub fn static_subsystem(
             None,
         );
     }
+    // Lifecycle event ports enter on the input side, above the data inputs,
+    // with their pictogram and event name beside them.
+    let events = subsystem_event_input_glyphs(block);
+    if !events.is_empty() {
+        let data_ins = block
+            .port_counts
+            .as_ref()
+            .and_then(|counts| counts.ins)
+            .unwrap_or(0);
+        let total_ins = data_ins + events.len() as u32;
+        let mirrored = block.block_mirror.unwrap_or(false);
+        let side = crate::egui_app::geometry::port_side_for("in", mirrored);
+        let size = (rect.height() / (total_ins as f32 + 1.0))
+            .min(rect.width() * 0.34)
+            .min(14.0 * ctx.font_scale)
+            .max(4.0);
+        for (index, event) in events.iter().enumerate() {
+            let y = crate::egui_app::geometry::port_anchor_pos(
+                *rect,
+                side,
+                index as u32 + 1,
+                Some(total_ins),
+            )
+            .y;
+            let x = if mirrored {
+                rect.right() - size * 1.2
+            } else {
+                rect.left() + size * 0.2
+            };
+            let glyph = Rect::from_min_size(
+                eframe::egui::pos2(x, y - size * 0.5),
+                eframe::egui::vec2(size, size),
+            );
+            crate::egui_app::render::draw_plot_icon(
+                painter,
+                &glyph,
+                ctx.font_scale,
+                event,
+                ctx.text_color,
+                None,
+            );
+        }
+    }
     if content.for_each {
         // Stacked copies of the same block – one per element of the input.
         spec.push_str(concat!(
@@ -887,14 +930,40 @@ fn control_port_glyphs(content: &SubsystemContent) -> Vec<String> {
     if let Some(reset) = content.reset {
         glyphs.push(format!("{reset}; t 1.32,0.78,0.50 R"));
     }
-    if let Some(event) = content.event_port.as_ref() {
-        glyphs.push(format!(
-            "{}; t 2.20,0.50,0.50 {}",
-            event_port_glyph(&event.kind),
-            event.caption
-        ));
-    }
     glyphs
+}
+
+/// The pictograms of the lifecycle event ports a subsystem carries on its
+/// *input* side, top to bottom, each followed by the event's name – how
+/// Simulink draws the reinitialize/reset port of a subsystem that contains such
+/// a function.
+pub fn subsystem_event_input_glyphs(block: &Block) -> Vec<String> {
+    let content = SubsystemContent::of(block);
+    content
+        .event_port
+        .iter()
+        .map(|event| {
+            format!(
+                "{}; t 2.20,0.50,0.50 {}",
+                event_port_glyph(&event.kind),
+                event.caption
+            )
+        })
+        .collect()
+}
+
+/// How many lifecycle event ports enter the subsystem on its input side, above
+/// the data inputs.  Falls back to `<PortCounts event=…/>` when the contents
+/// are not loaded.
+pub fn subsystem_event_input_count(block: &Block) -> u32 {
+    if block.subsystem.is_none() {
+        return block
+            .port_counts
+            .as_ref()
+            .and_then(|counts| counts.event)
+            .unwrap_or(0);
+    }
+    u32::from(SubsystemContent::of(block).event_port.is_some())
 }
 
 /// The lifecycle pictogram of an event port, drawn inside its own square.
@@ -921,7 +990,6 @@ pub fn subsystem_control_port_types(block: &Block) -> Vec<&'static str> {
             ("enable", counts.enable),
             ("trigger", counts.trigger),
             ("reset", counts.reset),
-            ("event", counts.event),
         ]
         .into_iter()
         .flat_map(|(port_type, count)| std::iter::repeat_n(port_type, count.unwrap_or(0) as usize))
@@ -938,9 +1006,6 @@ pub fn subsystem_control_port_types(block: &Block) -> Vec<&'static str> {
     }
     if content.reset.is_some() {
         types.push("reset");
-    }
-    if content.event_port.is_some() {
-        types.push("event");
     }
     types
 }
@@ -1801,6 +1866,17 @@ pub fn multiport_switch_port_labels(
         }
     }
     labels
+}
+
+/// A block Simulink draws empty: its identity comes from the port labels
+/// alone, so claiming the interior keeps the `?` placeholder away.
+pub fn static_nothing(
+    _painter: &Painter,
+    _block: &Block,
+    _rect: &Rect,
+    _ctx: &RenderContext<'_>,
+) -> bool {
+    true
 }
 
 /// Port labels for the BusAssignment block: the bus arrives on the first input
