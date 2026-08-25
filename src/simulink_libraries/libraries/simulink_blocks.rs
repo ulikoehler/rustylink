@@ -607,7 +607,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Output width (number of elements) of input signal")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_icon(plot(
-            "t 0.50,0.28,0.32 -1; p 0.00,0.68 1.00,0.68; p 0.38,0.84 0.62,0.52",
+            "t 0.45,0.28,0.36 -1; p 0.00,0.50 1.00,0.50; p 0.32,0.78 0.58,0.36",
         )),
 
     SimulinkBlockDefinition::new("SignalConversion", "Signal Routing")
@@ -933,6 +933,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Read block state for logging or initialisation")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_shape(SimulinkShape::None)
+        .with_metadata_keys(&[MetadataKey::new("StateOwnerBlock")])
         .with_static_renderer(renderers::static_state_parameter_access),
 
     SimulinkBlockDefinition::new("StateWriter", "Ports & Subsystems")
@@ -940,6 +941,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Write values into block state")
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
         .with_shape(SimulinkShape::None)
+        .with_metadata_keys(&[MetadataKey::new("StateOwnerBlock")])
         .with_static_renderer(renderers::static_state_parameter_access),
 
     SimulinkBlockDefinition::new("ParameterWriter", "Ports & Subsystems")
@@ -947,6 +949,10 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Write values into another block's parameters")
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
         .with_shape(SimulinkShape::None)
+        .with_metadata_keys(&[
+            MetadataKey::new("ParameterOwnerBlock"),
+            MetadataKey::new("ParameterName"),
+        ])
         .with_static_renderer(renderers::static_state_parameter_access),
 
     SimulinkBlockDefinition::new("DataStoreRead", "Signal Routing")

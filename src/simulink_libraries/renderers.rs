@@ -891,7 +891,40 @@ pub fn static_state_parameter_access(
         ),
         colors.text,
     );
+    if let Some(owner) = state_parameter_owner(ctx) {
+        painter.text(
+            eframe::egui::pos2(rect.right() + rect.width() * 0.25, center.y),
+            eframe::egui::Align2::LEFT_CENTER,
+            owner,
+            eframe::egui::FontId::proportional(
+                (rect.height() * 0.42).min(14.0 * ctx.font_scale).max(1.0),
+            ),
+            ctx.text_color,
+        );
+    }
     true
+}
+
+/// The block a State/Parameter Reader or Writer acts on, as Simulink prints it
+/// beside the diamond: the owner block's own name – the trailing component of
+/// the `../Delay` style path – and, for a parameter, the parameter it writes,
+/// as in `Add Constant.Bias`.
+fn state_parameter_owner(ctx: &RenderContext<'_>) -> Option<String> {
+    owner_caption(
+        ctx.metadata
+            .get("StateOwnerBlock")
+            .or_else(|| ctx.metadata.get("ParameterOwnerBlock")),
+        ctx.metadata.get("ParameterName"),
+    )
+}
+
+fn owner_caption(owner_path: Option<&str>, parameter: Option<&str>) -> Option<String> {
+    let path = owner_path.map(str::trim).filter(|path| !path.is_empty())?;
+    let owner = path.rsplit('/').next().unwrap_or(path).trim();
+    match parameter.map(str::trim) {
+        Some(parameter) if !parameter.is_empty() => Some(format!("{owner}.{parameter}")),
+        _ => Some(owner.to_string()),
+    }
 }
 
 /// Static renderer for a standalone `EnablePort`: the same square pulse the
@@ -2120,10 +2153,24 @@ pub fn static_scope(
 mod tests {
     use super::{
         bus_assignment_port_labels, compute_multiport_selection, evaluate_switch_criteria,
-        format_coeff, format_polynomial, multiport_switch_port_labels,
+        format_coeff, format_polynomial, multiport_switch_port_labels, owner_caption,
     };
     use crate::model::{Block, PortCounts};
     use crate::simulink_libraries::metadata::BlockMetadata;
+
+    #[test]
+    fn owner_caption_uses_the_owner_name_and_parameter() {
+        assert_eq!(
+            owner_caption(Some("../Delay"), None),
+            Some("Delay".to_string())
+        );
+        assert_eq!(
+            owner_caption(Some("../Add Constant"), Some("Bias")),
+            Some("Add Constant.Bias".to_string())
+        );
+        assert_eq!(owner_caption(Some("  "), Some("Bias")), None);
+        assert_eq!(owner_caption(None, None), None);
+    }
 
     #[test]
     fn polynomial_from_bracketed_vector() {
