@@ -894,6 +894,85 @@ pub fn static_state_parameter_access(
     true
 }
 
+/// Static renderer for a standalone `EnablePort`: the same square pulse the
+/// containing subsystem shows above its enable port.
+pub fn static_enable_port(
+    painter: &Painter,
+    _block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    crate::egui_app::render::draw_plot_icon(
+        painter,
+        rect,
+        ctx.font_scale,
+        LEVEL_PULSE,
+        ctx.text_color,
+        ctx.port_label_widths,
+    );
+    true
+}
+
+/// Static renderer for a standalone `TriggerPort`: the edge pictogram of its
+/// `TriggerType`, matching the one on the containing subsystem's trigger port.
+pub fn static_trigger_port(
+    painter: &Painter,
+    _block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let spec =
+        reset_spec(ctx.metadata.get("TriggerType").or(Some("rising"))).unwrap_or(RISING_EDGE);
+    crate::egui_app::render::draw_plot_icon(
+        painter,
+        rect,
+        ctx.font_scale,
+        spec,
+        ctx.text_color,
+        ctx.port_label_widths,
+    );
+    true
+}
+
+/// Static renderer for an `EventListener`: the lifecycle pictogram of the event
+/// it responds to – the same one the subsystem containing it is headed with –
+/// over the event's name.
+pub fn static_event_listener(
+    painter: &Painter,
+    block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let event = SubsystemEvent::of(block);
+    let glyph_height = rect.height() * 0.65;
+    let side = glyph_height.min(rect.width());
+    let glyph = Rect::from_center_size(
+        eframe::egui::pos2(rect.center().x, rect.top() + glyph_height * 0.5),
+        eframe::egui::vec2(side, glyph_height),
+    );
+    crate::egui_app::render::draw_plot_icon(
+        painter,
+        &glyph,
+        ctx.font_scale,
+        event_port_glyph(&event.kind),
+        ctx.text_color,
+        None,
+    );
+    let caption = Rect::from_min_max(
+        eframe::egui::pos2(rect.left(), rect.top() + glyph_height),
+        rect.max,
+    );
+    crate::egui_app::render::draw_plot_icon(
+        painter,
+        &caption,
+        ctx.font_scale,
+        &format!("t 0.50,0.50,0.80 {}", event.caption),
+        ctx.text_color,
+        ctx.port_label_widths,
+    );
+    true
+}
+
 /// Static renderer for the ResetPort block: the pictogram of the edge it
 /// resets on – the same one its subsystem shows at the reset port it adds.
 pub fn static_reset_port(

@@ -409,6 +409,23 @@ fn complex_to_real_imag_is_drawn_by_its_renderer() {
     assert!(def.static_renderer.is_some());
 }
 
+/// The standalone lifecycle/control port blocks draw the same pictogram their
+/// containing subsystem shows at the port they add, so none of them may fall
+/// back to a text icon.
+#[test]
+fn lifecycle_port_blocks_draw_pictograms() {
+    for block_type in ["EnablePort", "TriggerPort", "ResetPort", "EventListener"] {
+        let block =
+            rustylink::editor::operations::create_default_block(block_type, block_type, 0, 0, 0, 0);
+        let def = rustylink::simulink_libraries::resolve_definition(&block);
+        assert!(
+            def.static_renderer.is_some(),
+            "{block_type} must draw a pictogram"
+        );
+        assert_eq!(def.icon, None, "{block_type} must not draw a text icon");
+    }
+}
+
 #[test]
 fn display_still_hides_input_port_labels() {
     let block =

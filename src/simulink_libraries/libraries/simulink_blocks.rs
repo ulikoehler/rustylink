@@ -555,7 +555,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_aliases(&["Enable"])
         .with_description("Add enable port to subsystem")
         .with_ports(IOPorts::None, IOPorts::None)
-        .with_icon(icon("EN")),
+        .with_static_renderer(renderers::static_enable_port),
 
     SimulinkBlockDefinition::new("ForIterator", "Ports & Subsystems")
         .with_aliases(&["For Iterator"])
@@ -573,7 +573,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_aliases(&["Trigger"])
         .with_description("Add trigger port to subsystem")
         .with_ports(IOPorts::None, IOPorts::None)
-        .with_icon(icon("\u{2191}")),
+        .with_metadata_keys(&[MetadataKey::with_default("TriggerType", "rising")])
+        .with_static_renderer(renderers::static_trigger_port),
 
     SimulinkBlockDefinition::new("ResetPort", "Ports & Subsystems")
         .with_aliases(&["Reset"])
@@ -600,11 +601,14 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_metadata_keys(&[MetadataKey::with_default("OutDataTypeStr", "Inherit: Inherit via back propagation")])
         .with_static_renderer(renderers::static_data_type_conversion),
 
-    // Simulink draws the propagated width above a diagonal probe line.
+    // Simulink draws the propagated width above the signal line running from
+    // the input to the output port, tapped by a short diagonal stroke.
     SimulinkBlockDefinition::new("Width", "Signal Attributes")
         .with_description("Output width (number of elements) of input signal")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
-        .with_icon(plot("t 0.50,0.30,0.32 -1; p 0.12,0.82 0.88,0.44")),
+        .with_icon(plot(
+            "t 0.50,0.28,0.32 -1; p 0.00,0.68 1.00,0.68; p 0.38,0.84 0.62,0.52",
+        )),
 
     SimulinkBlockDefinition::new("SignalConversion", "Signal Routing")
         .with_aliases(&["Signal Conversion"])
@@ -918,7 +922,11 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_aliases(&["Event Listener"])
         .with_description("Listen for simulation events")
         .with_ports(IOPorts::None, IOPorts::None)
-        .with_icon(icon("evt")),
+        .with_metadata_keys(&[
+            MetadataKey::with_default("EventType", "Initialize"),
+            MetadataKey::with_default("EventName", ""),
+        ])
+        .with_static_renderer(renderers::static_event_listener),
 
     SimulinkBlockDefinition::new("StateReader", "Ports & Subsystems")
         .with_aliases(&["State Reader"])
