@@ -1803,28 +1803,30 @@ pub fn multiport_switch_port_labels(
     labels
 }
 
-/// Input port labels for the BusAssignment block: the first port is always
-/// "Bus", and ports 2..N are the assigned signal names from the
-/// `AssignedSignals` property (comma-separated).
+/// Port labels for the BusAssignment block: the bus arrives on the first input
+/// and leaves on the only output, both labelled `Bus`; the remaining inputs
+/// carry the element each of them assigns, written `:= bus_b.e` as in Simulink
+/// and taken from the comma-separated `AssignedSignals` property.
 pub fn bus_assignment_port_labels(
     _block: &Block,
     meta: &super::metadata::BlockMetadata,
     is_input: bool,
 ) -> Vec<String> {
     if !is_input {
-        return Vec::new();
+        return vec!["Bus".to_string()];
     }
-    let assigned: Vec<String> = meta
+    let assigned = meta
         .get("AssignedSignals")
         .map(|s| {
             s.split(',')
-                .map(|s| s.trim().to_string())
+                .map(str::trim)
                 .filter(|s| !s.is_empty())
+                .map(|s| format!(":= {s}"))
                 .collect()
         })
         .unwrap_or_default();
     let mut labels = vec!["Bus".to_string()];
-    labels.extend(assigned);
+    labels.extend::<Vec<String>>(assigned);
     labels
 }
 
@@ -2142,7 +2144,10 @@ mod tests {
         let mut meta = BlockMetadata::default();
         meta.insert("AssignedSignals", "bus_b.e,bus_c.d,bus_c.bus_a");
         let labels = bus_assignment_port_labels(&block, &meta, true);
-        assert_eq!(labels, vec!["Bus", "bus_b.e", "bus_c.d", "bus_c.bus_a"]);
+        assert_eq!(
+            labels,
+            vec!["Bus", ":= bus_b.e", ":= bus_c.d", ":= bus_c.bus_a"]
+        );
     }
 
     #[test]
@@ -2154,11 +2159,11 @@ mod tests {
     }
 
     #[test]
-    fn bus_assignment_port_labels_output_empty() {
+    fn bus_assignment_output_port_is_labelled_bus() {
         let block = multiport_block(4);
         let mut meta = BlockMetadata::default();
         meta.insert("AssignedSignals", "a,b");
         let labels = bus_assignment_port_labels(&block, &meta, false);
-        assert!(labels.is_empty());
+        assert_eq!(labels, vec!["Bus"]);
     }
 }

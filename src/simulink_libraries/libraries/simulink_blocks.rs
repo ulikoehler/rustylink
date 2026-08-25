@@ -636,7 +636,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_metadata_keys(&[MetadataKey::with_default("AssignedSignals", "")])
         .with_port_labels(
             PortLabelPolicy::MetadataDependent(renderers::bus_assignment_port_labels),
-            PortLabelPolicy::None,
+            PortLabelPolicy::MetadataDependent(renderers::bus_assignment_port_labels),
         ),
 
     SimulinkBlockDefinition::new("GotoTagVisibility", "Signal Routing")
