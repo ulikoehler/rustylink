@@ -318,9 +318,8 @@ fn subsystem_outport_forwards_parent_input_target() {
             && target.signal_name.as_deref() == Some("input")
             && target.signals_only
     }));
-    assert!(targets.iter().any(|target| {
-        target.path == "model/Sub/Out1" && target.signal_name.as_deref() == Some("input")
-    }));
+    // Boundary path targets (Sub/Out1, Sub/In1) are no longer generated.
+    assert!(!targets.iter().any(|target| target.path == "model/Sub/Out1"));
     assert!(!targets.iter().any(|target| target.path == "model/Sub/In1"));
 }
 
@@ -405,18 +404,21 @@ fn mux_does_not_append_explicit_names_to_forwarded_boundary_paths() {
     let resolver = ConnectionTargetResolver::new(&system);
     let targets = resolver.line_targets_for_line(&[], &system.lines[3]);
 
+    // The mux output line should carry the source target (model/Src) with
+    // the mux-assigned name "alpha", without boundary path targets.
     assert!(
         targets.iter().any(|target| {
-            target.path == "model/Sub/Out1"
+            target.path == "model/Src"
                 && target.signal_name.as_deref() == Some("alpha")
                 && target.origin == ConnectionTargetOrigin::Mux
         }),
         "targets: {targets:?}"
     );
+    // Boundary path targets are no longer generated.
     assert!(
         !targets
             .iter()
-            .any(|target| target.path == "model/Sub/Out1/alpha")
+            .any(|target| target.path == "model/Sub/Out1")
     );
 }
 
@@ -1896,7 +1898,8 @@ fn subsystem_input_sees_signal_produced_by_another_subsystem() {
 
     let resolver = ConnectionTargetResolver::new(&system);
     // Inside the consumer the signal must resolve back to the producing
-    // subsystem, exactly as it does when the line starts at a root-level block.
+    // subsystem's source block, exactly as it does when the line starts at
+    // a root-level block.
     let inner = resolver.line_targets_for_line(
         &["Consumer".to_string()],
         &system.blocks[1].subsystem.as_ref().unwrap().lines[0],
@@ -1904,8 +1907,8 @@ fn subsystem_input_sees_signal_produced_by_another_subsystem() {
     assert!(
         inner
             .iter()
-            .any(|target| target.path == "model/Producer/Out1"),
-        "consumer inport lost the producing subsystem: {inner:#?}"
+            .any(|target| target.path == "model/Producer/Src"),
+        "consumer inport lost the producing subsystem source: {inner:#?}"
     );
     assert!(
         inner
@@ -3397,4 +3400,262 @@ fn testpoint_still_propagates_across_subsystem_boundary() {
         "signal_names for 'a' should NOT contain 'b': {:?}",
         a_target.signal_names
     );
+}
+
+// ===========================================================================
+// Tests for bus through subsystem: no boundary targets, signal_name preserved
+// ===========================================================================
+
+#[test]
+fn bus_through_subsystem_no_boundary_targets() {
+    // A bus with two elements crosses a subsystem boundary.
+    // No targets with Subsystem/In1, Subsystem/Out1, or Subsystem paths
+    // should appear in the line targets.
+    let child_system = System {
+        properties: IndexMap::new(),
+        blocks: vec![
+            block(
+                "Inport",
+                "In1",
+                "10",
+                vec![port("out", 1, None)],
+                None,
+                &[("Port", "1")],
+            ),
+            block(
+                "Outport",
+                "Out1",
+                "11",
+                vec![port("in", 1, None)],
+                None,
+                &[("Port", "1")],
+            ),
+        ],
+        lines: vec![line("10", 1, "11", 1, None)],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "3",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "SubSystem",
+                "Sub",
+                "4",
+                vec![port("in", 1, None), port("out", 1, None)],
+                Some(child_system),
+                &[],
+            ),
+            block("Display", "Sink", "5", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "3", 1, Some("a")),
+            line("2", 1, "3", 2, Some("b")),
+            line("3", 1, "4", 1, Some("bus")),
+            line("4", 1, "5", 1, None),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    // Line going INTO the subsystem (bus line)
+    let input_targets = resolver.line_targets_for_line(&[], &system.lines[2]);
+    for target in &input_targets {
+        assert!(
+            !target.path.contains("/In1"),
+            "no boundary In1 path expected, found: {}",
+            target.path
+        );
+        assert!(
+            !target.path.contains("/Out1"),
+            "no boundary Out1 path expected, found: {}",
+            target.path
+        );
+        assert!(
+            target.path != "model/Sub",
+            "no boundary Sub path expected, found: {}",
+            target.path
+        );
+    }
+
+    // Line coming OUT of the subsystem
+    let output_targets = resolver.line_targets_for_line(&[], &system.lines[3]);
+    for target in &output_targets {
+        assert!(
+            !target.path.contains("/In1"),
+            "no boundary In1 path expected, found: {}",
+            target.path
+        );
+        assert!(
+            !target.path.contains("/Out1"),
+            "no boundary Out1 path expected, found: {}",
+            target.path
+        );
+        assert!(
+            target.path != "model/Sub",
+            "no boundary Sub path expected, found: {}",
+            target.path
+        );
+    }
+}
+
+#[test]
+fn bus_through_subsystem_signal_name_preserved() {
+    // A bus crosses a subsystem boundary. The signal_name on the original
+    // targets should be the bus name (e.g. "bus"), not changed by the
+    // subsystem boundary crossing.
+    let child_system = System {
+        properties: IndexMap::new(),
+        blocks: vec![
+            block(
+                "Inport",
+                "In1",
+                "10",
+                vec![port("out", 1, None)],
+                None,
+                &[("Port", "1")],
+            ),
+            block(
+                "Outport",
+                "Out1",
+                "11",
+                vec![port("in", 1, None)],
+                None,
+                &[("Port", "1")],
+            ),
+        ],
+        lines: vec![line("10", 1, "11", 1, None)],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "3",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "SubSystem",
+                "Sub",
+                "4",
+                vec![port("in", 1, None), port("out", 1, None)],
+                Some(child_system),
+                &[],
+            ),
+            block("Display", "Sink", "5", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "3", 1, Some("a")),
+            line("2", 1, "3", 2, Some("b")),
+            line("3", 1, "4", 1, Some("bus")),
+            line("4", 1, "5", 1, None),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    // Line going INTO the subsystem (bus line)
+    let targets = resolver.line_targets_for_line(&[], &system.lines[2]);
+
+    // The bus line targets should have signal_name "bus" (from the line name),
+    // not changed by the subsystem boundary.
+    let a_target = targets.iter().find(|t| t.path == "model/A");
+    assert!(a_target.is_some(), "expected model/A in {targets:?}");
+    let a_target = a_target.unwrap();
+    assert_eq!(
+        a_target.signal_name.as_deref(),
+        Some("bus"),
+        "signal_name should be 'bus', got: {:?}",
+        a_target.signal_name
+    );
+}
+
+#[test]
+fn bus_selector_upstream_does_not_overwrite_bus_signal_name() {
+    // A bus line ends at both a SubSystem and a BusSelector.
+    // The BusSelector output port names (e.g. "<a>") should NOT overwrite
+    // the bus line's signal_name (e.g. "bus").
+    let system = System {
+        properties: props(&[("Name", "model")]),
+        blocks: vec![
+            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block(
+                "BusCreator",
+                "BusCreator",
+                "3",
+                vec![
+                    port("in", 1, None),
+                    port("in", 2, None),
+                    port("out", 1, Some("bus")),
+                ],
+                None,
+                &[],
+            ),
+            block(
+                "BusSelector",
+                "BusSelector",
+                "4",
+                vec![port("in", 1, None), port("out", 1, None)],
+                None,
+                &[("OutputSignals", "a")],
+            ),
+            block("Display", "Sink", "5", vec![port("in", 1, None)], None, &[]),
+        ],
+        lines: vec![
+            line("1", 1, "3", 1, Some("a")),
+            line("2", 1, "3", 2, Some("b")),
+            line("3", 1, "4", 1, Some("bus")),
+            line("4", 1, "5", 1, None),
+        ],
+        annotations: Vec::new(),
+        chart: None,
+    };
+
+    let resolver = ConnectionTargetResolver::new(&system);
+    // The bus line (line index 2) goes to the BusSelector.
+    // Its targets should have signal_name "bus", NOT "<a>" from the
+    // BusSelector output port.
+    let targets = resolver.line_targets_for_line(&[], &system.lines[2]);
+
+    for target in &targets {
+        if target.path == "model/A" || target.path == "model/B" {
+            assert_eq!(
+                target.signal_name.as_deref(),
+                Some("bus"),
+                "signal_name should be 'bus' for {}, got: {:?}",
+                target.path,
+                target.signal_name
+            );
+        }
+    }
 }
