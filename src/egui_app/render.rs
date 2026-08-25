@@ -1612,9 +1612,12 @@ pub fn render_multiport_switch_with_selection(
     let col_inactive = Color32::from_rgb(110, 110, 110);
     let r_contact = (rect.height() * 0.04).clamp(2.0, 5.0);
 
-    // Compute horizontal insets that clear the port labels.
+    // Compute horizontal insets that clear the port labels.  The insets locate
+    // the *centre* of a contact, so the contact's own radius has to be kept
+    // clear of the label as well, otherwise the numbering runs into the
+    // circles.
     let label_pad = 4.0 * font_scale;
-    let label_gap = 2.0 * font_scale;
+    let label_gap = 4.0 * font_scale + r_contact;
     let margin_x = rect.width() * 0.10;
     let left_inset = if let Some(w) = port_label_widths {
         margin_x.max(label_pad + w.left + label_gap)
@@ -1651,6 +1654,19 @@ pub fn render_multiport_switch_with_selection(
     } else {
         rect.right() - right_inset
     };
+    // The port numbering is drawn between the border and the contacts, so the
+    // leads start behind it instead of striking the text through.
+    let lead_in_x = match port_label_widths {
+        Some(w) if w.left > 0.0 => {
+            let x = label_pad + w.left;
+            if mirrored {
+                rect.right() - x
+            } else {
+                rect.left() + x
+            }
+        }
+        _ => in_x,
+    };
 
     let stroke = Stroke::new(stroke_w, col_active);
 
@@ -1658,7 +1674,10 @@ pub fn render_multiport_switch_with_selection(
     // vertical bar representing the control contact.
     let control_y = port_y(1);
     painter.line_segment(
-        [Pos2::new(in_x, control_y), Pos2::new(contact_x, control_y)],
+        [
+            Pos2::new(lead_in_x, control_y),
+            Pos2::new(contact_x, control_y),
+        ],
         stroke,
     );
     // Vertical bar for the control contact.
@@ -1677,7 +1696,7 @@ pub fn render_multiport_switch_with_selection(
     for i in 0..data_inputs {
         let port_idx = i + 2;
         let y = port_y(port_idx);
-        painter.line_segment([Pos2::new(in_x, y), Pos2::new(contact_x, y)], stroke);
+        painter.line_segment([Pos2::new(lead_in_x, y), Pos2::new(contact_x, y)], stroke);
         // Contact circle: selected one is active, rest inactive.
         let col = if i == selected {
             col_active
@@ -1788,9 +1807,11 @@ pub fn render_switch_with_selection(
     let col_inactive = Color32::from_rgb(110, 110, 110);
     let r_contact = (rect.height() * 0.04).clamp(2.0, 5.0);
 
-    // Compute horizontal insets that clear the port labels.
+    // Compute horizontal insets that clear the port labels; as in the
+    // MultiPortSwitch, the contact radius is part of the gap because the inset
+    // positions the contact's centre.
     let label_pad = 4.0 * font_scale;
-    let label_gap = 2.0 * font_scale;
+    let label_gap = 4.0 * font_scale + r_contact;
     let margin_x = rect.width() * 0.10;
     let left_inset = if let Some(w) = port_label_widths {
         margin_x.max(label_pad + w.left + label_gap)
