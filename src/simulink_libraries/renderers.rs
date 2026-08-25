@@ -1088,13 +1088,20 @@ pub fn static_matrix_concatenate(
         .unwrap_or("2")
         .trim();
     let dim = if raw.is_empty() { "2" } else { raw };
+    // Two cuboids of equal height standing side by side on one baseline and
+    // sharing a face – the two operands being concatenated – seen from the
+    // front left, with the concatenation dimension in the bottom right corner.
     let spec = format!(
         concat!(
-            "r 0.06,0.30 0.44,0.78; p 0.06,0.30 0.20,0.14 0.58,0.14 0.44,0.30;",
-            "p 0.58,0.14 0.58,0.62 0.44,0.78;",
-            "r 0.50,0.38 0.82,0.80; p 0.50,0.38 0.62,0.24 0.94,0.24 0.82,0.38;",
-            "p 0.94,0.24 0.94,0.66 0.82,0.80;",
-            "t 0.90,0.90,0.26 {dim}"
+            // Front faces of the left and the right cuboid.
+            "r 0.10,0.34 0.44,0.80; r 0.44,0.34 0.72,0.80;",
+            // Top faces, receding up and to the right.
+            "p 0.10,0.34 0.22,0.18 0.84,0.18 0.72,0.34;",
+            // The shared edge continued across the top face.
+            "p 0.44,0.34 0.56,0.18;",
+            // Right side face of the right cuboid.
+            "p 0.72,0.80 0.84,0.64 0.84,0.18;",
+            "t 0.65,0.71,0.26 {dim}"
         ),
         dim = dim
     );
