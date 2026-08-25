@@ -1549,13 +1549,21 @@ pub fn render_multiport_switch(
     port_label_widths: Option<PortLabelMaxWidths>,
 ) {
     render_multiport_switch_with_selection(
-        painter, block, rect, font_scale, data_inputs, coords, port_label_widths, 0,
+        painter,
+        block,
+        rect,
+        font_scale,
+        data_inputs,
+        coords,
+        port_label_widths,
+        0,
     )
 }
 
 /// Like [`render_multiport_switch`] but draws the lever to the `selected`-th
 /// data contact (0-based) instead of always the first.  Used by the live
 /// renderer to reflect the control signal value.
+#[allow(clippy::too_many_arguments)]
 pub fn render_multiport_switch_with_selection(
     painter: &egui::Painter,
     block: &Block,
@@ -1588,8 +1596,16 @@ pub fn render_multiport_switch_with_selection(
 
     use super::geometry::PortSide;
     let mirrored = block.block_mirror.unwrap_or(false);
-    let in_side = if mirrored { PortSide::Out } else { PortSide::In };
-    let out_side = if mirrored { PortSide::In } else { PortSide::Out };
+    let in_side = if mirrored {
+        PortSide::Out
+    } else {
+        PortSide::In
+    };
+    let out_side = if mirrored {
+        PortSide::In
+    } else {
+        PortSide::Out
+    };
 
     let stroke_w = 1.5_f32;
     let col_active = Color32::from_rgb(32, 32, 32);
@@ -1661,13 +1677,18 @@ pub fn render_multiport_switch_with_selection(
     for i in 0..data_inputs {
         let port_idx = i + 2;
         let y = port_y(port_idx);
-        painter.line_segment(
-            [Pos2::new(in_x, y), Pos2::new(contact_x, y)],
-            stroke,
-        );
+        painter.line_segment([Pos2::new(in_x, y), Pos2::new(contact_x, y)], stroke);
         // Contact circle: selected one is active, rest inactive.
-        let col = if i == selected { col_active } else { col_inactive };
-        painter.circle_stroke(Pos2::new(contact_x, y), r_contact, Stroke::new(stroke_w, col));
+        let col = if i == selected {
+            col_active
+        } else {
+            col_inactive
+        };
+        painter.circle_stroke(
+            Pos2::new(contact_x, y),
+            r_contact,
+            Stroke::new(stroke_w, col),
+        );
     }
 
     // Output lead: from output contact circle to output border.
@@ -1692,6 +1713,7 @@ pub fn render_multiport_switch_with_selection(
 /// input, and output port 1 is on the right edge.  The lever connects from
 /// port 1 (top data, default selected) to the output.  All line endpoints
 /// align to the exact Y-positions of the ports.
+#[allow(clippy::too_many_arguments)]
 pub fn render_switch(
     painter: &egui::Painter,
     block: &Block,
@@ -1703,13 +1725,22 @@ pub fn render_switch(
     port_label_widths: Option<PortLabelMaxWidths>,
 ) {
     render_switch_with_selection(
-        painter, block, rect, font_scale, criteria, threshold, coords, port_label_widths, true,
+        painter,
+        block,
+        rect,
+        font_scale,
+        criteria,
+        threshold,
+        coords,
+        port_label_widths,
+        true,
     )
 }
 
 /// Like [`render_switch`] but draws the lever to the top data input (port 1)
 /// when `selected_top` is true, or the bottom data input (port 3) when false.
 /// Used by the live renderer to reflect the control signal value.
+#[allow(clippy::too_many_arguments)]
 pub fn render_switch_with_selection(
     painter: &egui::Painter,
     block: &Block,
@@ -1741,8 +1772,16 @@ pub fn render_switch_with_selection(
 
     use super::geometry::PortSide;
     let mirrored = block.block_mirror.unwrap_or(false);
-    let in_side = if mirrored { PortSide::Out } else { PortSide::In };
-    let out_side = if mirrored { PortSide::In } else { PortSide::Out };
+    let in_side = if mirrored {
+        PortSide::Out
+    } else {
+        PortSide::In
+    };
+    let out_side = if mirrored {
+        PortSide::In
+    } else {
+        PortSide::Out
+    };
 
     let stroke_w = 1.5_f32;
     let col_active = Color32::from_rgb(32, 32, 32);
@@ -1797,31 +1836,36 @@ pub fn render_switch_with_selection(
 
     // Data input leads with contact circles.
     // Top data (port 1): active when selected_top.
-    painter.line_segment(
-        [Pos2::new(in_x, u1_y), Pos2::new(contact_x, u1_y)],
-        stroke,
-    );
+    painter.line_segment([Pos2::new(in_x, u1_y), Pos2::new(contact_x, u1_y)], stroke);
     painter.circle_stroke(
         Pos2::new(contact_x, u1_y),
         r_contact,
-        Stroke::new(stroke_w, if selected_top { col_active } else { col_inactive }),
+        Stroke::new(
+            stroke_w,
+            if selected_top {
+                col_active
+            } else {
+                col_inactive
+            },
+        ),
     );
     // Bottom data (port 3): active when !selected_top.
-    painter.line_segment(
-        [Pos2::new(in_x, u3_y), Pos2::new(contact_x, u3_y)],
-        stroke,
-    );
+    painter.line_segment([Pos2::new(in_x, u3_y), Pos2::new(contact_x, u3_y)], stroke);
     painter.circle_stroke(
         Pos2::new(contact_x, u3_y),
         r_contact,
-        Stroke::new(stroke_w, if selected_top { col_inactive } else { col_active }),
+        Stroke::new(
+            stroke_w,
+            if selected_top {
+                col_inactive
+            } else {
+                col_active
+            },
+        ),
     );
 
     // Control input lead (port 2): short horizontal line with a vertical bar.
-    painter.line_segment(
-        [Pos2::new(in_x, u2_y), Pos2::new(contact_x, u2_y)],
-        stroke,
-    );
+    painter.line_segment([Pos2::new(in_x, u2_y), Pos2::new(contact_x, u2_y)], stroke);
     let bar_half = r_contact * 1.5;
     painter.line_segment(
         [
@@ -1847,17 +1891,21 @@ pub fn render_switch_with_selection(
     // Criteria text (e.g. ">= 0") near the bottom-right of the block.
     let op = criteria
         .split_whitespace()
-        .find(|t| {
-            t.starts_with('>') || t.starts_with('~') || t.starts_with('=')
-        })
+        .find(|t| t.starts_with('>') || t.starts_with('~') || t.starts_with('='))
         .unwrap_or(">=");
     let threshold = if threshold.is_empty() { "0" } else { threshold };
     let text = format!("{op} {threshold}");
     let font_px = (rect.height() * 0.22 * font_scale).clamp(6.0, 16.0);
     let text_pos = if mirrored {
-        Pos2::new(rect.left() + rect.width() * 0.35, rect.bottom() - rect.height() * 0.15)
+        Pos2::new(
+            rect.left() + rect.width() * 0.35,
+            rect.bottom() - rect.height() * 0.15,
+        )
     } else {
-        Pos2::new(rect.right() - rect.width() * 0.35, rect.bottom() - rect.height() * 0.15)
+        Pos2::new(
+            rect.right() - rect.width() * 0.35,
+            rect.bottom() - rect.height() * 0.15,
+        )
     };
     painter.text(
         text_pos,

@@ -1,8 +1,8 @@
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::hash::{Hash, Hasher};
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -298,7 +298,8 @@ impl ConnectionTargetResolver {
                     outgoing_by_port: outgoing_targets_by_port(system, block, &line_targets),
                 };
                 let child_path = child_system_path(system_path, &block.name);
-                let summary = self.resolve_system(subsystem, &child_path, Some(&child_ctx), progress);
+                let summary =
+                    self.resolve_system(subsystem, &child_path, Some(&child_ctx), progress);
                 if let Some(sid) = &block.sid {
                     self.child_summaries.insert(sid.clone(), summary);
                 }
@@ -601,8 +602,7 @@ impl ConnectionTargetResolver {
                     // prepending would double it.
                     let is_from_bus = matches!(
                         target.origin,
-                        ConnectionTargetOrigin::BusCreator
-                            | ConnectionTargetOrigin::BusSelector
+                        ConnectionTargetOrigin::BusCreator | ConnectionTargetOrigin::BusSelector
                     );
                     let next_resolve_signal = if is_from_bus {
                         if let Some(existing) =
@@ -721,9 +721,7 @@ impl ConnectionTargetResolver {
 
             let normalized_assigned = normalize_resolve_signal(assigned_path);
             for mut target in replacement_targets {
-                if let Some(existing) =
-                    resolve_signal_value(&target.resolve).map(str::to_string)
-                {
+                if let Some(existing) = resolve_signal_value(&target.resolve).map(str::to_string) {
                     // Sub-bus replacement: prepend assigned path to existing
                     // resolve so leaf identity is preserved.
                     if let Some(ref np) = normalized_assigned {

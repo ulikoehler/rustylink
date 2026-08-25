@@ -548,19 +548,17 @@ fn control_input_live_value(
                 .branches
                 .iter()
                 .any(|b| branch_hits_port(b, block_sid, control_port_index));
-        if hits_control {
-            if let Some(src) = &line.src {
-                if let Some(src_block) = system
-                    .blocks
-                    .iter()
-                    .find(|b| b.sid.as_deref() == Some(src.sid.as_str()))
-                {
-                    return app
-                        .live_block_values
-                        .get(&app.live_value_key_for_block(src_block))
-                        .and_then(crate::live_values::LiveValueEntry::first_f64);
-                }
-            }
+        if hits_control
+            && let Some(src) = &line.src
+            && let Some(src_block) = system
+                .blocks
+                .iter()
+                .find(|b| b.sid.as_deref() == Some(src.sid.as_str()))
+        {
+            return app
+                .live_block_values
+                .get(&app.live_value_key_for_block(src_block))
+                .and_then(crate::live_values::LiveValueEntry::first_f64);
         }
     }
     None
@@ -662,7 +660,11 @@ pub fn live_switch(
     let criteria = ctx.metadata.get("Criteria").unwrap_or("u2 >= Threshold");
     let threshold_str = ctx.metadata.get("Threshold").unwrap_or("0").trim();
     let threshold_val: f64 = threshold_str.parse().unwrap_or(0.0);
-    let threshold = if threshold_str.is_empty() { "0" } else { threshold_str };
+    let threshold = if threshold_str.is_empty() {
+        "0"
+    } else {
+        threshold_str
+    };
     let criteria_met = evaluate_switch_criteria(criteria, control_value, threshold_val);
     let painter = ui.painter().with_clip_rect(*rect);
     crate::egui_app::render::render_switch_with_selection(
@@ -1755,7 +1757,11 @@ pub fn multiport_switch_port_labels(
     }
     let numbered = multiport_switch_numbered_data_inputs(block, meta);
     let has_additional = multiport_switch_has_additional_default(meta);
-    let total_data = if has_additional { numbered + 1 } else { numbered };
+    let total_data = if has_additional {
+        numbered + 1
+    } else {
+        numbered
+    };
 
     // Build the list of number labels for the numbered data ports.
     let order = meta.get("DataPortOrder").unwrap_or("One-based contiguous");
@@ -1832,6 +1838,43 @@ pub fn static_c_function(
             "p 0.62,0.30 0.78,0.30; p 0.70,0.22 0.70,0.38;",
             "p 0.62,0.60 0.78,0.60; p 0.70,0.52 0.70,0.68"
         ),
+        ctx.text_color,
+        ctx.port_label_widths,
+    );
+    true
+}
+
+/// Static renderer for the MATLAB Function block: the membrane logo Simulink
+/// stamps on the block, with the name of the function the block runs beneath
+/// it (`fcn`, `test`, … – taken from the block's MATLAB source, not its name).
+pub fn static_matlab_function(
+    painter: &Painter,
+    _block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let name = ctx
+        .metadata
+        .get(super::labels::MATLAB_FUNCTION_NAME_PROPERTY)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("fcn");
+    // The membrane: the peaked sheet of the MATLAB logo, drawn as its ridge,
+    // the fold behind it and the rim it sits on.
+    let spec = format!(
+        concat!(
+            "p 0.22,0.56 0.30,0.36 0.38,0.20 0.46,0.12 0.54,0.22 0.62,0.42 0.72,0.58;",
+            "p 0.34,0.56 0.42,0.36 0.48,0.26 0.54,0.38 0.62,0.56;",
+            "p 0.18,0.54 0.28,0.62 0.42,0.66 0.58,0.66 0.70,0.62 0.78,0.54;",
+            "t 0.50,0.86,0.28 {name}"
+        ),
+        name = name
+    );
+    crate::egui_app::render::draw_plot_icon(
+        painter,
+        rect,
+        ctx.font_scale,
+        &spec,
         ctx.text_color,
         ctx.port_label_widths,
     );
@@ -2098,7 +2141,7 @@ mod tests {
     #[test]
     fn bus_assignment_port_labels_empty() {
         let block = multiport_block(2);
-        let mut meta = BlockMetadata::default();
+        let meta = BlockMetadata::default();
         let labels = bus_assignment_port_labels(&block, &meta, true);
         assert_eq!(labels, vec!["Bus"]);
     }

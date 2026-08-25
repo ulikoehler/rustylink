@@ -487,18 +487,18 @@ impl ComputedViewCache {
     /// [`ResolverStatus::Ready`].
     pub fn resolver_status(&mut self, root: &System) -> ResolverStatus {
         // Check if we need to recompute the topology signature.
-        let need_sig_check = self.connection_target_resolver.is_none()
-            || self.cached_sig_gen != self.generation;
+        let need_sig_check =
+            self.connection_target_resolver.is_none() || self.cached_sig_gen != self.generation;
 
         if need_sig_check {
             let sig = crate::connection_targets::model_topology_signature(root);
             self.cached_sig_gen = self.generation;
 
             // If cached resolver matches the new sig, it's still valid.
-            if self.cached_resolver_sig == Some(sig) {
-                if let Some(r) = &self.connection_target_resolver {
-                    return ResolverStatus::Ready(r.clone());
-                }
+            if self.cached_resolver_sig == Some(sig)
+                && let Some(r) = &self.connection_target_resolver
+            {
+                return ResolverStatus::Ready(r.clone());
             }
             // Clear stale cache so connection_target_resolver() returns None.
             self.connection_target_resolver = None;
@@ -523,8 +523,7 @@ impl ComputedViewCache {
             ResolverBuildInner::Ready {
                 resolver,
                 sig: build_sig,
-            } if *build_sig == sig =>
-            {
+            } if *build_sig == sig => {
                 let r = resolver.clone();
                 *state = ResolverBuildInner::Idle;
                 drop(state);
@@ -538,8 +537,7 @@ impl ComputedViewCache {
                 visited,
                 total,
                 sig: build_sig,
-            } if *build_sig == sig =>
-            {
+            } if *build_sig == sig => {
                 let p = progress.load(Ordering::Relaxed) as f32 / 1000.0;
                 let c = visited.load(Ordering::Relaxed);
                 ResolverStatus::Building {
@@ -553,8 +551,7 @@ impl ComputedViewCache {
                 let progress = Arc::new(AtomicU32::new(0));
                 let visited = Arc::new(AtomicUsize::new(0));
                 // Compute total work for progress display.
-                let total_subsystems =
-                    crate::connection_targets::count_subsystems(root).max(1);
+                let total_subsystems = crate::connection_targets::count_subsystems(root).max(1);
                 let max_depth = crate::connection_targets::max_subsystem_depth(root);
                 let estimated_passes = crate::connection_targets::MAX_GLOBAL_RESOLVE_PASSES
                     .min(max_depth + 2)
