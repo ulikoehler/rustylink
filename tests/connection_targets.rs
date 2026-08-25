@@ -2481,10 +2481,31 @@ fn bus_creator_staggered_preserves_leaf_resolve() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
             block("Constant", "B", "2", vec![port("out", 1, None)], None, &[]),
-            block("Constant", "C", "3", vec![port("out", 1, Some("c"))], None, &[]),
-            block("Constant", "D", "4", vec![port("out", 1, Some("d"))], None, &[]),
+            block(
+                "Constant",
+                "C",
+                "3",
+                vec![port("out", 1, Some("c"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "D",
+                "4",
+                vec![port("out", 1, Some("d"))],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusCreator",
@@ -2562,9 +2583,30 @@ fn bus_selector_hierarchical_matches_leaf_in_nested_bus() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
-            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
-            block("Constant", "D", "3", vec![port("out", 1, Some("d"))], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "B",
+                "2",
+                vec![port("out", 1, Some("b"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "D",
+                "3",
+                vec![port("out", 1, Some("d"))],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusCreator",
@@ -2631,9 +2673,30 @@ fn bus_selector_hierarchical_prefix_match_for_subbus() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
-            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
-            block("Constant", "D", "3", vec![port("out", 1, Some("d"))], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "B",
+                "2",
+                vec![port("out", 1, Some("b"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "D",
+                "3",
+                vec![port("out", 1, Some("d"))],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusCreator",
@@ -2709,10 +2772,38 @@ fn bus_selector_hierarchical_disambiguates_duplicate_names() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "Cx", "1", vec![port("out", 1, Some("c"))], None, &[]),
-            block("Constant", "Ax", "2", vec![port("out", 1, Some("a"))], None, &[]),
-            block("Constant", "Cy", "3", vec![port("out", 1, Some("c"))], None, &[]),
-            block("Constant", "By", "4", vec![port("out", 1, Some("b"))], None, &[]),
+            block(
+                "Constant",
+                "Cx",
+                "1",
+                vec![port("out", 1, Some("c"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "Ax",
+                "2",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "Cy",
+                "3",
+                vec![port("out", 1, Some("c"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "By",
+                "4",
+                vec![port("out", 1, Some("b"))],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusX",
@@ -2797,9 +2888,30 @@ fn bus_assignment_passes_through_unassigned_signals() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
-            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
-            block("Constant", "Rep", "3", vec![port("out", 1, None)], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "B",
+                "2",
+                vec![port("out", 1, Some("b"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "Rep",
+                "3",
+                vec![port("out", 1, None)],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusCreator",
@@ -2877,9 +2989,30 @@ fn bus_assignment_replaces_assigned_leaf_signal() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
-            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
-            block("Constant", "RepB", "3", vec![port("out", 1, None)], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "B",
+                "2",
+                vec![port("out", 1, Some("b"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "RepB",
+                "3",
+                vec![port("out", 1, None)],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusCreator",
@@ -2922,7 +3055,10 @@ fn bus_assignment_replaces_assigned_leaf_signal() {
 
     // The replacement target should have resolve "b"
     let rep_target = targets.iter().find(|t| t.path == "model/RepB");
-    assert!(rep_target.is_some(), "expected replacement target in {targets:?}");
+    assert!(
+        rep_target.is_some(),
+        "expected replacement target in {targets:?}"
+    );
     assert_eq!(
         rep_target.unwrap().resolve,
         Some(ConnectionTargetResolve::Signal("b".to_string()))
@@ -2950,11 +3086,46 @@ fn bus_assignment_replaces_assigned_subbus() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
-            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
-            block("Constant", "D", "3", vec![port("out", 1, Some("d"))], None, &[]),
-            block("Constant", "RepA", "8", vec![port("out", 1, Some("rep_a"))], None, &[]),
-            block("Constant", "RepB", "9", vec![port("out", 1, Some("rep_b"))], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "B",
+                "2",
+                vec![port("out", 1, Some("b"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "D",
+                "3",
+                vec![port("out", 1, Some("d"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "RepA",
+                "8",
+                vec![port("out", 1, Some("rep_a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "RepB",
+                "9",
+                vec![port("out", 1, Some("rep_b"))],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusCreator",
@@ -3073,11 +3244,46 @@ fn bus_assignment_with_multiple_assignments() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
-            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
-            block("Constant", "C", "3", vec![port("out", 1, Some("c"))], None, &[]),
-            block("Constant", "RepA", "4", vec![port("out", 1, None)], None, &[]),
-            block("Constant", "RepB", "5", vec![port("out", 1, None)], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "B",
+                "2",
+                vec![port("out", 1, Some("b"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "C",
+                "3",
+                vec![port("out", 1, Some("c"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "RepA",
+                "4",
+                vec![port("out", 1, None)],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "RepB",
+                "5",
+                vec![port("out", 1, None)],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusCreator",
@@ -3188,8 +3394,22 @@ fn signal_names_not_contaminated_across_subsystem_boundary() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
-            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "B",
+                "2",
+                vec![port("out", 1, Some("b"))],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusCreator",
@@ -3210,8 +3430,22 @@ fn signal_names_not_contaminated_across_subsystem_boundary() {
                 Some(child_system),
                 &[],
             ),
-            block("Display", "SinkA", "5", vec![port("in", 1, None)], None, &[]),
-            block("Display", "SinkB", "6", vec![port("in", 1, None)], None, &[]),
+            block(
+                "Display",
+                "SinkA",
+                "5",
+                vec![port("in", 1, None)],
+                None,
+                &[],
+            ),
+            block(
+                "Display",
+                "SinkB",
+                "6",
+                vec![port("in", 1, None)],
+                None,
+                &[],
+            ),
         ],
         lines: vec![
             line("1", 1, "3", 1, Some("a")),
@@ -3229,7 +3463,10 @@ fn signal_names_not_contaminated_across_subsystem_boundary() {
 
     // Find the target for signal "a" (from Constant A)
     let a_target = targets.iter().find(|t| t.path == "model/A");
-    assert!(a_target.is_some(), "expected target for model/A in {targets:?}");
+    assert!(
+        a_target.is_some(),
+        "expected target for model/A in {targets:?}"
+    );
     let a_target = a_target.unwrap();
 
     // signal_names should contain "a" and "bus" (the bus element name),
@@ -3253,7 +3490,14 @@ fn signal_names_keeps_default_name_for_unnamed_input() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
             block("Constant", "B", "2", vec![port("out", 1, None)], None, &[]),
             block(
                 "BusCreator",
@@ -3283,7 +3527,10 @@ fn signal_names_keeps_default_name_for_unnamed_input() {
 
     // Find the target for the unnamed input (from Constant B)
     let b_target = targets.iter().find(|t| t.path == "model/B");
-    assert!(b_target.is_some(), "expected target for model/B in {targets:?}");
+    assert!(
+        b_target.is_some(),
+        "expected target for model/B in {targets:?}"
+    );
     let b_target = b_target.unwrap();
 
     // signal_names should contain "signal2" (the default name for port 2)
@@ -3338,8 +3585,22 @@ fn testpoint_still_propagates_across_subsystem_boundary() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
-            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "B",
+                "2",
+                vec![port("out", 1, Some("b"))],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusCreator",
@@ -3384,8 +3645,7 @@ fn testpoint_still_propagates_across_subsystem_boundary() {
             assert!(
                 target.testpoint,
                 "testpoint should propagate to {}: {:?}",
-                target.path,
-                target
+                target.path, target
             );
         }
     }
