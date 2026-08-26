@@ -303,7 +303,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
 
     SimulinkBlockDefinition::new("Cosine", "Lookup Tables")
         .with_description("Sine and Cosine lookup-table function")
-        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_ports(IOPorts::Fixed(1), IOPorts::Variable(1))
         .with_metadata_keys(&[MetadataKey::with_default("Formula", "")])
         // Simulink draws no icon for these lookup-table Reference blocks; their
         // identity comes from the output port labels (`Formula`), so claim the
@@ -313,12 +313,6 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             PortLabelPolicy::Fixed(&["u"]),
             PortLabelPolicy::MetadataDependent(renderers::sine_cosine_output_labels),
         ),
-
-    SimulinkBlockDefinition::new("Sine", "Lookup Tables")
-        .with_description("Sine function via lookup table")
-        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
-        .with_block_label(BlockLabelPolicy::Fixed("sin(2*pi*u)"))
-        .with_port_labels(PortLabelPolicy::Fixed(&["u"]), PortLabelPolicy::None),
 
     // ═══════════════════════════════════════════════════════════════════════
     //  Math Operations

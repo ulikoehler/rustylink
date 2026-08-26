@@ -86,7 +86,7 @@ impl ViewTransform {
     /// Compute the new zoom and pan values when zooming at `cursor` by `factor`.
     pub fn zoom_at(&self, cursor: Pos2, factor: f32) -> (f32, Vec2) {
         let old_zoom = self.zoom;
-        let new_zoom = (old_zoom * factor).clamp(0.2, 10.0);
+        let new_zoom = (old_zoom * factor).clamp(0.2, 30.0);
         let s_old = self.base_scale * old_zoom;
         let s_new = self.base_scale * new_zoom;
         let origin = Pos2::new(

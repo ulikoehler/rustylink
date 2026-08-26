@@ -798,7 +798,7 @@ pub fn static_subsystem(
         let sep_y = rect.top() + REINIT_SEP_FRAC * rect.height();
         let stroke = eframe::egui::Stroke::new(
             (1.4 * ctx.font_scale).max(0.75),
-            ctx.text_color,
+            ctx.border_color,
         );
         painter.line_segment(
             [
@@ -1119,8 +1119,11 @@ pub fn static_reset_port(
     // of the block width — safely inside.  Center it vertically so the
     // pictogram keeps its full height.
     let sub_w = rect.width() / 1.6;
+    // Shift the sub-rect left so the `R` (at spec x = 1.32, which maps to the
+    // right end of the sub-rect) sits comfortably inside the block rather
+    // than on its right border.
     let sub_rect = Rect::from_min_size(
-        eframe::egui::pos2(rect.center().x - sub_w * 0.5, rect.top()),
+        eframe::egui::pos2(rect.center().x - sub_w * 0.5 - rect.width() * 0.06, rect.top()),
         eframe::egui::vec2(sub_w, rect.height()),
     );
     crate::egui_app::render::draw_plot_icon(

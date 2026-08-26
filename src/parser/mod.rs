@@ -259,9 +259,36 @@ impl<S: ContentSource> SimulinkParser<S> {
                         if let Some(ref lib_subsystem) = lib_block.subsystem {
                             block.subsystem = Some(lib_subsystem.clone());
                         }
-                        // copy relevant metadata from the library stub so that the
-                        // host block can be rendered with proper ports, etc.
-                        block.port_counts = lib_block.port_counts.clone();
+                        // Copy relevant metadata from the library stub so that
+                        // the host block can be rendered with proper ports,
+                        // etc.  The model's explicit <PortCounts> (e.g. a
+                        // SineCosine Reference with out="2") takes priority
+                        // over the library stub's default (out="1"): only fill
+                        // in fields the model leaves unset.
+                        if let Some(ref mut block_pc) = block.port_counts {
+                            if let Some(ref lib_pc) = lib_block.port_counts {
+                                if block_pc.ins.is_none() {
+                                    block_pc.ins = lib_pc.ins;
+                                }
+                                if block_pc.outs.is_none() {
+                                    block_pc.outs = lib_pc.outs;
+                                }
+                                if block_pc.enable.is_none() {
+                                    block_pc.enable = lib_pc.enable;
+                                }
+                                if block_pc.trigger.is_none() {
+                                    block_pc.trigger = lib_pc.trigger;
+                                }
+                                if block_pc.reset.is_none() {
+                                    block_pc.reset = lib_pc.reset;
+                                }
+                                if block_pc.event.is_none() {
+                                    block_pc.event = lib_pc.event;
+                                }
+                            }
+                        } else {
+                            block.port_counts = lib_block.port_counts.clone();
+                        }
                         block.ports = lib_block.ports.clone();
 
                         block.library_source = Some(lib_name.to_string());
