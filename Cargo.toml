@@ -1,6 +1,6 @@
 [package]
 name = "rustylink"
-version = "3.0.1"
+version = "3.0.2"
 edition = "2024"
 homepage = "https://github.com/ulikoehler/rustylink"
 repository = "https://github.com/ulikoehler/rustylink"
@@ -29,10 +29,7 @@ highlight = ["dep:syntect"]
 egui = [
 	"dep:eframe",
 	"dep:egui",
-	"dep:egui_extras",
 	"dep:rfd",
-	"dep:usvg",
-	"dep:rust-embed",
 	"dep:syntect",
 	"dep:liveplot",
 	"dep:egui_phosphor_icons",
@@ -57,26 +54,6 @@ features = ["glow", "default_fonts", "wayland", "x11"]
 version = "5.3"
 optional = true
 
-[dependencies.egui_extras]
-version = "0.36"
-optional = true
-default-features = false
-features = ["svg"]
-
-[dependencies.usvg]
-# Must match the usvg version used by `egui_extras` (via `resvg`)
-# to avoid type mismatches when passing `usvg::Options` to
-# `egui_extras::image::load_svg_bytes_with_size`.
-version = "0.45"
-optional = true
-default-features = false
-features = ["text", "system-fonts"]
-
-[dependencies.rust-embed]
-version = "8.11.0"
-optional = true
-features = ["compression"]
-
 [dependencies.liveplot]
 #path = "../liveplot-rs"
 version = "2.2.0"
@@ -96,7 +73,6 @@ optional = true
 
 [dev-dependencies]
 tempfile = "3.10"
-usvg = "0.45"
 
 [[example]]
 name = "analyze_model_blocks"

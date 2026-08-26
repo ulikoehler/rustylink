@@ -85,7 +85,10 @@ pub fn is_control_port_type(port_type: &str) -> bool {
 pub fn port_side_for(port_type: &str, mirrored: bool) -> PortSide {
     match (port_type, mirrored) {
         ("out", false) | ("in", true) => PortSide::Out,
-        ("in", false) | ("out", true) => PortSide::In,
+        // A lifecycle event port enters on the input side, above the data
+        // inputs – unlike enable/trigger/reset, which sit on the top edge.
+        ("in", false) | ("event", false) | ("out", true) => PortSide::In,
+        ("event", true) => PortSide::Out,
         (other, _m) if is_control_port_type(other) => PortSide::Top,
         (_other, _m) => PortSide::In,
     }

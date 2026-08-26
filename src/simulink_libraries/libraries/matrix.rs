@@ -1,8 +1,8 @@
 //! Matrix-operations library (`matrix_library`).
 //!
-//! These blocks carry dedicated SVG icons shipped under `icons/matrix/`.  Port
-//! counts mirror [`crate::simulink_libraries::stubs::MATRIX_BLOCKS`], which the
-//! core parser uses to synthesise stubs when the `.slx` library file is absent.
+//! Port counts mirror [`crate::simulink_libraries::stubs::MATRIX_BLOCKS`], which
+//! the core parser uses to synthesise stubs when the `.slx` library file is
+//! absent.
 
 #![cfg(feature = "egui")]
 
@@ -89,7 +89,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             "d 0.26,0.26 0.045; d 0.50,0.26 0.045; d 0.74,0.26 0.045;",
             "d 0.26,0.50 0.045; d 0.50,0.50 0.045; d 0.74,0.50 0.045;",
             "d 0.26,0.74 0.045; d 0.50,0.74 0.045; d 0.74,0.74 0.045;",
-            "r 0.38,0.38 0.62,0.62"
+            "r 0.38,0.14 0.86,0.62"
         ))),
     SimulinkBlockDefinition::new("Transpose", CAT)
         .with_description("Transpose a matrix")

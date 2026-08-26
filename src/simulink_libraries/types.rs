@@ -26,8 +26,6 @@ use super::metadata::BlockMetadata;
 pub enum SimulinkIcon {
     /// A single UTF-8 glyph (e.g. `"×"` for Product).
     Utf8(&'static str),
-    /// A path to an embedded SVG asset (see `egui_app::icon_assets`).
-    Svg(&'static str),
     /// A Phosphor icon name.
     Phosphor(&'static str),
     /// Typeset math drawn by the painter (fraction bar / superscript / overbar).

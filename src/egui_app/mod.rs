@@ -8,7 +8,6 @@ use eframe::egui::{self, Rect};
 pub mod dashboard_widgets;
 pub mod fonts;
 pub mod geometry;
-pub mod icon_assets;
 pub mod navigation;
 pub mod render;
 pub mod scope_widget;
@@ -48,8 +47,6 @@ pub use ui::colors;
 
 // Expose a couple of internal helpers for use by integration tests.
 pub use ui::helpers::{block_dialog_title, clean_display_string};
-// SVG parsing helper (also needed by some tests)
-pub use render::embedded_egui_sans_fontdb;
 
 pub fn port_label_display_name(
     block: &crate::model::Block,

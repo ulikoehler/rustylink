@@ -302,16 +302,17 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_static_renderer(renderers::static_lookup_table),
 
     SimulinkBlockDefinition::new("Cosine", "Lookup Tables")
-        .with_description("Cosine function via lookup table")
-        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
-        .with_block_label(BlockLabelPolicy::Fixed("cos(2*pi*u)"))
-        .with_port_labels(PortLabelPolicy::Fixed(&["u"]), PortLabelPolicy::None),
-
-    SimulinkBlockDefinition::new("Sine", "Lookup Tables")
-        .with_description("Sine function via lookup table")
-        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
-        .with_block_label(BlockLabelPolicy::Fixed("sin(2*pi*u)"))
-        .with_port_labels(PortLabelPolicy::Fixed(&["u"]), PortLabelPolicy::None),
+        .with_description("Sine and Cosine lookup-table function")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Variable(1))
+        .with_metadata_keys(&[MetadataKey::with_default("Formula", "")])
+        // Simulink draws no icon for these lookup-table Reference blocks; their
+        // identity comes from the output port labels (`Formula`), so claim the
+        // interior to keep the `?` placeholder away.
+        .with_static_renderer(renderers::static_nothing)
+        .with_port_labels(
+            PortLabelPolicy::Fixed(&["u"]),
+            PortLabelPolicy::MetadataDependent(renderers::sine_cosine_output_labels),
+        ),
 
     // ═══════════════════════════════════════════════════════════════════════
     //  Math Operations
@@ -555,7 +556,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_aliases(&["Enable"])
         .with_description("Add enable port to subsystem")
         .with_ports(IOPorts::None, IOPorts::None)
-        .with_icon(icon("EN")),
+        .with_static_renderer(renderers::static_enable_port),
 
     SimulinkBlockDefinition::new("ForIterator", "Ports & Subsystems")
         .with_aliases(&["For Iterator"])
@@ -573,7 +574,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_aliases(&["Trigger"])
         .with_description("Add trigger port to subsystem")
         .with_ports(IOPorts::None, IOPorts::None)
-        .with_icon(icon("\u{2191}")),
+        .with_metadata_keys(&[MetadataKey::with_default("TriggerType", "rising")])
+        .with_static_renderer(renderers::static_trigger_port),
 
     SimulinkBlockDefinition::new("ResetPort", "Ports & Subsystems")
         .with_aliases(&["Reset"])
@@ -600,11 +602,14 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_metadata_keys(&[MetadataKey::with_default("OutDataTypeStr", "Inherit: Inherit via back propagation")])
         .with_static_renderer(renderers::static_data_type_conversion),
 
-    // Simulink draws the propagated width above a diagonal probe line.
+    // Simulink draws the propagated width above the signal line running from
+    // the input to the output port, tapped by a short diagonal stroke.
     SimulinkBlockDefinition::new("Width", "Signal Attributes")
         .with_description("Output width (number of elements) of input signal")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
-        .with_icon(plot("t 0.50,0.30,0.32 -1; p 0.12,0.82 0.88,0.44")),
+        .with_icon(plot(
+            "t 0.45,0.28,0.36 -1; p 0.00,0.50 1.00,0.50; p 0.32,0.78 0.58,0.36",
+        )),
 
     SimulinkBlockDefinition::new("SignalConversion", "Signal Routing")
         .with_aliases(&["Signal Conversion"])
@@ -626,14 +631,19 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
     // ═══════════════════════════════════════════════════════════════════════
     //  Signal Routing
     // ═══════════════════════════════════════════════════════════════════════
-    // Simulink labels this with the signals being replaced, e.g.
-    // `Bus / Bus := signal1`; it is not one of the solid black bus bars.
+    // BusAssignment has no icon; input port labels come from AssignedSignals.
+    // The first input port is always labeled "Bus", ports 2..N are the
+    // assigned signal names.
     SimulinkBlockDefinition::new("BusAssignment", "Signal Routing")
         .with_aliases(&["Bus Assignment"])
         .with_description("Assign signals to a bus")
-        .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
+        .with_ports(IOPorts::Variable(2), IOPorts::Fixed(1))
         .with_metadata_keys(&[MetadataKey::with_default("AssignedSignals", "")])
-        .with_block_label(BlockLabelPolicy::MetadataDependent(labels::bus_assignment)),
+        .with_static_renderer(renderers::static_nothing)
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(renderers::bus_assignment_port_labels),
+            PortLabelPolicy::MetadataDependent(renderers::bus_assignment_port_labels),
+        ),
 
     SimulinkBlockDefinition::new("GotoTagVisibility", "Signal Routing")
         .with_aliases(&["Goto Tag Visibility"])
@@ -653,8 +663,14 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_aliases(&["Multiport Switch"])
         .with_description("Select one of N inputs based on control signal")
         .with_ports(IOPorts::Variable(4), IOPorts::Fixed(1))
-        .with_metadata_keys(&[MetadataKey::with_default("Inputs", "")])
+        .with_metadata_keys(&[
+            MetadataKey::with_default("Inputs", ""),
+            MetadataKey::with_default("DataPortOrder", "One-based contiguous"),
+            MetadataKey::new("DataPortIndices"),
+            MetadataKey::new("DataPortForDefault"),
+        ])
         .with_static_renderer(renderers::static_multiport_switch)
+        .with_live_renderer(renderers::live_multiport_switch)
         .with_port_labels(
             PortLabelPolicy::MetadataDependent(renderers::multiport_switch_port_labels),
             PortLabelPolicy::None,
@@ -677,7 +693,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             MetadataKey::with_default("Criteria", "u2 >= Threshold"),
             MetadataKey::with_default("Threshold", "0"),
         ])
-        .with_static_renderer(renderers::static_switch),
+        .with_static_renderer(renderers::static_switch)
+        .with_live_renderer(renderers::live_switch),
 
     // ═══════════════════════════════════════════════════════════════════════
     //  Sinks
@@ -906,13 +923,18 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_aliases(&["Event Listener"])
         .with_description("Listen for simulation events")
         .with_ports(IOPorts::None, IOPorts::None)
-        .with_icon(icon("evt")),
+        .with_metadata_keys(&[
+            MetadataKey::with_default("EventType", "Initialize"),
+            MetadataKey::with_default("EventName", ""),
+        ])
+        .with_static_renderer(renderers::static_event_listener),
 
     SimulinkBlockDefinition::new("StateReader", "Ports & Subsystems")
         .with_aliases(&["State Reader"])
         .with_description("Read block state for logging or initialisation")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_shape(SimulinkShape::None)
+        .with_metadata_keys(&[MetadataKey::new("StateOwnerBlock")])
         .with_static_renderer(renderers::static_state_parameter_access),
 
     SimulinkBlockDefinition::new("StateWriter", "Ports & Subsystems")
@@ -920,6 +942,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Write values into block state")
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
         .with_shape(SimulinkShape::None)
+        .with_metadata_keys(&[MetadataKey::new("StateOwnerBlock")])
         .with_static_renderer(renderers::static_state_parameter_access),
 
     SimulinkBlockDefinition::new("ParameterWriter", "Ports & Subsystems")
@@ -927,6 +950,10 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Write values into another block's parameters")
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
         .with_shape(SimulinkShape::None)
+        .with_metadata_keys(&[
+            MetadataKey::new("ParameterOwnerBlock"),
+            MetadataKey::new("ParameterName"),
+        ])
         .with_static_renderer(renderers::static_state_parameter_access),
 
     SimulinkBlockDefinition::new("DataStoreRead", "Signal Routing")

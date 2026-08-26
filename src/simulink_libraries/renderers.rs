@@ -14,6 +14,17 @@ use crate::model::Block;
 
 use super::types::RenderContext;
 
+/// Vertical fraction (from the top) at which the reinit port sits on a
+/// `ShowSubsystemReinitializePorts` subsystem.  Must match the constant in
+/// `egui_app::ui::signal_routing`.
+const REINIT_PORT_FRAC: f32 = 0.12;
+
+/// Vertical fraction (from the top) at which the separator line is drawn on a
+/// `ShowSubsystemReinitializePorts` subsystem; data inputs are distributed in
+/// the region below it.  Must match the constant in
+/// `egui_app::ui::signal_routing`.
+const REINIT_SEP_FRAC: f32 = 0.25;
+
 /// Resolved body colors for a self-painting renderer.
 fn body_colors(ctx: &RenderContext<'_>) -> crate::egui_app::render::BodyColors {
     crate::egui_app::render::BodyColors {
@@ -184,6 +195,29 @@ pub fn trigonometry_port_labels(
         return Vec::new();
     }
     vec!["sin".to_string(), "cos".to_string()]
+}
+
+/// Output port labels for the Sine/Cosine lookup-table Reference blocks
+/// (`simulink/Lookup Tables/Cosine`): the block's `Formula` from
+/// `<InstanceData>`, split on ` and ` so a SineCosine block labels its two
+/// outputs `sin(2*pi*u)` / `cos(2*pi*u)`.  Returns one label per output port;
+/// an empty/short vector falls back to the default for the missing ports.
+pub fn sine_cosine_output_labels(
+    _block: &Block,
+    meta: &super::metadata::BlockMetadata,
+    is_input: bool,
+) -> Vec<String> {
+    if is_input {
+        return Vec::new();
+    }
+    let Some(formula) = meta.get("Formula") else {
+        return Vec::new();
+    };
+    formula
+        .split(" and ")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// A saturation curve (flat, ramp, flat) normalised to the icon area – the
@@ -484,35 +518,227 @@ pub fn static_lookup_table(
 /// control criterion (`Criteria` against `Threshold`, e.g. `> 0`) beside it.
 pub fn static_switch(
     painter: &Painter,
-    _block: &Block,
+    block: &Block,
     rect: &Rect,
     ctx: &RenderContext<'_>,
 ) -> bool {
     let criteria = ctx.metadata.get("Criteria").unwrap_or("u2 >= Threshold");
-    let op = criteria
-        .split_whitespace()
-        .find(|t| t.starts_with('>') || t.starts_with('~') || t.starts_with('='))
-        .unwrap_or(">=");
     let threshold = ctx.metadata.get("Threshold").unwrap_or("0").trim();
     let threshold = if threshold.is_empty() { "0" } else { threshold };
-    let spec = format!(
-        concat!(
-            "p 0.04,0.18 0.24,0.18; d 0.28,0.18 0.05;",
-            "p 0.04,0.50 0.20,0.50; p 0.14,0.44 0.20,0.50 0.14,0.56;",
-            "p 0.04,0.82 0.24,0.82; d 0.28,0.82 0.05;",
-            "p 0.28,0.18 0.86,0.50; p 0.86,0.50 0.97,0.50;",
-            "t 0.62,0.80,0.26 {op} {threshold}"
-        ),
-        op = op,
-        threshold = threshold
-    );
-    crate::egui_app::render::draw_plot_icon(
+    crate::egui_app::render::render_switch(
         painter,
+        block,
         rect,
         ctx.font_scale,
-        &spec,
-        ctx.text_color,
+        criteria,
+        threshold,
+        ctx.port_y,
         ctx.port_label_widths,
+    );
+    true
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Live renderers for Switch and MultiPortSwitch.
+//
+// These trace the incoming line to the control input port, find the source
+// block, and use its live value to determine which data input the lever
+// connects to.  They are display-only (not clickable).
+// ────────────────────────────────────────────────────────────────────────────
+
+/// Recursively check if a branch (or its sub-branches) terminates at the given
+/// block SID and input port index.
+fn branch_hits_port(branch: &crate::model::Branch, sid: &str, port_index: u32) -> bool {
+    if branch
+        .dst
+        .as_ref()
+        .is_some_and(|dst| dst.sid == sid && dst.port_index == port_index)
+    {
+        return true;
+    }
+    branch
+        .branches
+        .iter()
+        .any(|child| branch_hits_port(child, sid, port_index))
+}
+
+/// Find the live value of the signal feeding a specific input port of `block`.
+///
+/// Traces the incoming line (or branch) to the given `control_port_index`,
+/// finds the source block, and looks up its live value.
+fn control_input_live_value(
+    app: &crate::egui_app::state::SubsystemApp,
+    block: &Block,
+    control_port_index: u32,
+) -> Option<f64> {
+    let system = app.current_system()?;
+    let block_sid = block.sid.as_deref()?;
+    for line in &system.lines {
+        let hits_control = line
+            .dst
+            .as_ref()
+            .is_some_and(|dst| dst.sid == block_sid && dst.port_index == control_port_index)
+            || line
+                .branches
+                .iter()
+                .any(|b| branch_hits_port(b, block_sid, control_port_index));
+        if hits_control
+            && let Some(src) = &line.src
+            && let Some(src_block) = system
+                .blocks
+                .iter()
+                .find(|b| b.sid.as_deref() == Some(src.sid.as_str()))
+        {
+            return app
+                .live_block_values
+                .get(&app.live_value_key_for_block(src_block))
+                .and_then(crate::live_values::LiveValueEntry::first_f64);
+        }
+    }
+    None
+}
+
+/// Evaluate a Switch `Criteria` string against the control value and threshold.
+///
+/// Supported criteria forms:
+/// - `u2 >= Threshold` / `u2 > Threshold`
+/// - `u2 ~= 0` (or any literal threshold)
+/// - `u2 <= Threshold` / `u2 < Threshold`
+///
+/// Returns `true` when the criteria is met (lever to top data input).
+pub fn evaluate_switch_criteria(criteria: &str, control_value: f64, threshold: f64) -> bool {
+    let trimmed = criteria.trim();
+    // Find the comparison operator.
+    for op in [">=", "<=", "~=", ">", "<", "=="] {
+        if let Some(idx) = trimmed.find(op) {
+            let lhs = trimmed[..idx].trim();
+            let _ = lhs; // always "u2" or similar; we use control_value directly
+            let rhs = trimmed[idx + op.len()..].trim();
+            // rhs can be "Threshold" (use threshold param) or a literal number.
+            let rhs_val: f64 = if rhs.eq_ignore_ascii_case("Threshold") {
+                threshold
+            } else {
+                rhs.parse().unwrap_or(threshold)
+            };
+            return match op {
+                ">=" => control_value >= rhs_val,
+                "<=" => control_value <= rhs_val,
+                "~=" => (control_value - rhs_val).abs() > f64::EPSILON,
+                ">" => control_value > rhs_val,
+                "<" => control_value < rhs_val,
+                "==" => (control_value - rhs_val).abs() <= f64::EPSILON,
+                _ => false,
+            };
+        }
+    }
+    // Default: treat as `>= threshold`.
+    control_value >= threshold
+}
+
+/// Determine which data input (0-based index) a MultiPortSwitch should select
+/// based on the control value and the block's numbering configuration.
+pub fn compute_multiport_selection(
+    block: &Block,
+    meta: &super::metadata::BlockMetadata,
+    control_value: f64,
+    data_inputs: u32,
+) -> u32 {
+    let numbered = multiport_switch_numbered_data_inputs(block, meta);
+    let has_additional = multiport_switch_has_additional_default(meta);
+    let order = meta.get("DataPortOrder").unwrap_or("One-based contiguous");
+
+    let control_int = control_value as i64;
+
+    // Build the list of index values for the numbered data ports.
+    let indices: Vec<i64> = if order.trim().eq_ignore_ascii_case("Specify indices") {
+        parse_data_port_indices(meta.get("DataPortIndices"))
+            .iter()
+            .map(|s| s.parse::<i64>().unwrap_or(0))
+            .collect()
+    } else if order.trim().eq_ignore_ascii_case("Zero-based contiguous") {
+        (0..numbered as i64).collect()
+    } else {
+        (1..=numbered as i64).collect()
+    };
+
+    // Find which numbered port matches the control value.
+    for (i, &idx) in indices.iter().enumerate() {
+        if idx == control_int {
+            return i as u32;
+        }
+    }
+
+    // No match: select the default port.
+    if has_additional {
+        // Additional port is after the numbered ports.
+        numbered
+    } else {
+        // Last numbered port is the default.
+        numbered.saturating_sub(1)
+    }
+    .min(data_inputs.saturating_sub(1))
+}
+
+/// Live renderer for the Switch block: draws the lever to the top data input
+/// when the control criteria is met, or the bottom data input otherwise.
+pub fn live_switch(
+    app: &mut crate::egui_app::state::SubsystemApp,
+    ui: &mut eframe::egui::Ui,
+    block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let Some(control_value) = control_input_live_value(app, block, 2) else {
+        return false;
+    };
+    let criteria = ctx.metadata.get("Criteria").unwrap_or("u2 >= Threshold");
+    let threshold_str = ctx.metadata.get("Threshold").unwrap_or("0").trim();
+    let threshold_val: f64 = threshold_str.parse().unwrap_or(0.0);
+    let threshold = if threshold_str.is_empty() {
+        "0"
+    } else {
+        threshold_str
+    };
+    let criteria_met = evaluate_switch_criteria(criteria, control_value, threshold_val);
+    let painter = ui.painter().with_clip_rect(*rect);
+    crate::egui_app::render::render_switch_with_selection(
+        &painter,
+        block,
+        rect,
+        ctx.font_scale,
+        criteria,
+        threshold,
+        ctx.port_y,
+        ctx.port_label_widths,
+        criteria_met,
+    );
+    true
+}
+
+/// Live renderer for the MultiPortSwitch block: draws the lever to the data
+/// input selected by the control signal value.
+pub fn live_multiport_switch(
+    app: &mut crate::egui_app::state::SubsystemApp,
+    ui: &mut eframe::egui::Ui,
+    block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let Some(control_value) = control_input_live_value(app, block, 1) else {
+        return false;
+    };
+    let data_inputs = multiport_switch_data_inputs(block, ctx.metadata);
+    let selected = compute_multiport_selection(block, ctx.metadata, control_value, data_inputs);
+    let painter = ui.painter().with_clip_rect(*rect);
+    crate::egui_app::render::render_multiport_switch_with_selection(
+        &painter,
+        block,
+        rect,
+        ctx.font_scale,
+        data_inputs,
+        ctx.port_y,
+        ctx.port_label_widths,
+        selected,
     );
     true
 }
@@ -555,6 +781,105 @@ pub fn static_subsystem(
             ctx.text_color,
             None,
         );
+    }
+    // Lifecycle event ports enter on the input side, above the data inputs,
+    // with their pictogram and event name beside them.
+    let events = subsystem_event_input_glyphs(block);
+    let _event_count = subsystem_event_input_count(block);
+    let mirrored = block.block_mirror.unwrap_or(false);
+    let side = crate::egui_app::geometry::port_side_for("in", mirrored);
+    let reinit = is_reinit_subsystem(block);
+
+    if reinit {
+        // ShowSubsystemReinitializePorts: the reinit port sits in its own
+        // section at the top of the input side, a horizontal separator line
+        // spans the full block width beneath it, and the data inputs are
+        // distributed in the lower section.
+        let sep_y = rect.top() + REINIT_SEP_FRAC * rect.height();
+        let stroke = eframe::egui::Stroke::new(
+            (1.4 * ctx.font_scale).max(0.75),
+            ctx.border_color,
+        );
+        painter.line_segment(
+            [
+                eframe::egui::pos2(rect.left(), sep_y),
+                eframe::egui::pos2(rect.right(), sep_y),
+            ],
+            stroke,
+        );
+        let size = (rect.height() * REINIT_SEP_FRAC * 0.6)
+            .min(rect.width() * 0.34)
+            .min(14.0 * ctx.font_scale)
+            .max(4.0);
+        // Use the resolved event glyphs when available; fall back to the
+        // generic reinit pictogram + "reinit" label when the subsystem
+        // contents are not loaded.
+        let fallback = format!(
+            "{}; t 2.20,0.50,0.50 reinit",
+            event_port_glyph(&EventKind::Reinitialize)
+        );
+        let glyphs: Vec<&str> = if !events.is_empty() {
+            events.iter().map(String::as_str).collect()
+        } else {
+            vec![fallback.as_str()]
+        };
+        for event in &glyphs {
+            let y = rect.top() + REINIT_PORT_FRAC * rect.height();
+            let x = if mirrored {
+                rect.right() - size * 1.2
+            } else {
+                rect.left() + size * 0.2
+            };
+            let glyph = Rect::from_min_size(
+                eframe::egui::pos2(x, y - size * 0.5),
+                eframe::egui::vec2(size, size),
+            );
+            crate::egui_app::render::draw_plot_icon(
+                painter,
+                &glyph,
+                ctx.font_scale,
+                event,
+                ctx.text_color,
+                None,
+            );
+        }
+    } else if !events.is_empty() {
+        let data_ins = block
+            .port_counts
+            .as_ref()
+            .and_then(|counts| counts.ins)
+            .unwrap_or(0);
+        let total_ins = data_ins + events.len() as u32;
+        let size = (rect.height() / (total_ins as f32 + 1.0))
+            .min(rect.width() * 0.34)
+            .min(14.0 * ctx.font_scale)
+            .max(4.0);
+        for (index, event) in events.iter().enumerate() {
+            let y = crate::egui_app::geometry::port_anchor_pos(
+                *rect,
+                side,
+                index as u32 + 1,
+                Some(total_ins),
+            )
+            .y;
+            let x = if mirrored {
+                rect.right() - size * 1.2
+            } else {
+                rect.left() + size * 0.2
+            };
+            let glyph = Rect::from_min_size(
+                eframe::egui::pos2(x, y - size * 0.5),
+                eframe::egui::vec2(size, size),
+            );
+            crate::egui_app::render::draw_plot_icon(
+                painter,
+                &glyph,
+                ctx.font_scale,
+                event,
+                ctx.text_color,
+                None,
+            );
+        }
     }
     if content.for_each {
         // Stacked copies of the same block – one per element of the input.
@@ -656,24 +981,156 @@ pub fn static_state_parameter_access(
         ),
         colors.text,
     );
+    if let Some(owner) = state_parameter_owner(ctx) {
+        painter.text(
+            eframe::egui::pos2(rect.right() + rect.width() * 0.25, center.y),
+            eframe::egui::Align2::LEFT_CENTER,
+            owner,
+            eframe::egui::FontId::proportional(
+                (rect.height() * 0.42).min(14.0 * ctx.font_scale).max(1.0),
+            ),
+            ctx.text_color,
+        );
+    }
     true
 }
 
-/// Static renderer for the ResetPort block: the pictogram of the edge it
-/// resets on – the same one its subsystem shows at the reset port it adds.
-pub fn static_reset_port(
+/// The block a State/Parameter Reader or Writer acts on, as Simulink prints it
+/// beside the diamond: the owner block's own name – the trailing component of
+/// the `../Delay` style path – and, for a parameter, the parameter it writes,
+/// as in `Add Constant.Bias`.
+fn state_parameter_owner(ctx: &RenderContext<'_>) -> Option<String> {
+    owner_caption(
+        ctx.metadata
+            .get("StateOwnerBlock")
+            .or_else(|| ctx.metadata.get("ParameterOwnerBlock")),
+        ctx.metadata.get("ParameterName"),
+    )
+}
+
+fn owner_caption(owner_path: Option<&str>, parameter: Option<&str>) -> Option<String> {
+    let path = owner_path.map(str::trim).filter(|path| !path.is_empty())?;
+    let owner = path.rsplit('/').next().unwrap_or(path).trim();
+    match parameter.map(str::trim) {
+        Some(parameter) if !parameter.is_empty() => Some(format!("{owner}.{parameter}")),
+        _ => Some(owner.to_string()),
+    }
+}
+
+/// Static renderer for a standalone `EnablePort`: the same square pulse the
+/// containing subsystem shows above its enable port.
+pub fn static_enable_port(
+    painter: &Painter,
+    _block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    crate::egui_app::render::draw_plot_icon(
+        painter,
+        rect,
+        ctx.font_scale,
+        LEVEL_PULSE,
+        ctx.text_color,
+        ctx.port_label_widths,
+    );
+    true
+}
+
+/// Static renderer for a standalone `TriggerPort`: the edge pictogram of its
+/// `TriggerType`, matching the one on the containing subsystem's trigger port.
+pub fn static_trigger_port(
     painter: &Painter,
     _block: &Block,
     rect: &Rect,
     ctx: &RenderContext<'_>,
 ) -> bool {
     let spec =
-        reset_spec(ctx.metadata.get("ResetTriggerType").or(Some("rising"))).unwrap_or(RISING_EDGE);
+        reset_spec(ctx.metadata.get("TriggerType").or(Some("rising"))).unwrap_or(RISING_EDGE);
     crate::egui_app::render::draw_plot_icon(
         painter,
         rect,
         ctx.font_scale,
         spec,
+        ctx.text_color,
+        ctx.port_label_widths,
+    );
+    true
+}
+
+/// Static renderer for an `EventListener`: the lifecycle pictogram of the event
+/// it responds to – the same one the subsystem containing it is headed with –
+/// over the event's name.
+pub fn static_event_listener(
+    painter: &Painter,
+    block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let event = SubsystemEvent::of(block);
+    let glyph_height = rect.height() * 0.65;
+    let side = glyph_height.min(rect.width());
+    let glyph = Rect::from_center_size(
+        eframe::egui::pos2(rect.center().x, rect.top() + glyph_height * 0.5),
+        eframe::egui::vec2(side, glyph_height),
+    );
+    crate::egui_app::render::draw_plot_icon(
+        painter,
+        &glyph,
+        ctx.font_scale,
+        event_port_glyph(&event.kind),
+        ctx.text_color,
+        None,
+    );
+    let caption = Rect::from_min_max(
+        eframe::egui::pos2(rect.left(), rect.top() + glyph_height),
+        rect.max,
+    );
+    crate::egui_app::render::draw_plot_icon(
+        painter,
+        &caption,
+        ctx.font_scale,
+        &format!("t 0.50,0.50,0.80 {}", event.caption),
+        ctx.text_color,
+        ctx.port_label_widths,
+    );
+    true
+}
+
+/// Static renderer for the ResetPort block: the pictogram of the edge it
+/// resets on – the same one its subsystem shows at the reset port it adds –
+/// followed by the `R` annotation the subsystem draws beside it.  The block is
+/// small, so the pictogram is drawn in a narrower sub-rect so the `R` at spec
+/// x = 1.32 lands inside the block to its right, matching the subsystem reset
+/// port's relative layout.  The divisor 1.6 accounts for the 10% margin
+/// `compute_icon_available_rect` subtracts from each side, keeping the `R`
+/// comfortably inside the block while shrinking the pictogram slightly.
+pub fn static_reset_port(
+    painter: &Painter,
+    _block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let pictogram =
+        reset_spec(ctx.metadata.get("ResetTriggerType").or(Some("rising"))).unwrap_or(RISING_EDGE);
+    let spec = format!("{pictogram}; t 1.32,0.78,0.50 R");
+    // Map spec x = 1.32 onto ~82% of the block width by using a sub-rect
+    // whose width is `rect.width() / 1.6`.  After the 10% margin
+    // `compute_icon_available_rect` subtracts, the `R` center lands at ~91%
+    // of the block width — safely inside.  Center it vertically so the
+    // pictogram keeps its full height.
+    let sub_w = rect.width() / 1.6;
+    // Shift the sub-rect left so the `R` (at spec x = 1.32, which maps to the
+    // right end of the sub-rect) sits comfortably inside the block rather
+    // than on its right border.
+    let sub_rect = Rect::from_min_size(
+        eframe::egui::pos2(rect.center().x - sub_w * 0.5 - rect.width() * 0.06, rect.top()),
+        eframe::egui::vec2(sub_w, rect.height()),
+    );
+    crate::egui_app::render::draw_plot_icon(
+        painter,
+        &sub_rect,
+        ctx.font_scale,
+        &spec,
         ctx.text_color,
         ctx.port_label_widths,
     );
@@ -695,14 +1152,61 @@ fn control_port_glyphs(content: &SubsystemContent) -> Vec<String> {
     if let Some(reset) = content.reset {
         glyphs.push(format!("{reset}; t 1.32,0.78,0.50 R"));
     }
-    if let Some(event) = content.event_port.as_ref() {
-        glyphs.push(format!(
-            "{}; t 2.20,0.50,0.50 {}",
-            event_port_glyph(&event.kind),
-            event.caption
-        ));
-    }
     glyphs
+}
+
+/// The pictograms of the lifecycle event ports a subsystem carries on its
+/// *input* side, top to bottom, each followed by the event's name – how
+/// Simulink draws the reinitialize/reset port of a subsystem that contains such
+/// a function.
+pub fn subsystem_event_input_glyphs(block: &Block) -> Vec<String> {
+    let content = SubsystemContent::of(block);
+    content
+        .event_port
+        .iter()
+        .map(|event| {
+            format!(
+                "{}; t 2.20,0.50,0.50 {}",
+                event_port_glyph(&event.kind),
+                event.caption
+            )
+        })
+        .collect()
+}
+
+/// How many lifecycle event ports enter the subsystem on its input side, above
+/// the data inputs.  Falls back to `<PortCounts event=…/>` when the contents
+/// are not loaded or the nested EventListener is not found.
+pub fn subsystem_event_input_count(block: &Block) -> u32 {
+    let from_counts = || {
+        block
+            .port_counts
+            .as_ref()
+            .and_then(|counts| counts.event)
+            .unwrap_or(0)
+    };
+    if block.subsystem.is_none() {
+        return from_counts();
+    }
+    let from_content = u32::from(SubsystemContent::of(block).event_port.is_some());
+    if from_content > 0 {
+        from_content
+    } else {
+        // The subsystem is loaded but the nested EventListener was not found
+        // (e.g. its own subsystem ref was not resolved).  Fall back to the
+        // PortCounts `event` attribute so the port is still counted.
+        from_counts()
+    }
+}
+
+/// Whether the block carries `ShowSubsystemReinitializePorts = on`, meaning
+/// Simulink draws the reinit port in its own section at the top of the input
+/// side, a horizontal separator line beneath it, and the data inputs below.
+pub fn is_reinit_subsystem(block: &Block) -> bool {
+    block
+        .properties
+        .get("ShowSubsystemReinitializePorts")
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("on"))
 }
 
 /// The lifecycle pictogram of an event port, drawn inside its own square.
@@ -729,7 +1233,6 @@ pub fn subsystem_control_port_types(block: &Block) -> Vec<&'static str> {
             ("enable", counts.enable),
             ("trigger", counts.trigger),
             ("reset", counts.reset),
-            ("event", counts.event),
         ]
         .into_iter()
         .flat_map(|(port_type, count)| std::iter::repeat_n(port_type, count.unwrap_or(0) as usize))
@@ -746,9 +1249,6 @@ pub fn subsystem_control_port_types(block: &Block) -> Vec<&'static str> {
     }
     if content.reset.is_some() {
         types.push("reset");
-    }
-    if content.event_port.is_some() {
-        types.push("event");
     }
     types
 }
@@ -882,8 +1382,9 @@ impl SubsystemContent {
     }
 }
 
-/// Static renderer for the Matrix Concatenate block: stacked blocks with the
-/// `ConcatenateDimension` they are joined along printed in the corner.
+/// Static renderer for the Matrix Concatenate block: two cuboids offset
+/// diagonally (one back-right, one front-left) with shaded faces and the
+/// `ConcatenateDimension` they are joined along printed in the front cuboid.
 pub fn static_matrix_concatenate(
     painter: &Painter,
     _block: &Block,
@@ -896,13 +1397,37 @@ pub fn static_matrix_concatenate(
         .unwrap_or("2")
         .trim();
     let dim = if raw.is_empty() { "2" } else { raw };
+    // Two cuboids seen from the front-left, the back one offset up-right and
+    // the front one offset down-left, joined where they overlap.  Faces are
+    // filled with the SVG's semi-transparent greys; the L-shaped front face of
+    // the back cuboid is split into two convex rectangles.
     let spec = format!(
         concat!(
-            "r 0.06,0.30 0.44,0.78; p 0.06,0.30 0.20,0.14 0.58,0.14 0.44,0.30;",
-            "p 0.58,0.14 0.58,0.62 0.44,0.78;",
-            "r 0.50,0.38 0.82,0.80; p 0.50,0.38 0.62,0.24 0.94,0.24 0.82,0.38;",
-            "p 0.94,0.24 0.94,0.66 0.82,0.80;",
-            "t 0.90,0.90,0.26 {dim}"
+            // ── Back cuboid (drawn first, behind) ──────────────────────────
+            // Top face (light grey).
+            "pg 235,235,235,128 0.265,0.167 0.412,0 1.0,0 0.853,0.167;",
+            // Right side face (darker grey).
+            "pg 180,180,180,128 0.853,0.7 0.853,0.167 1.0,0 1.0,0.533;",
+            // Front face (white) – L-shape split into two convex rectangles,
+            // filled without stroke (`pf`) so the internal seam is invisible;
+            // the external boundary is traced separately by the `p` command.
+            "pf 255,255,255,128 0.265,0.167 0.853,0.167 0.853,0.3 0.265,0.3;",
+            "pf 255,255,255,128 0.735,0.3 0.853,0.3 0.853,0.7 0.735,0.7;",
+            // L-shape external outline (closed polyline).
+            "p 0.265,0.167 0.853,0.167 0.853,0.7 0.735,0.7 0.735,0.3 0.265,0.3 0.265,0.167;",
+            // ── Front cuboid (drawn second, in front) ───────────────────────
+            // Top face (light grey).
+            "pg 235,235,235,128 0,0.467 0.147,0.3 0.735,0.3 0.588,0.467;",
+            // Right side face (darker grey).
+            "pg 180,180,180,128 0.588,1.0 0.588,0.467 0.735,0.3 0.735,0.833;",
+            // Front face (white).
+            "pg 255,255,255,128 0,0.467 0.588,0.467 0.588,1.0 0,1.0;",
+            // ── Dashed edge connectors (faint) ──────────────────────────────
+            "a 0.147,0.3 0.265,0.167;",
+            "a 0.735,0.833 0.853,0.7;",
+            "a 0.735,0.3 0.853,0.167;",
+            // ── Concatenation dimension in the front cuboid's face ───────────
+            "t 0.29,0.73,0.22 {dim}"
         ),
         dim = dim
     );
@@ -1474,57 +1999,87 @@ pub fn static_multiport_switch(
     ctx: &RenderContext<'_>,
 ) -> bool {
     let data_inputs = multiport_switch_data_inputs(block, ctx.metadata);
-    // Ports are spaced evenly down the left edge: the control input on top,
-    // then one contact per data input, the first of which the lever selects.
-    let total = data_inputs + 1;
-    let port_y = |index: u32| (index as f32 + 1.0) / (total as f32 + 1.0);
-    let control_y = port_y(0);
-    let mut spec = format!(
-        "p 0.0,{control_y:.3} 0.30,{control_y:.3}; p 0.30,{:.3} 0.30,{:.3};",
-        control_y - 0.06,
-        control_y + 0.06
-    );
-    let first_contact_y = port_y(1);
-    spec.push_str(&format!(
-        "p 0.72,{first_contact_y:.3} 0.90,0.50; p 0.90,0.50 1.0,0.50;"
-    ));
-    for i in 0..data_inputs {
-        let y = port_y(i + 1);
-        spec.push_str(&format!(
-            "p 0.0,{y:.3} 0.64,{y:.3}; r 0.64,{:.3} 0.72,{:.3};",
-            y - 0.035,
-            y + 0.035
-        ));
-    }
-    crate::egui_app::render::draw_plot_icon(
+    crate::egui_app::render::render_multiport_switch(
         painter,
+        block,
         rect,
         ctx.font_scale,
-        &spec,
-        ctx.text_color,
+        data_inputs,
+        ctx.port_y,
         ctx.port_label_widths,
     );
     true
 }
 
-/// Number of data inputs a Multiport Switch exposes (the port count minus the
-/// control input, or the configured `Inputs` count).
-fn multiport_switch_data_inputs(block: &Block, meta: &super::metadata::BlockMetadata) -> u32 {
-    meta.get("Inputs")
+/// Number of numbered data inputs a Multiport Switch exposes, excluding the
+/// optional additional default (`*`) port.
+///
+/// The count comes from the `Inputs` property when set, otherwise from the
+/// number of indices in `DataPortIndices` (when `DataPortOrder = Specify
+/// indices`), or from the block's port count minus the control input.
+fn multiport_switch_numbered_data_inputs(
+    block: &Block,
+    meta: &super::metadata::BlockMetadata,
+) -> u32 {
+    if let Some(n) = meta
+        .get("Inputs")
         .and_then(|s| s.trim().parse::<u32>().ok())
-        .or_else(|| {
-            block
-                .port_counts
-                .as_ref()
-                .and_then(|c| c.ins)
-                .map(|n| n.saturating_sub(1))
-        })
+    {
+        return n.max(1);
+    }
+    let order = meta.get("DataPortOrder").unwrap_or("One-based contiguous");
+    if order.trim().eq_ignore_ascii_case("Specify indices") {
+        let count = parse_data_port_indices(meta.get("DataPortIndices")).len() as u32;
+        return count.max(1);
+    }
+    block
+        .port_counts
+        .as_ref()
+        .and_then(|c| c.ins)
+        .map(|n| n.saturating_sub(1))
         .unwrap_or(3)
         .max(1)
 }
 
+/// Whether the Multiport Switch has an additional default (`*`) data port
+/// beyond the numbered ones.
+fn multiport_switch_has_additional_default(meta: &super::metadata::BlockMetadata) -> bool {
+    meta.get("DataPortForDefault")
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("Additional data port"))
+}
+
+/// Number of data inputs a Multiport Switch exposes (numbered inputs plus the
+/// optional additional default `*` port).
+fn multiport_switch_data_inputs(block: &Block, meta: &super::metadata::BlockMetadata) -> u32 {
+    let numbered = multiport_switch_numbered_data_inputs(block, meta);
+    if multiport_switch_has_additional_default(meta) {
+        numbered + 1
+    } else {
+        numbered
+    }
+}
+
+/// Parse a `DataPortIndices` value like `"{6,8,15}"` into a list of index
+/// strings.
+fn parse_data_port_indices(raw: Option<&str>) -> Vec<String> {
+    let Some(raw) = raw else {
+        return Vec::new();
+    };
+    raw.trim()
+        .trim_start_matches('{')
+        .trim_end_matches('}')
+        .split([',', ' '])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect()
+}
+
 /// Input port labels for the Multiport Switch: the unlabelled control input
-/// followed by the data inputs, the last of which is also the default (`*`).
+/// followed by the data inputs.  Numbering depends on `DataPortOrder`
+/// (one-based, zero-based, or individual indices from `DataPortIndices`).
+/// The default (`*`) port is labeled just `*` when it is an additional port,
+/// or `*, N` when the last numbered port doubles as the default.
 pub fn multiport_switch_port_labels(
     block: &Block,
     meta: &super::metadata::BlockMetadata,
@@ -1533,15 +2088,82 @@ pub fn multiport_switch_port_labels(
     if !is_input {
         return Vec::new();
     }
-    let data = multiport_switch_data_inputs(block, meta);
-    let mut labels = vec![String::new()];
-    for i in 1..=data {
-        labels.push(if i == data {
-            format!("*, {i}")
+    let numbered = multiport_switch_numbered_data_inputs(block, meta);
+    let has_additional = multiport_switch_has_additional_default(meta);
+    let total_data = if has_additional {
+        numbered + 1
+    } else {
+        numbered
+    };
+
+    // Build the list of number labels for the numbered data ports.
+    let order = meta.get("DataPortOrder").unwrap_or("One-based contiguous");
+    let number_labels: Vec<String> = if order.trim().eq_ignore_ascii_case("Specify indices") {
+        let indices = parse_data_port_indices(meta.get("DataPortIndices"));
+        (0..numbered)
+            .map(|i| {
+                indices
+                    .get(i as usize)
+                    .cloned()
+                    .unwrap_or_else(|| (i + 1).to_string())
+            })
+            .collect()
+    } else if order.trim().eq_ignore_ascii_case("Zero-based contiguous") {
+        (0..numbered).map(|i| i.to_string()).collect()
+    } else {
+        (1..=numbered).map(|i| i.to_string()).collect()
+    };
+
+    let mut labels = vec![String::new()]; // control input (port 1)
+    for i in 0..total_data {
+        if has_additional && i == numbered {
+            // Additional default port: just `*`.
+            labels.push("*".to_string());
+        } else if !has_additional && i == numbered - 1 {
+            // Last numbered port doubles as default: `*, N`.
+            labels.push(format!("*, {}", number_labels[i as usize]));
         } else {
-            i.to_string()
-        });
+            labels.push(number_labels[i as usize].clone());
+        }
     }
+    labels
+}
+
+/// A block Simulink draws empty: its identity comes from the port labels
+/// alone, so claiming the interior keeps the `?` placeholder away.
+pub fn static_nothing(
+    _painter: &Painter,
+    _block: &Block,
+    _rect: &Rect,
+    _ctx: &RenderContext<'_>,
+) -> bool {
+    true
+}
+
+/// Port labels for the BusAssignment block: the bus arrives on the first input
+/// and leaves on the only output, both labelled `Bus`; the remaining inputs
+/// carry the element each of them assigns, written `:= bus_b.e` as in Simulink
+/// and taken from the comma-separated `AssignedSignals` property.
+pub fn bus_assignment_port_labels(
+    _block: &Block,
+    meta: &super::metadata::BlockMetadata,
+    is_input: bool,
+) -> Vec<String> {
+    if !is_input {
+        return vec!["Bus".to_string()];
+    }
+    let assigned = meta
+        .get("AssignedSignals")
+        .map(|s| {
+            s.split(',')
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|s| format!(":= {s}"))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut labels = vec!["Bus".to_string()];
+    labels.extend::<Vec<String>>(assigned);
     labels
 }
 
@@ -1564,6 +2186,49 @@ pub fn static_c_function(
         ),
         ctx.text_color,
         ctx.port_label_widths,
+    );
+    true
+}
+
+/// Static renderer for the MATLAB Function block: a bold `M`, with the name of
+/// the function the block runs beneath it (`fcn`, `test`, … – taken from the
+/// block's MATLAB source, not from its name).
+pub fn static_matlab_function(
+    painter: &Painter,
+    _block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let name = ctx
+        .metadata
+        .get(super::labels::MATLAB_FUNCTION_NAME_PROPERTY)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or("fcn");
+    // A bold `M` as line art: strokes keep their weight at any block size,
+    // where a glyph would have to be squeezed into the block's aspect ratio.
+    let side = (rect.width() * 0.42).min(rect.height() * 0.42);
+    let center = eframe::egui::pos2(rect.center().x, rect.top() + rect.height() * 0.36);
+    let x = |u: f32| center.x + (u - 0.5) * side;
+    let y = |v: f32| center.y + (v - 0.5) * side;
+    painter.add(eframe::egui::Shape::line(
+        vec![
+            eframe::egui::pos2(x(0.05), y(1.0)),
+            eframe::egui::pos2(x(0.05), y(0.0)),
+            eframe::egui::pos2(x(0.50), y(0.62)),
+            eframe::egui::pos2(x(0.95), y(0.0)),
+            eframe::egui::pos2(x(0.95), y(1.0)),
+        ],
+        eframe::egui::Stroke::new((side * 0.16).max(1.0), ctx.text_color),
+    ));
+    painter.text(
+        eframe::egui::pos2(rect.center().x, rect.top() + rect.height() * 0.78),
+        eframe::egui::Align2::CENTER_CENTER,
+        name,
+        eframe::egui::FontId::proportional(
+            (rect.height() * 0.28).min(16.0 * ctx.font_scale).max(1.0),
+        ),
+        ctx.text_color,
     );
     true
 }
@@ -1641,7 +2306,26 @@ pub fn static_scope(
 
 #[cfg(test)]
 mod tests {
-    use super::{format_coeff, format_polynomial};
+    use super::{
+        bus_assignment_port_labels, compute_multiport_selection, evaluate_switch_criteria,
+        format_coeff, format_polynomial, multiport_switch_port_labels, owner_caption,
+    };
+    use crate::model::{Block, PortCounts};
+    use crate::simulink_libraries::metadata::BlockMetadata;
+
+    #[test]
+    fn owner_caption_uses_the_owner_name_and_parameter() {
+        assert_eq!(
+            owner_caption(Some("../Delay"), None),
+            Some("Delay".to_string())
+        );
+        assert_eq!(
+            owner_caption(Some("../Add Constant"), Some("Bias")),
+            Some("Add Constant.Bias".to_string())
+        );
+        assert_eq!(owner_caption(Some("  "), Some("Bias")), None);
+        assert_eq!(owner_caption(None, None), None);
+    }
 
     #[test]
     fn polynomial_from_bracketed_vector() {
@@ -1662,5 +2346,181 @@ mod tests {
     fn coefficient_formatting_trims_trailing_zeros() {
         assert_eq!(format_coeff(3.0), "3");
         assert_eq!(format_coeff(2.5), "2.5");
+    }
+
+    /// Build a minimal MultiPortSwitch block with `ins` input ports.
+    fn multiport_block(ins: u32) -> Block {
+        let mut block = super::super::stubs::create_stub_block("MultiPortSwitch", ins, 1);
+        block.port_counts = Some(PortCounts {
+            ins: Some(ins),
+            outs: Some(1),
+            ..Default::default()
+        });
+        block
+    }
+
+    #[test]
+    fn multiport_switch_one_based_default_last_port() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("Inputs", "3");
+        // Default: One-based contiguous, last port is default.
+        let labels = multiport_switch_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["", "1", "2", "*, 3"]);
+    }
+
+    #[test]
+    fn multiport_switch_zero_based_default_last_port() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("DataPortOrder", "Zero-based contiguous");
+        // No Inputs property → falls back to port_counts.ins - 1 = 3.
+        let labels = multiport_switch_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["", "0", "1", "*, 2"]);
+    }
+
+    #[test]
+    fn multiport_switch_specify_indices_default_last_port() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("DataPortOrder", "Specify indices");
+        meta.insert("DataPortIndices", "{6,8,15}");
+        let labels = multiport_switch_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["", "6", "8", "*, 15"]);
+    }
+
+    #[test]
+    fn multiport_switch_specify_indices_additional_default() {
+        let block = multiport_block(5);
+        let mut meta = BlockMetadata::default();
+        meta.insert("DataPortOrder", "Specify indices");
+        meta.insert("DataPortIndices", "{6,8,15}");
+        meta.insert("DataPortForDefault", "Additional data port");
+        let labels = multiport_switch_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["", "6", "8", "15", "*"]);
+    }
+
+    #[test]
+    fn multiport_switch_one_based_additional_default() {
+        let block = multiport_block(5);
+        let mut meta = BlockMetadata::default();
+        meta.insert("Inputs", "4");
+        meta.insert("DataPortForDefault", "Additional data port");
+        let labels = multiport_switch_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["", "1", "2", "3", "4", "*"]);
+    }
+
+    #[test]
+    fn multiport_switch_output_labels_are_empty() {
+        let block = multiport_block(4);
+        let meta = BlockMetadata::default();
+        let labels = multiport_switch_port_labels(&block, &meta, false);
+        assert!(labels.is_empty());
+    }
+
+    #[test]
+    fn switch_criteria_ge_threshold() {
+        assert!(evaluate_switch_criteria("u2 >= Threshold", 5.0, 0.0));
+        assert!(evaluate_switch_criteria("u2 >= Threshold", 0.0, 0.0));
+        assert!(!evaluate_switch_criteria("u2 >= Threshold", -1.0, 0.0));
+    }
+
+    #[test]
+    fn switch_criteria_gt_threshold() {
+        assert!(evaluate_switch_criteria("u2 > Threshold", 5.0, 0.0));
+        assert!(!evaluate_switch_criteria("u2 > Threshold", 0.0, 0.0));
+    }
+
+    #[test]
+    fn switch_criteria_ne_literal() {
+        assert!(evaluate_switch_criteria("u2 ~= 0", 5.0, 0.0));
+        assert!(!evaluate_switch_criteria("u2 ~= 0", 0.0, 0.0));
+    }
+
+    #[test]
+    fn switch_criteria_le_threshold() {
+        assert!(evaluate_switch_criteria("u2 <= Threshold", -1.0, 0.0));
+        assert!(evaluate_switch_criteria("u2 <= Threshold", 0.0, 0.0));
+        assert!(!evaluate_switch_criteria("u2 <= Threshold", 1.0, 0.0));
+    }
+
+    #[test]
+    fn multiport_selection_one_based() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("Inputs", "3");
+        // control=2 → select data port index 1 (0-based)
+        assert_eq!(compute_multiport_selection(&block, &meta, 2.0, 3), 1);
+        // control=1 → select data port index 0
+        assert_eq!(compute_multiport_selection(&block, &meta, 1.0, 3), 0);
+        // control=5 (out of range) → default = last port (index 2)
+        assert_eq!(compute_multiport_selection(&block, &meta, 5.0, 3), 2);
+    }
+
+    #[test]
+    fn multiport_selection_zero_based() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("DataPortOrder", "Zero-based contiguous");
+        // control=0 → select data port index 0
+        assert_eq!(compute_multiport_selection(&block, &meta, 0.0, 3), 0);
+        // control=2 → select data port index 2
+        assert_eq!(compute_multiport_selection(&block, &meta, 2.0, 3), 2);
+        // control=5 (out of range) → default = last port (index 2)
+        assert_eq!(compute_multiport_selection(&block, &meta, 5.0, 3), 2);
+    }
+
+    #[test]
+    fn multiport_selection_specify_indices() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("DataPortOrder", "Specify indices");
+        meta.insert("DataPortIndices", "{6,8,15}");
+        // control=8 → select index 1 (the "8" port)
+        assert_eq!(compute_multiport_selection(&block, &meta, 8.0, 3), 1);
+        // control=6 → select index 0
+        assert_eq!(compute_multiport_selection(&block, &meta, 6.0, 3), 0);
+        // control=10 (no match) → default = last numbered port (index 2)
+        assert_eq!(compute_multiport_selection(&block, &meta, 10.0, 3), 2);
+    }
+
+    #[test]
+    fn multiport_selection_specify_indices_additional_default() {
+        let block = multiport_block(5);
+        let mut meta = BlockMetadata::default();
+        meta.insert("DataPortOrder", "Specify indices");
+        meta.insert("DataPortIndices", "{6,8,15}");
+        meta.insert("DataPortForDefault", "Additional data port");
+        // control=10 (no match) → additional default port (index 3)
+        assert_eq!(compute_multiport_selection(&block, &meta, 10.0, 4), 3);
+    }
+
+    #[test]
+    fn bus_assignment_port_labels_basic() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("AssignedSignals", "bus_b.e,bus_c.d,bus_c.bus_a");
+        let labels = bus_assignment_port_labels(&block, &meta, true);
+        assert_eq!(
+            labels,
+            vec!["Bus", ":= bus_b.e", ":= bus_c.d", ":= bus_c.bus_a"]
+        );
+    }
+
+    #[test]
+    fn bus_assignment_port_labels_empty() {
+        let block = multiport_block(2);
+        let meta = BlockMetadata::default();
+        let labels = bus_assignment_port_labels(&block, &meta, true);
+        assert_eq!(labels, vec!["Bus"]);
+    }
+
+    #[test]
+    fn bus_assignment_output_port_is_labelled_bus() {
+        let block = multiport_block(4);
+        let mut meta = BlockMetadata::default();
+        meta.insert("AssignedSignals", "a,b");
+        let labels = bus_assignment_port_labels(&block, &meta, false);
+        assert_eq!(labels, vec!["Bus"]);
     }
 }

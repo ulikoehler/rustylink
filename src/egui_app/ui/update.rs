@@ -18,7 +18,7 @@ use crate::egui_app::render::wrap_text_to_max_width;
 use crate::egui_app::render::{ComputedPortYCoordinates, PortLabelMaxWidths};
 use crate::egui_app::state::ViewerDragState;
 use crate::egui_app::state::{
-    LiveTooltipEntry, LiveTooltipKind, SubsystemApp, resolve_subsystem_by_vec_mut,
+    LiveTooltipEntry, LiveTooltipKind, ResolverStatus, SubsystemApp, resolve_subsystem_by_vec_mut,
 };
 use crate::egui_app::text::highlight_query_job;
 use crate::egui_app::{get_block_type_cfg, port_label_defined_name, port_label_display_name};
@@ -941,7 +941,7 @@ pub(crate) fn update_internal(
         if scroll_y.abs() > 0.0 && canvas_resp.hovered() {
             let factor = (1.0_f32 + scroll_y * 0.001_f32).max(0.1_f32);
             let old_zoom = staged_zoom;
-            let new_zoom = (old_zoom * factor).clamp(0.2, 10.0);
+            let new_zoom = (old_zoom * factor).clamp(0.2, 30.0);
             if (new_zoom - old_zoom).abs() > f32::EPSILON {
                 let origin = Pos2::new(avail.left() + margin, avail.top() + margin);
                 let s_old = base_scale * old_zoom;
@@ -1124,15 +1124,21 @@ pub(crate) fn update_internal(
             let mut block_action: Option<ClickAction> = None;
             if resp.double_clicked() {
                 println!("Block {} double-clicked", b.name);
-                crate::connection_targets::debug_print_block_targets(&app.root, &app.path, b);
+                if let Some(r) = app.connection_target_resolver() {
+                    crate::connection_targets::debug_print_block_targets_with_resolver(r.as_ref(), &app.path, b);
+                }
                 block_action = Some(ClickAction::DoublePrimary);
             } else if resp.secondary_clicked() {
                 println!("Block {} secondary clicked", b.name);
-                crate::connection_targets::debug_print_block_targets(&app.root, &app.path, b);
+                if let Some(r) = app.connection_target_resolver() {
+                    crate::connection_targets::debug_print_block_targets_with_resolver(r.as_ref(), &app.path, b);
+                }
                 block_action = Some(ClickAction::Secondary);
             } else if resp.clicked() {
                 println!("Block {} clicked", b.name);
-                crate::connection_targets::debug_print_block_targets(&app.root, &app.path, b);
+                if let Some(r) = app.connection_target_resolver() {
+                    crate::connection_targets::debug_print_block_targets_with_resolver(r.as_ref(), &app.path, b);
+                }
                 if !app.move_mode_enabled {
                     if app.live_mode_enabled && b.block_type == "ManualSwitch" {
                         if let Some(enabled) = toggle_manual_switch_setting(app, b) {
@@ -1422,8 +1428,30 @@ pub(crate) fn update_internal(
         }
 
         // The connection-target resolver depends only on model topology and is
-        // rebuilt only when that changes (not on navigation or layout drags).
-        let connection_target_resolver = app.view_cache.ensure_resolver(&app.root);
+        // rebuilt in a background thread when that changes (not on navigation
+        // or layout drags).  While the build is in progress we show a progress
+        // bar and skip rendering the model for this frame.
+        let connection_target_resolver = match app.view_cache.resolver_status(&app.root) {
+            ResolverStatus::Ready(r) => r,
+            ResolverStatus::Building {
+                progress,
+                current,
+                total,
+            } => {
+                ui.vertical_centered(|ui| {
+                    ui.label(format!("Resolving signal targets… {}/{}", current, total));
+                    ui.add_space(8.0);
+                    ui.add(egui::ProgressBar::new(progress));
+                });
+                ui.ctx().request_repaint();
+                // Restore cache data moved out earlier (lines 870-873).
+                app.view_cache.cached_sys_lines = sys_lines;
+                app.view_cache.cached_sys_annotations = sys_annotations;
+                app.view_cache.cached_owned_blocks = owned_blocks;
+                app.view_cache.cached_subsystem_block_lookup = subsystem_block_lookup;
+                return;
+            }
+        };
 
         // Use cached line colors and port info when possible; recompute on model change.
         let cache_gen = app.view_cache.generation;
@@ -1839,15 +1867,15 @@ pub(crate) fn update_internal(
                         let double_clicked = ui.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary));
                         let action = if double_clicked {
                             println!("Line {} double-clicked", li);
-                            crate::connection_targets::debug_print_line_targets(&app.root, &app.path, line);
+                            crate::connection_targets::debug_print_line_targets_with_resolver(&connection_target_resolver, &app.path, line);
                             Some(ClickAction::DoublePrimary)
                         } else if secondary_clicked {
                             println!("Line {} secondary clicked", li);
-                            crate::connection_targets::debug_print_line_targets(&app.root, &app.path, line);
+                            crate::connection_targets::debug_print_line_targets_with_resolver(&connection_target_resolver, &app.path, line);
                             Some(ClickAction::Secondary)
                         } else if primary_clicked {
                             println!("Line {} clicked", li);
-                            crate::connection_targets::debug_print_line_targets(&app.root, &app.path, line);
+                            crate::connection_targets::debug_print_line_targets_with_resolver(&connection_target_resolver, &app.path, line);
                             Some(ClickAction::Primary)
                         } else {
                             None
@@ -2482,11 +2510,15 @@ pub(crate) fn update_internal(
                     continue;
                 };
                 let cfg = get_block_type_cfg(b);
-                let in_count = b
+                let event_ins =
+                    crate::simulink_libraries::renderers::subsystem_event_input_count(b);
+                let reinit = crate::simulink_libraries::renderers::is_reinit_subsystem(b);
+                let data_ins = b
                     .port_counts
                     .as_ref()
                     .and_then(|p| p.ins)
                     .unwrap_or(cfg.default_ins);
+                let in_count = if reinit { data_ins } else { data_ins + event_ins };
                 let out_count = b
                     .port_counts
                     .as_ref()
@@ -2495,13 +2527,35 @@ pub(crate) fn update_internal(
                 if in_count == 0 && out_count == 0 {
                     continue;
                 }
-                let (ins, outs) = crate::egui_app::geometry::port_indicator_positions_with_overrides(
+                let mirrored = b.block_mirror.unwrap_or(false);
+                // Reinit subsystems distribute data inputs below the separator
+                // line; other blocks use the standard even distribution.
+                let ins: Vec<eframe::egui::Pos2> = if reinit && data_ins > 0 {
+                    let side = crate::egui_app::geometry::port_side_for("in", mirrored);
+                    (1..=data_ins)
+                        .map(|i| {
+                            crate::egui_app::ui::signal_routing::reinit_data_input_pos(
+                                brect, side, i, data_ins,
+                            )
+                        })
+                        .collect()
+                } else {
+                    let (ins, _) = crate::egui_app::geometry::port_indicator_positions_with_overrides(
+                        brect,
+                        in_count,
+                        out_count,
+                        mirrored,
+                        &cfg.port_position_overrides,
+                    );
+                    ins
+                };
+                let outs = crate::egui_app::geometry::port_indicator_positions_with_overrides(
                     brect,
                     in_count,
                     out_count,
-                    b.block_mirror.unwrap_or(false),
+                    mirrored,
                     &cfg.port_position_overrides,
-                );
+                ).1;
                 let mut request = |index: usize, is_input: bool, y: f32| {
                     let index = index as u32 + 1;
                     if wired.contains(&(sid.clone(), index, is_input)) {
@@ -2511,8 +2565,14 @@ pub(crate) fn update_internal(
                         port_label_requests.push((sid.clone(), index, is_input, y));
                     }
                 };
-                for (i, p) in ins.iter().enumerate() {
-                    request(i, true, p.y);
+                if reinit {
+                    for (i, p) in ins.iter().enumerate() {
+                        request(i, true, p.y);
+                    }
+                } else {
+                    for (i, p) in ins.iter().enumerate().skip(event_ins as usize) {
+                        request(i - event_ins as usize, true, p.y);
+                    }
                 }
                 for (i, p) in outs.iter().enumerate() {
                     request(i, false, p.y);
@@ -2673,20 +2733,64 @@ pub(crate) fn update_internal(
             // Chevrons are hidden for ports that have at least one connection.
             // For base blocks port_counts may be absent; fall back to the
             // virtual-library defaults carried in BlockTypeConfig.
-            let in_count = b
+            // Lifecycle event ports take the first slots on the input side.
+            let event_ins = crate::simulink_libraries::renderers::subsystem_event_input_count(b);
+            let reinit = crate::simulink_libraries::renderers::is_reinit_subsystem(b);
+            let data_ins = b
                 .port_counts
                 .as_ref()
                 .and_then(|p| p.ins)
                 .unwrap_or(cfg.default_ins);
+            let in_count = if reinit { data_ins } else { data_ins + event_ins };
             let out_count = b
                 .port_counts
                 .as_ref()
                 .and_then(|p| p.outs)
                 .unwrap_or(cfg.default_outs);
-            if in_count > 0 || out_count > 0 {
+            if in_count > 0 || out_count > 0 || (reinit && event_ins > 0) {
                 let mirrored = b.block_mirror.unwrap_or(false);
                 let overrides = &cfg.port_position_overrides;
-                let (ins, outs) = crate::egui_app::geometry::port_indicator_positions_with_overrides(
+                // Reinit subsystems: draw a chevron for the reinit port at its
+                // fixed position, then distribute data inputs below the
+                // separator line.
+                if reinit && event_ins > 0 {
+                    let side = crate::egui_app::geometry::port_side_for("in", mirrored);
+                    let reinit_y = r_screen.top()
+                        + crate::egui_app::ui::signal_routing::REINIT_PORT_FRAC * r_screen.height();
+                    let reinit_pos = match side {
+                        crate::egui_app::geometry::PortSide::Out => {
+                            eframe::egui::pos2(r_screen.right(), reinit_y)
+                        }
+                        _ => eframe::egui::pos2(r_screen.left(), reinit_y),
+                    };
+                    paint_port_chevron_placed(
+                        &painter,
+                        reinit_pos,
+                        !mirrored,
+                        None,
+                        font_scale,
+                        Color32::from_rgb(60, 60, 200),
+                    );
+                }
+                let ins: Vec<eframe::egui::Pos2> = if reinit && data_ins > 0 {
+                    let side = crate::egui_app::geometry::port_side_for("in", mirrored);
+                    (1..=data_ins)
+                        .map(|i| {
+                            crate::egui_app::ui::signal_routing::reinit_data_input_pos(
+                                *r_screen, side, i, data_ins,
+                            )
+                        })
+                        .collect()
+                } else {
+                    crate::egui_app::geometry::port_indicator_positions_with_overrides(
+                        *r_screen,
+                        in_count,
+                        out_count,
+                        mirrored,
+                        overrides,
+                    ).0
+                };
+                let (_, outs) = crate::egui_app::geometry::port_indicator_positions_with_overrides(
                     *r_screen,
                     in_count,
                     out_count,
@@ -2698,8 +2802,21 @@ pub(crate) fn update_internal(
                 let block_sid = b.sid.as_deref().unwrap_or("");
                 for (i, p) in ins.iter().enumerate() {
                     let port_idx = (i as u32) + 1;
-                    // Skip chevron if this input port is connected
-                    if connected_ports.contains(&(block_sid.to_string(), port_idx, true)) {
+                    // Skip chevron if this input port is connected; an event
+                    // port is never wired through the data-input numbering.
+                    // Reinit subsystems have no event offset on data inputs.
+                    let data_idx = if reinit {
+                        port_idx
+                    } else {
+                        port_idx - event_ins
+                    };
+                    if (reinit || port_idx > event_ins)
+                        && connected_ports.contains(&(
+                            block_sid.to_string(),
+                            data_idx,
+                            true,
+                        ))
+                    {
                         continue;
                     }
                     let ovr_placement = overrides

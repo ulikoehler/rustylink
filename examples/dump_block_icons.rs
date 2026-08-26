@@ -56,7 +56,6 @@ fn icon_desc(block: &Block) -> String {
         return match icon {
             SimulinkIcon::Utf8(g) => glyph_desc(g),
             SimulinkIcon::Phosphor(_) => "<phosphor>".into(),
-            SimulinkIcon::Svg(p) => format!("<svg:{p}>"),
             SimulinkIcon::Math(s) => format!("<math:{s}>"),
             SimulinkIcon::Plot(s) => format!("<plot:{s}>"),
         };
@@ -68,7 +67,6 @@ fn icon_desc(block: &Block) -> String {
     match cfg.icon {
         Some(IconSpec::Utf8(g)) => glyph_desc(g),
         Some(IconSpec::Phosphor(_)) => "<phosphor>".into(),
-        Some(IconSpec::Svg(p)) => format!("<svg:{p}>"),
         Some(IconSpec::Math(s)) => format!("<math:{s}>"),
         Some(IconSpec::Plot(s)) => format!("<plot:{s}>"),
         None => "<QUESTION>".into(),

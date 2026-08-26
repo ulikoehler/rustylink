@@ -1,0 +1,24 @@
+# Limit resource usage to prevent PC freezes during cargo test/build.
+#
+# ── Build parallelism ──────────────────────────────────────────────
+# Limits how many compiler processes run simultaneously.
+# Override temporarily with:  CARGO_BUILD_JOBS=8 cargo test
+[build]
+# Default: moderate (4 parallel build jobs)
+jobs = 4
+
+# Very low (keeps PC very responsive):
+# jobs = 4
+
+# Half of available CPU cores (auto-adapts):
+# jobs = "half"
+
+# ── Test thread count ──────────────────────────────────────────────
+# Limits how many tests run in parallel.
+# RUST_TEST_THREADS is read by the libtest test runner.
+# Override temporarily with:  cargo test -- --test-threads=8
+[env]
+RUST_TEST_THREADS = "4"
+
+# Very low (keeps PC very responsive):
+# RUST_TEST_THREADS = "2"

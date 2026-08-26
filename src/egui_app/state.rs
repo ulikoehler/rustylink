@@ -3,7 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::BufReader;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
 
 use anyhow::Context;
 use camino::{Utf8Path, Utf8PathBuf};
@@ -328,6 +329,43 @@ pub enum ViewerDragState {
     },
 }
 
+/// Result of checking whether the connection-target resolver is ready.
+#[derive(Debug, Clone)]
+pub enum ResolverStatus {
+    /// Resolver is ready to use.
+    Ready(Arc<crate::connection_targets::ConnectionTargetResolver>),
+    /// Resolver is being built in a background thread.
+    Building {
+        /// 0.0..=1.0 (for the progress bar fill).
+        progress: f32,
+        /// Subsystems visited so far.
+        current: usize,
+        /// Estimated total work.
+        total: usize,
+    },
+}
+
+/// Shared state for the background resolver build, protected by a `Mutex`.
+#[derive(Debug, Default)]
+enum ResolverBuildInner {
+    #[default]
+    Idle,
+    Building {
+        /// 0..=1000 (bar fill × 1000).
+        progress: Arc<AtomicU32>,
+        /// Total `resolve_system` calls so far.
+        visited: Arc<AtomicUsize>,
+        /// Estimated total work for the progress display.
+        total: usize,
+        /// Topology signature this build was started for.
+        sig: u64,
+    },
+    Ready {
+        resolver: Arc<crate::connection_targets::ConnectionTargetResolver>,
+        sig: u64,
+    },
+}
+
 /// Cached per-frame computations that only need to be recalculated when the
 /// model changes (e.g. after a drag-commit, navigation, or layout load/save).
 ///
@@ -367,6 +405,8 @@ pub struct ComputedViewCache {
     pub cached_path: Vec<String>,
     /// Model generation at which the cache was computed.
     pub cached_gen: u64,
+    /// Shared state for background resolver construction.
+    resolver_build: Arc<Mutex<ResolverBuildInner>>,
 }
 
 impl Default for ComputedViewCache {
@@ -386,6 +426,7 @@ impl Default for ComputedViewCache {
             cached_subsystem_block_lookup: HashMap::new(),
             cached_path: Vec::new(),
             cached_gen: 0,
+            resolver_build: Arc::new(Mutex::new(ResolverBuildInner::Idle)),
         }
     }
 }
@@ -434,6 +475,126 @@ impl ComputedViewCache {
         self.connection_target_resolver
             .clone()
             .expect("resolver just populated")
+    }
+
+    /// Check whether the connection-target resolver is ready, starting a
+    /// background build if needed.
+    ///
+    /// Unlike [`ensure_resolver`](Self::ensure_resolver) (which blocks), this
+    /// spawns a background thread to build the resolver and returns
+    /// [`ResolverStatus::Building`] while it works.  When the build finishes,
+    /// the next call picks up the result and returns
+    /// [`ResolverStatus::Ready`].
+    pub fn resolver_status(&mut self, root: &System) -> ResolverStatus {
+        // Check if we need to recompute the topology signature.
+        let need_sig_check =
+            self.connection_target_resolver.is_none() || self.cached_sig_gen != self.generation;
+
+        if need_sig_check {
+            let sig = crate::connection_targets::model_topology_signature(root);
+            self.cached_sig_gen = self.generation;
+
+            // If cached resolver matches the new sig, it's still valid.
+            if self.cached_resolver_sig == Some(sig)
+                && let Some(r) = &self.connection_target_resolver
+            {
+                return ResolverStatus::Ready(r.clone());
+            }
+            // Clear stale cache so connection_target_resolver() returns None.
+            self.connection_target_resolver = None;
+            return self.start_or_check_build(root, sig);
+        }
+
+        // Generation unchanged and resolver exists.
+        if let Some(r) = &self.connection_target_resolver {
+            return ResolverStatus::Ready(r.clone());
+        }
+
+        // No resolver — start build.
+        let sig = crate::connection_targets::model_topology_signature(root);
+        self.start_or_check_build(root, sig)
+    }
+
+    fn start_or_check_build(&mut self, root: &System, sig: u64) -> ResolverStatus {
+        let mut state = self.resolver_build.lock().unwrap();
+
+        match &*state {
+            // Completed build with matching sig → pick it up.
+            ResolverBuildInner::Ready {
+                resolver,
+                sig: build_sig,
+            } if *build_sig == sig => {
+                let r = resolver.clone();
+                *state = ResolverBuildInner::Idle;
+                drop(state);
+                self.connection_target_resolver = Some(r.clone());
+                self.cached_resolver_sig = Some(sig);
+                ResolverStatus::Ready(r)
+            }
+            // In-progress build with matching sig → report progress.
+            ResolverBuildInner::Building {
+                progress,
+                visited,
+                total,
+                sig: build_sig,
+            } if *build_sig == sig => {
+                let p = progress.load(Ordering::Relaxed) as f32 / 1000.0;
+                let c = visited.load(Ordering::Relaxed);
+                ResolverStatus::Building {
+                    progress: p,
+                    current: c,
+                    total: *total,
+                }
+            }
+            // Idle, or sig mismatch → start new build.
+            _ => {
+                let progress = Arc::new(AtomicU32::new(0));
+                let visited = Arc::new(AtomicUsize::new(0));
+                // Compute total work for progress display.
+                let total_subsystems = crate::connection_targets::count_subsystems(root).max(1);
+                let max_depth = crate::connection_targets::max_subsystem_depth(root);
+                let estimated_passes = crate::connection_targets::MAX_GLOBAL_RESOLVE_PASSES
+                    .min(max_depth + 2)
+                    .max(1);
+                let total = estimated_passes * total_subsystems;
+
+                *state = ResolverBuildInner::Building {
+                    progress: progress.clone(),
+                    visited: visited.clone(),
+                    total,
+                    sig,
+                };
+                drop(state);
+
+                let root_clone = root.clone();
+                let build_state = self.resolver_build.clone();
+                std::thread::spawn(move || {
+                    let resolver =
+                        crate::connection_targets::ConnectionTargetResolver::new_with_progress(
+                            &root_clone,
+                            progress,
+                            visited,
+                        );
+                    let mut state = build_state.lock().unwrap();
+                    // Only store if we're still the active build (sig matches).
+                    if matches!(&*state,
+                        ResolverBuildInner::Building { sig: s, .. }
+                        if *s == sig)
+                    {
+                        *state = ResolverBuildInner::Ready {
+                            resolver: Arc::new(resolver),
+                            sig,
+                        };
+                    }
+                    // Otherwise: stale result, discard.
+                });
+                ResolverStatus::Building {
+                    progress: 0.0,
+                    current: 0,
+                    total,
+                }
+            }
+        }
     }
 }
 
@@ -898,17 +1059,16 @@ impl SubsystemApp {
         resolve_subsystem_by_vec_mut(&mut self.root, &self.path)
     }
 
+    /// Returns the cached connection-target resolver, or `None` while it is
+    /// being built in the background.
+    ///
+    /// Callers should handle `None` gracefully (skip target resolution for
+    /// that frame).  The UI layer uses [`ComputedViewCache::resolver_status`]
+    /// to show a progress bar while the build is in progress.
     pub fn connection_target_resolver(
         &self,
-    ) -> Arc<crate::connection_targets::ConnectionTargetResolver> {
-        self.view_cache
-            .connection_target_resolver
-            .clone()
-            .unwrap_or_else(|| {
-                Arc::new(crate::connection_targets::ConnectionTargetResolver::new(
-                    &self.root,
-                ))
-            })
+    ) -> Option<Arc<crate::connection_targets::ConnectionTargetResolver>> {
+        self.view_cache.connection_target_resolver.clone()
     }
 
     /// Configure the default layout file path from the original model path.

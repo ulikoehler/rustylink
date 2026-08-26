@@ -4,9 +4,8 @@ use crate::block_types::{self, BlockTypeConfig};
 use crate::model::Block;
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Vec2};
 
-use super::icon_assets;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 fn normalize_library_block_path(path: &str) -> Option<String> {
     let path = path.trim();
@@ -723,6 +722,13 @@ fn draw_stacked_lines(painter: &egui::Painter, avail: &Rect, spec: &str, color: 
 /// * `c CX,CY,R` – stroked circle (`R` is a fraction of the icon width).
 /// * `d CX,CY,R` – filled dot.
 /// * `o CX,CY,W,H` – stroked obround (the In/Out ports of a subsystem preview).
+/// * `pg R,G,B,A X1,Y1 X2,Y2 X3,Y3 …` – filled polygon with an explicit RGBA
+///   fill (each channel 0..=255, alpha included) and the standard outline
+///   stroke.  Used for the shaded 3-D faces of the Matrix Concatenate icon.
+/// * `pf R,G,B,A X1,Y1 X2,Y2 X3,Y3 …` – filled polygon with an explicit RGBA
+///   fill but NO outline stroke.  Used for the concave L-shape pieces of the
+///   Matrix Concatenate icon so the internal seam is not stroked; the external
+///   boundary is drawn separately by a `p` command.
 /// * `t X,Y,H TEXT` – `TEXT` centred at `X,Y` with cap height `H` (a fraction
 ///   of the icon height), for the letters Simulink sets inside its pictograms
 ///   (`A ⇒ D`, the `U` of Is Triangular).
@@ -790,6 +796,44 @@ pub fn draw_plot_icon(
                 let half = Vec2::new(nums[2] * avail.width(), nums[3] * avail.height()) * 0.5;
                 let r = Rect::from_center_size(c, half * 2.0);
                 painter.rect_stroke(r, r.height() * 0.5, stroke, egui::StrokeKind::Inside);
+            }
+            // Filled polygon with an explicit RGBA fill: the first four numbers
+            // are R,G,B,A (0..=255), the rest are vertex pairs.  Used for the
+            // shaded 3-D faces of the Matrix Concatenate icon.
+            "pg" if nums.len() >= 10 => {
+                let fill = Color32::from_rgba_unmultiplied(
+                    nums[0].round().clamp(0.0, 255.0) as u8,
+                    nums[1].round().clamp(0.0, 255.0) as u8,
+                    nums[2].round().clamp(0.0, 255.0) as u8,
+                    nums[3].round().clamp(0.0, 255.0) as u8,
+                );
+                let pts: Vec<Pos2> = nums[4..]
+                    .chunks_exact(2)
+                    .map(|c| at(c[0], c[1]))
+                    .collect();
+                if pts.len() >= 3 {
+                    painter.add(egui::Shape::convex_polygon(pts, fill, stroke));
+                }
+            }
+            // Filled polygon with an explicit RGBA fill but NO outline stroke:
+            // same format as `pg`, used for the concave L-shape of the Matrix
+            // Concatenate icon so the internal seam between the two convex
+            // pieces is not stroked (the outline is drawn separately by a `p`
+            // command tracing only the external boundary).
+            "pf" if nums.len() >= 10 => {
+                let fill = Color32::from_rgba_unmultiplied(
+                    nums[0].round().clamp(0.0, 255.0) as u8,
+                    nums[1].round().clamp(0.0, 255.0) as u8,
+                    nums[2].round().clamp(0.0, 255.0) as u8,
+                    nums[3].round().clamp(0.0, 255.0) as u8,
+                );
+                let pts: Vec<Pos2> = nums[4..]
+                    .chunks_exact(2)
+                    .map(|c| at(c[0], c[1]))
+                    .collect();
+                if pts.len() >= 3 {
+                    painter.add(egui::Shape::convex_polygon(pts, fill, Stroke::NONE));
+                }
             }
             "t" if nums.len() >= 3 => {
                 let Some((_, text)) = args.split_once(char::is_whitespace) else {
@@ -1011,125 +1055,6 @@ fn draw_overbar(painter: &egui::Painter, avail: &Rect, base: &str, color: Color3
     );
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct SvgCacheKey {
-    path: &'static str,
-    request_w: usize,
-    request_h: usize,
-}
-
-#[derive(Clone)]
-struct SvgCachedTexture {
-    texture: egui::TextureHandle,
-    px_size: [usize; 2],
-}
-
-pub fn embedded_egui_sans_fontdb() -> Option<Arc<usvg::fontdb::Database>> {
-    static FONTDB: OnceLock<Option<Arc<usvg::fontdb::Database>>> = OnceLock::new();
-    FONTDB
-        .get_or_init(|| {
-            let font_defs = egui::FontDefinitions::default();
-            let ubuntu = font_defs.font_data.get("Ubuntu-Light")?;
-
-            let mut db = usvg::fontdb::Database::new();
-            db.load_font_data(ubuntu.as_ref().font.as_ref().to_vec());
-
-            // Ensure CSS generic `sans-serif` resolves to the embedded font.
-            // Use the actual family name declared in the font (typically "Ubuntu").
-            let family_name = db
-                .faces()
-                .next()
-                .and_then(|face| face.families.first().map(|(family, _lang)| family.clone()));
-            if let Some(family_name) = family_name {
-                db.set_sans_serif_family(family_name.clone());
-                // reasonable fallback for `serif` too, in case SVG uses it
-                db.set_serif_family(family_name);
-            }
-
-            Some(Arc::new(db))
-        })
-        .clone()
-}
-
-fn svg_dest_size_points(avail_points: Vec2, px_size: [usize; 2], pixels_per_point: f32) -> Vec2 {
-    if pixels_per_point <= 0.0 {
-        return Vec2::ZERO;
-    }
-
-    let w_points = px_size[0] as f32 / pixels_per_point;
-    let h_points = px_size[1] as f32 / pixels_per_point;
-    if w_points <= 0.0 || h_points <= 0.0 {
-        return Vec2::ZERO;
-    }
-
-    let scale = (avail_points.x / w_points)
-        .min(avail_points.y / h_points)
-        .clamp(0.0, 1.0);
-    Vec2::new(w_points * scale, h_points * scale)
-}
-
-fn get_or_create_svg_texture(
-    ctx: &egui::Context,
-    path: &'static str,
-    request_px: [usize; 2],
-) -> Option<SvgCachedTexture> {
-    let cache_id = egui::Id::new("rustylink_svg_icon_cache");
-    let key = SvgCacheKey {
-        path,
-        request_w: request_px[0],
-        request_h: request_px[1],
-    };
-
-    // IMPORTANT: never call `ctx.load_texture` inside `ctx.data_mut`, since both
-    // take a write lock on the same internal context lock, which will deadlock.
-    if let Some(hit) = ctx.data_mut(|d| {
-        d.get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
-            cache_id,
-        )
-        .get(&key)
-        .cloned()
-    }) {
-        return Some(hit);
-    }
-
-    let bytes = icon_assets::get(path)?;
-    let mut options = usvg::Options::default();
-    // usvg's font database is empty by default; populate it from egui's embedded fonts.
-    // This avoids relying on system-installed fonts.
-    if let Some(db) = embedded_egui_sans_fontdb() {
-        options.fontdb = db;
-        options.font_family = "sans-serif".to_owned();
-    }
-
-    let image = egui_extras::image::load_svg_bytes_with_size(
-        &bytes,
-        egui::SizeHint::Size {
-            width: request_px[0].min(u32::MAX as usize) as u32,
-            height: request_px[1].min(u32::MAX as usize) as u32,
-            maintain_aspect_ratio: true,
-        },
-        &options,
-    )
-    .ok()?;
-    let px_size = image.size;
-
-    let texture = ctx.load_texture(
-        format!("rustylink_svg:{path}:{}x{}", request_px[0], request_px[1]),
-        image,
-        egui::TextureOptions::LINEAR,
-    );
-    let value = SvgCachedTexture { texture, px_size };
-
-    // Insert after creating the texture (to avoid deadlock), then return the stored value.
-    Some(ctx.data_mut(|d| {
-        let cache = d
-            .get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
-                cache_id,
-            );
-        cache.entry(key).or_insert_with(|| value.clone()).clone()
-    }))
-}
-
 /// Emit a one-time-per-block-type warning when no icon can be resolved.
 static ICON_WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
@@ -1192,40 +1117,13 @@ pub fn draw_icon_spec(
                 color,
             );
         }
-        block_types::IconSpec::Svg(path) => {
-            let avail_rect = compute_icon_available_rect(rect, font_scale, port_label_widths);
-            let avail_points = avail_rect.size();
-            if avail_points.x <= 1.0 || avail_points.y <= 1.0 {
-                return;
-            }
-
-            let ctx = painter.ctx();
-            let pixels_per_point = ctx.pixels_per_point();
-            let request_px = [
-                (avail_points.x * pixels_per_point).round().max(1.0) as usize,
-                (avail_points.y * pixels_per_point).round().max(1.0) as usize,
-            ];
-
-            let Some(svg) = get_or_create_svg_texture(ctx, path, request_px) else {
-                return;
-            };
-
-            let dest_size = svg_dest_size_points(avail_points, svg.px_size, pixels_per_point);
-            if dest_size.x <= 1.0 || dest_size.y <= 1.0 {
-                return;
-            }
-
-            let dest_rect = Rect::from_center_size(avail_rect.center(), dest_size);
-            let uv = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
-            painter.image(svg.texture.id(), dest_rect, uv, Color32::WHITE);
-        }
     }
 }
 
 /// Draw a single-glyph [`IconSpec`] (Utf8 / Phosphor) rotated 90° clockwise,
 /// centered in `rect`.  Used only by the far-zoom dashboard fallback for the
 /// Toggle/Rocker switches, which Simulink draws vertically.  Non-glyph specs
-/// (Svg / Math) fall back to the unrotated [`draw_icon_spec`].
+/// (Math / Plot) fall back to the unrotated [`draw_icon_spec`].
 pub fn draw_icon_spec_rotated_quarter(
     painter: &egui::Painter,
     rect: &Rect,
@@ -1529,6 +1427,412 @@ pub fn render_manual_switch(
         let end = Pos2::new(out_edge_right + stub, out_center.y);
         painter.line_segment([start, end], Stroke::new(stroke_w, col_active));
     }
+}
+
+/// Custom renderer for a MultiPortSwitch block.
+///
+/// Draws a selector lever routing the numbered data inputs to the output.
+/// Port 1 is the control input (topmost on the left edge), ports 2..=N+1 are
+/// the data inputs, and output port 1 is on the right edge.  The lever connects
+/// from the first data contact to the output, matching Simulink's default
+/// selection.  All line endpoints align to the exact Y-positions of the ports
+/// so connecting lines meet them cleanly.
+pub fn render_multiport_switch(
+    painter: &egui::Painter,
+    block: &Block,
+    rect: &Rect,
+    font_scale: f32,
+    data_inputs: u32,
+    coords: Option<&ComputedPortYCoordinates>,
+    port_label_widths: Option<PortLabelMaxWidths>,
+) {
+    render_multiport_switch_with_selection(
+        painter,
+        block,
+        rect,
+        font_scale,
+        data_inputs,
+        coords,
+        port_label_widths,
+        0,
+    )
+}
+
+/// Like [`render_multiport_switch`] but draws the lever to the `selected`-th
+/// data contact (0-based) instead of always the first.  Used by the live
+/// renderer to reflect the control signal value.
+#[allow(clippy::too_many_arguments)]
+pub fn render_multiport_switch_with_selection(
+    painter: &egui::Painter,
+    block: &Block,
+    rect: &Rect,
+    font_scale: f32,
+    data_inputs: u32,
+    coords: Option<&ComputedPortYCoordinates>,
+    port_label_widths: Option<PortLabelMaxWidths>,
+    selected: u32,
+) {
+    let mut max_in: u32 = 0;
+    let mut max_out: u32 = 0;
+    for p in &block.ports {
+        let idx = p.index.unwrap_or(0).max(1);
+        if p.port_type == "in" {
+            max_in = max_in.max(idx);
+        }
+        if p.port_type == "out" {
+            max_out = max_out.max(idx);
+        }
+    }
+    // total inputs = control(1) + data_inputs
+    let total_in = data_inputs + 1;
+    if max_in == 0 {
+        max_in = total_in;
+    }
+    if max_out == 0 {
+        max_out = 1;
+    }
+
+    use super::geometry::PortSide;
+    let mirrored = block.block_mirror.unwrap_or(false);
+    let in_side = if mirrored {
+        PortSide::Out
+    } else {
+        PortSide::In
+    };
+    let out_side = if mirrored {
+        PortSide::In
+    } else {
+        PortSide::Out
+    };
+
+    let stroke_w = 1.5_f32;
+    let col_active = Color32::from_rgb(32, 32, 32);
+    let col_inactive = Color32::from_rgb(110, 110, 110);
+    let r_contact = (rect.height() * 0.04).clamp(2.0, 5.0);
+
+    // Compute horizontal insets that clear the port labels.  The insets locate
+    // the *centre* of a contact, so the contact's own radius has to be kept
+    // clear of the label as well, otherwise the numbering runs into the
+    // circles.
+    let label_pad = 4.0 * font_scale;
+    let label_gap = 4.0 * font_scale + r_contact;
+    let margin_x = rect.width() * 0.10;
+    let left_inset = if let Some(w) = port_label_widths {
+        margin_x.max(label_pad + w.left + label_gap)
+    } else {
+        margin_x
+    };
+    let right_inset = if let Some(w) = port_label_widths {
+        margin_x.max(label_pad + w.right + label_gap)
+    } else {
+        margin_x
+    };
+
+    // Port Y positions: control = port 1, data = ports 2..=total_in
+    let port_y = |index: u32| {
+        coords
+            .and_then(|c| c.inputs.get(&index).copied())
+            .unwrap_or_else(|| {
+                super::geometry::port_anchor_pos(*rect, in_side, index, Some(max_in)).y
+            })
+    };
+    let out_y = coords
+        .and_then(|c| c.outputs.get(&1).copied())
+        .unwrap_or_else(|| super::geometry::port_anchor_pos(*rect, out_side, 1, Some(max_out)).y);
+
+    let in_x = if mirrored { rect.right() } else { rect.left() };
+    let out_x = if mirrored { rect.left() } else { rect.right() };
+    let contact_x = if mirrored {
+        rect.right() - left_inset
+    } else {
+        rect.left() + left_inset
+    };
+    let out_contact_x = if mirrored {
+        rect.left() + right_inset
+    } else {
+        rect.right() - right_inset
+    };
+    // The port numbering is drawn between the border and the contacts, so the
+    // leads start behind it instead of striking the text through.
+    let lead_in_x = match port_label_widths {
+        Some(w) if w.left > 0.0 => {
+            let x = label_pad + w.left;
+            if mirrored {
+                rect.right() - x
+            } else {
+                rect.left() + x
+            }
+        }
+        _ => in_x,
+    };
+
+    let stroke = Stroke::new(stroke_w, col_active);
+
+    // Control input lead (port 1): short horizontal line from border to a
+    // vertical bar representing the control contact.
+    let control_y = port_y(1);
+    painter.line_segment(
+        [
+            Pos2::new(lead_in_x, control_y),
+            Pos2::new(contact_x, control_y),
+        ],
+        stroke,
+    );
+    // Vertical bar for the control contact.
+    let bar_half = r_contact * 1.5;
+    painter.line_segment(
+        [
+            Pos2::new(contact_x, control_y - bar_half),
+            Pos2::new(contact_x, control_y + bar_half),
+        ],
+        stroke,
+    );
+
+    // Data input leads (ports 2..=total_in): horizontal line from border to
+    // contact circle.
+    let selected = selected.min(data_inputs.saturating_sub(1));
+    for i in 0..data_inputs {
+        let port_idx = i + 2;
+        let y = port_y(port_idx);
+        painter.line_segment([Pos2::new(lead_in_x, y), Pos2::new(contact_x, y)], stroke);
+        // Contact circle: selected one is active, rest inactive.
+        let col = if i == selected {
+            col_active
+        } else {
+            col_inactive
+        };
+        painter.circle_stroke(
+            Pos2::new(contact_x, y),
+            r_contact,
+            Stroke::new(stroke_w, col),
+        );
+    }
+
+    // Output lead: from output contact circle to output border.
+    let out_center = Pos2::new(out_contact_x, out_y);
+    painter.line_segment(
+        [Pos2::new(out_contact_x, out_y), Pos2::new(out_x, out_y)],
+        stroke,
+    );
+    painter.circle_stroke(out_center, r_contact, Stroke::new(stroke_w, col_active));
+
+    // Lever: from selected data contact to output contact.
+    let selected_data_y = port_y(selected + 2);
+    let lever_start = Pos2::new(contact_x, selected_data_y);
+    let lever_end = out_center;
+    painter.line_segment([lever_start, lever_end], stroke);
+}
+
+/// Custom renderer for a Switch block.
+///
+/// Draws a pass-through lever with the control criterion beside it.  Port 1
+/// (top) and port 3 (bottom) are data inputs, port 2 (middle) is the control
+/// input, and output port 1 is on the right edge.  The lever connects from
+/// port 1 (top data, default selected) to the output.  All line endpoints
+/// align to the exact Y-positions of the ports.
+#[allow(clippy::too_many_arguments)]
+pub fn render_switch(
+    painter: &egui::Painter,
+    block: &Block,
+    rect: &Rect,
+    font_scale: f32,
+    criteria: &str,
+    threshold: &str,
+    coords: Option<&ComputedPortYCoordinates>,
+    port_label_widths: Option<PortLabelMaxWidths>,
+) {
+    render_switch_with_selection(
+        painter,
+        block,
+        rect,
+        font_scale,
+        criteria,
+        threshold,
+        coords,
+        port_label_widths,
+        true,
+    )
+}
+
+/// Like [`render_switch`] but draws the lever to the top data input (port 1)
+/// when `selected_top` is true, or the bottom data input (port 3) when false.
+/// Used by the live renderer to reflect the control signal value.
+#[allow(clippy::too_many_arguments)]
+pub fn render_switch_with_selection(
+    painter: &egui::Painter,
+    block: &Block,
+    rect: &Rect,
+    font_scale: f32,
+    criteria: &str,
+    threshold: &str,
+    coords: Option<&ComputedPortYCoordinates>,
+    port_label_widths: Option<PortLabelMaxWidths>,
+    selected_top: bool,
+) {
+    let mut max_in: u32 = 0;
+    let mut max_out: u32 = 0;
+    for p in &block.ports {
+        let idx = p.index.unwrap_or(0).max(1);
+        if p.port_type == "in" {
+            max_in = max_in.max(idx);
+        }
+        if p.port_type == "out" {
+            max_out = max_out.max(idx);
+        }
+    }
+    if max_in == 0 {
+        max_in = 3;
+    }
+    if max_out == 0 {
+        max_out = 1;
+    }
+
+    use super::geometry::PortSide;
+    let mirrored = block.block_mirror.unwrap_or(false);
+    let in_side = if mirrored {
+        PortSide::Out
+    } else {
+        PortSide::In
+    };
+    let out_side = if mirrored {
+        PortSide::In
+    } else {
+        PortSide::Out
+    };
+
+    let stroke_w = 1.5_f32;
+    let col_active = Color32::from_rgb(32, 32, 32);
+    let col_inactive = Color32::from_rgb(110, 110, 110);
+    let r_contact = (rect.height() * 0.04).clamp(2.0, 5.0);
+
+    // Compute horizontal insets that clear the port labels; as in the
+    // MultiPortSwitch, the contact radius is part of the gap because the inset
+    // positions the contact's centre.
+    let label_pad = 4.0 * font_scale;
+    let label_gap = 4.0 * font_scale + r_contact;
+    let margin_x = rect.width() * 0.10;
+    let left_inset = if let Some(w) = port_label_widths {
+        margin_x.max(label_pad + w.left + label_gap)
+    } else {
+        margin_x
+    };
+    let right_inset = if let Some(w) = port_label_widths {
+        margin_x.max(label_pad + w.right + label_gap)
+    } else {
+        margin_x
+    };
+
+    let port_y = |index: u32| {
+        coords
+            .and_then(|c| c.inputs.get(&index).copied())
+            .unwrap_or_else(|| {
+                super::geometry::port_anchor_pos(*rect, in_side, index, Some(max_in)).y
+            })
+    };
+    let out_y = coords
+        .and_then(|c| c.outputs.get(&1).copied())
+        .unwrap_or_else(|| super::geometry::port_anchor_pos(*rect, out_side, 1, Some(max_out)).y);
+
+    let in_x = if mirrored { rect.right() } else { rect.left() };
+    let out_x = if mirrored { rect.left() } else { rect.right() };
+    let contact_x = if mirrored {
+        rect.right() - left_inset
+    } else {
+        rect.left() + left_inset
+    };
+    let out_contact_x = if mirrored {
+        rect.left() + right_inset
+    } else {
+        rect.right() - right_inset
+    };
+
+    let stroke = Stroke::new(stroke_w, col_active);
+
+    // Port 1 = top data input (u1), port 2 = control (u2), port 3 = bottom data (u3)
+    let u1_y = port_y(1);
+    let u2_y = port_y(2);
+    let u3_y = port_y(3);
+
+    // Data input leads with contact circles.
+    // Top data (port 1): active when selected_top.
+    painter.line_segment([Pos2::new(in_x, u1_y), Pos2::new(contact_x, u1_y)], stroke);
+    painter.circle_stroke(
+        Pos2::new(contact_x, u1_y),
+        r_contact,
+        Stroke::new(
+            stroke_w,
+            if selected_top {
+                col_active
+            } else {
+                col_inactive
+            },
+        ),
+    );
+    // Bottom data (port 3): active when !selected_top.
+    painter.line_segment([Pos2::new(in_x, u3_y), Pos2::new(contact_x, u3_y)], stroke);
+    painter.circle_stroke(
+        Pos2::new(contact_x, u3_y),
+        r_contact,
+        Stroke::new(
+            stroke_w,
+            if selected_top {
+                col_inactive
+            } else {
+                col_active
+            },
+        ),
+    );
+
+    // Control input lead (port 2): short horizontal line with a vertical bar.
+    painter.line_segment([Pos2::new(in_x, u2_y), Pos2::new(contact_x, u2_y)], stroke);
+    let bar_half = r_contact * 1.5;
+    painter.line_segment(
+        [
+            Pos2::new(contact_x, u2_y - bar_half),
+            Pos2::new(contact_x, u2_y + bar_half),
+        ],
+        stroke,
+    );
+
+    // Output lead and contact.
+    let out_center = Pos2::new(out_contact_x, out_y);
+    painter.line_segment(
+        [Pos2::new(out_contact_x, out_y), Pos2::new(out_x, out_y)],
+        stroke,
+    );
+    painter.circle_stroke(out_center, r_contact, Stroke::new(stroke_w, col_active));
+
+    // Lever: from selected data contact to output.
+    let lever_y = if selected_top { u1_y } else { u3_y };
+    let lever_start = Pos2::new(contact_x, lever_y);
+    painter.line_segment([lever_start, out_center], stroke);
+
+    // Criteria text (e.g. ">= 0") near the bottom-right of the block.
+    let op = criteria
+        .split_whitespace()
+        .find(|t| t.starts_with('>') || t.starts_with('~') || t.starts_with('='))
+        .unwrap_or(">=");
+    let threshold = if threshold.is_empty() { "0" } else { threshold };
+    let text = format!("{op} {threshold}");
+    let font_px = (rect.height() * 0.22 * font_scale).clamp(6.0, 16.0);
+    let text_pos = if mirrored {
+        Pos2::new(
+            rect.left() + rect.width() * 0.35,
+            rect.bottom() - rect.height() * 0.15,
+        )
+    } else {
+        Pos2::new(
+            rect.right() - rect.width() * 0.35,
+            rect.bottom() - rect.height() * 0.15,
+        )
+    };
+    painter.text(
+        text_pos,
+        Align2::CENTER_CENTER,
+        &text,
+        egui::FontId::proportional(font_px),
+        col_active,
+    );
 }
 
 /// Draw the interior labels (+/-) for a Sum block.

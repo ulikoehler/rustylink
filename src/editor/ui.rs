@@ -356,7 +356,7 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
         if scroll_y.abs() > 0.0 && canvas_resp.hovered() {
             let factor = (1.0_f32 + scroll_y * 0.001_f32).max(0.1_f32);
             let old_zoom = state.app.zoom;
-            let new_zoom = (old_zoom * factor).clamp(0.2, 10.0);
+            let new_zoom = (old_zoom * factor).clamp(0.2, 30.0);
             if (new_zoom - old_zoom).abs() > f32::EPSILON {
                 let origin = Pos2::new(avail.left() + margin, avail.top() + margin);
                 let s_old = base_scale * old_zoom;

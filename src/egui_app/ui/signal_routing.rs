@@ -151,11 +151,73 @@ pub fn port_kind(port_type: &str) -> u8 {
 /// port count; no endpoint maps to it, so it cannot collide with the counts.
 const CONTROL_SLOT_KIND: u8 = 3;
 
+/// Bucket holding how many lifecycle event ports a subsystem carries on its
+/// input side.  They occupy the first slots there, so the data inputs of such
+/// a block are pushed down by this many.
+const EVENT_IN_KIND: u8 = 4;
+
+/// Bucket flagging a subsystem with `ShowSubsystemReinitializePorts = on`.
+/// Such a block draws the reinit port in its own top section, a separator
+/// line, and the data inputs below – so the data inputs are *not* offset by
+/// the event count.
+const REINIT_FLAG_KIND: u8 = 5;
+
+/// Vertical fraction (from the top) at which the reinit port sits.
+pub const REINIT_PORT_FRAC: f32 = 0.12;
+
+/// Vertical fraction (from the top) at which the separator line is drawn;
+/// data inputs are distributed in the region below it.
+pub const REINIT_SEP_FRAC: f32 = 0.25;
+
+/// How many event ports precede the data inputs of the block `sid`.
+pub fn event_input_offset(
+    port_counts: &std::collections::HashMap<(String, u8), u32>,
+    sid: &str,
+) -> u32 {
+    port_counts
+        .get(&(sid.to_string(), EVENT_IN_KIND))
+        .copied()
+        .unwrap_or(0)
+}
+
+/// Whether `sid` is a reinit subsystem (`ShowSubsystemReinitializePorts = on`).
+pub fn is_reinit_subsystem_counts(
+    port_counts: &std::collections::HashMap<(String, u8), u32>,
+    sid: &str,
+) -> bool {
+    port_counts
+        .get(&(sid.to_string(), REINIT_FLAG_KIND))
+        .copied()
+        .unwrap_or(0)
+        > 0
+}
+
 fn control_slot_key(sid: &str, port_type: &str) -> (String, u8) {
     (
         format!("{sid}\u{1}{}", port_type.to_ascii_lowercase()),
         CONTROL_SLOT_KIND,
     )
+}
+
+/// Position of a data input on a reinit subsystem: distributed evenly in the
+/// region below the separator line (`REINIT_SEP_FRAC` .. 1.0).
+pub fn reinit_data_input_pos(
+    rect: eframe::egui::Rect,
+    side: crate::egui_app::geometry::PortSide,
+    port_index: u32,
+    num_ports: u32,
+) -> Pos2 {
+    let idx1 = if port_index == 0 { 1 } else { port_index };
+    let n = num_ports.max(idx1);
+    let total_segments = n * 2 + 1;
+    let top = rect.top() + REINIT_SEP_FRAC * rect.height();
+    let bottom = rect.bottom();
+    let dy = (bottom - top) / (total_segments as f32);
+    let y = top + ((2 * idx1) as f32 - 0.5) * dy;
+    match side {
+        crate::egui_app::geometry::PortSide::Out => Pos2::new(rect.right(), y),
+        _ => Pos2::new(rect.left(), y),
+    }
 }
 
 /// Where an endpoint attaches to its block.
@@ -169,23 +231,50 @@ pub fn endpoint_pos(
     port_counts: &std::collections::HashMap<(String, u8), u32>,
     mirrored: bool,
 ) -> Pos2 {
+    let is_event = ep.port_type.eq_ignore_ascii_case("event");
+    let reinit = is_reinit_subsystem_counts(port_counts, &ep.sid);
+    let side = crate::egui_app::geometry::port_side_for(&ep.port_type, mirrored);
+
+    // Reinit subsystems: the reinit port sits at a fixed fraction, and data
+    // inputs are distributed below the separator line (no event offset).
+    if reinit {
+        if is_event {
+            let y = rect.top() + REINIT_PORT_FRAC * rect.height();
+            return match side {
+                crate::egui_app::geometry::PortSide::Out => Pos2::new(rect.right(), y),
+                _ => Pos2::new(rect.left(), y),
+            };
+        }
+        let kind = port_kind(&ep.port_type);
+        if kind == 0 {
+            let num_ports = port_counts.get(&(ep.sid.clone(), 0u8)).copied();
+            return reinit_data_input_pos(rect, side, ep.port_index, num_ports.unwrap_or(1));
+        }
+        // Outputs and control ports use the standard positioning.
+    }
+
+    // An event port sits on the input side, so it shares the input count.
+    let count_kind = if is_event {
+        0
+    } else {
+        port_kind(&ep.port_type)
+    };
     let kind = port_kind(&ep.port_type);
-    let num_ports = port_counts.get(&(ep.sid.clone(), kind)).copied();
-    let index = if kind == 2 {
+    let num_ports = port_counts.get(&(ep.sid.clone(), count_kind)).copied();
+    let index = if is_event {
+        ep.port_index
+    } else if kind == 2 {
         port_counts
             .get(&control_slot_key(&ep.sid, &ep.port_type))
             .copied()
             .map(|slot| slot + ep.port_index.saturating_sub(1))
             .unwrap_or(ep.port_index)
+    } else if kind == 0 {
+        ep.port_index + event_input_offset(port_counts, &ep.sid)
     } else {
         ep.port_index
     };
-    crate::egui_app::geometry::port_anchor_pos(
-        rect,
-        crate::egui_app::geometry::port_side_for(&ep.port_type, mirrored),
-        index,
-        num_ports,
-    )
+    crate::egui_app::geometry::port_anchor_pos(rect, side, index, num_ports)
 }
 
 /// Register an endpoint's port in the port-count and connected-ports maps.
@@ -252,7 +341,23 @@ pub fn compute_port_info(
         if let Some(sid) = &b.sid
             && let Some(pc) = &b.port_counts
         {
-            if let Some(ins) = pc.ins {
+            let events = crate::simulink_libraries::renderers::subsystem_event_input_count(b);
+            if events > 0 {
+                port_counts.insert((sid.clone(), EVENT_IN_KIND), events);
+            }
+            // A reinit subsystem draws the reinit port in its own top section
+            // and the data inputs below a separator line, so the data inputs
+            // are NOT offset by the event count.
+            let reinit = crate::simulink_libraries::renderers::is_reinit_subsystem(b);
+            if reinit {
+                port_counts.insert((sid.clone(), REINIT_FLAG_KIND), 1);
+            }
+            let ins_total = if reinit {
+                pc.ins
+            } else {
+                pc.ins.map(|ins| ins + events)
+            };
+            if let Some(ins) = ins_total {
                 let key = (sid.clone(), 0u8);
                 port_counts
                     .entry(key)

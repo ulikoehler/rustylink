@@ -195,23 +195,70 @@ pub fn annotate_matlab_function_names(
     charts: &BTreeMap<u32, Chart>,
     chart_map: &BTreeMap<String, u32>,
 ) {
+    // A chart's own `name` is the path of the block that owns it, which is a
+    // bare block name at the model root but a `Sub/Inner/MATLAB Function` path
+    // deeper down.  Index the charts by their last path segment as well, so a
+    // nested block is still matched; an ambiguous segment (the same block name
+    // in two subsystems) is dropped rather than guessed.
+    let mut by_leaf: BTreeMap<String, Option<u32>> = BTreeMap::new();
+    for (name, id) in chart_map {
+        let leaf = chart_leaf_name(name);
+        by_leaf
+            .entry(leaf)
+            .and_modify(|slot| {
+                if *slot != Some(*id) {
+                    *slot = None;
+                }
+            })
+            .or_insert(Some(*id));
+    }
+    annotate_matlab_function_names_in(system, charts, chart_map, &by_leaf, "");
+}
+
+/// The block name a chart path refers to: `Sub/Inner/MATLAB Function` → the
+/// last segment, with the SLX line breaks in block names folded to spaces.
+fn chart_leaf_name(path: &str) -> String {
+    let leaf = path.rsplit('/').next().unwrap_or(path);
+    leaf.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn annotate_matlab_function_names_in(
+    system: &mut System,
+    charts: &BTreeMap<u32, Chart>,
+    chart_map: &BTreeMap<String, u32>,
+    by_leaf: &BTreeMap<String, Option<u32>>,
+    path: &str,
+) {
     for block in &mut system.blocks {
+        let block_path = if path.is_empty() {
+            block.name.clone()
+        } else {
+            format!("{path}/{}", block.name)
+        };
         if block.is_matlab_function || block.block_type == "MATLAB Function" {
             let chart = block
                 .sid
                 .as_ref()
                 .and_then(|sid| chart_map.get(sid))
+                .or_else(|| chart_map.get(&block_path))
                 .or_else(|| chart_map.get(&block.name))
-                .and_then(|id| charts.get(id));
+                .copied()
+                .or_else(|| {
+                    by_leaf
+                        .get(&chart_leaf_name(&block.name))
+                        .copied()
+                        .flatten()
+                })
+                .and_then(|id| charts.get(&id));
             let name = chart
                 .and_then(|chart| {
-                    chart.eml_name.clone().or_else(|| {
-                        chart
-                            .script
-                            .as_deref()
-                            .and_then(script_function_name)
-                            .map(str::to_string)
-                    })
+                    // Prefer the script's function declaration (authoritative)
+                    // over `eml_name`, which may carry the chart name instead.
+                    chart
+                        .script
+                        .as_deref()
+                        .and_then(script_function_name)
+                        .or_else(|| chart.eml_name.clone())
                 })
                 .filter(|name| !name.trim().is_empty());
             if let Some(name) = name {
@@ -222,21 +269,157 @@ pub fn annotate_matlab_function_names(
             }
         }
         if let Some(subsystem) = block.subsystem.as_deref_mut() {
-            annotate_matlab_function_names(subsystem, charts, chart_map);
+            annotate_matlab_function_names_in(subsystem, charts, chart_map, by_leaf, &block_path);
         }
     }
 }
 
 /// The function name of a MATLAB script: `function [x,y] = test(u,v)` → `test`.
-fn script_function_name(script: &str) -> Option<&str> {
-    let header = script
-        .lines()
-        .map(str::trim)
-        .find(|line| line.starts_with("function"))?;
-    let after_outputs = header
-        .rsplit_once('=')
-        .map(|(_, r)| r)
-        .unwrap_or(header.strip_prefix("function").unwrap_or(header));
-    let name = after_outputs.split('(').next()?.trim();
-    (!name.is_empty()).then_some(name)
+///
+/// Handles MATLAB line continuation (`...`): when the `function` declaration
+/// spans multiple lines, the continuation lines are joined before the name is
+/// extracted, so a header like
+/// ```text
+/// function [out] = ...
+///     myFunc(u)
+/// ```
+/// yields `myFunc`.
+fn script_function_name(script: &str) -> Option<String> {
+    let mut lines = script.lines().map(strip_comment).map(str::trim);
+    // Find the first line of the function declaration.  The declaration can sit
+    // anywhere in the script – behind a comment header, a blank line, or a
+    // `%%` cell marker – so every line is considered, and `function` must be a
+    // keyword of its own rather than the start of an identifier.
+    let first = lines.find(|line| starts_with_function_keyword(line))?;
+    // Join continuation lines (lines ending with `...`) into a single header.
+    let mut header = first.to_string();
+    while header.trim_end().ends_with("...") {
+        // Drop the trailing `...` (and any whitespace before it).
+        let cut = header.trim_end().len() - 3;
+        header.truncate(cut);
+        if let Some(next) = lines.next() {
+            header.push(' ');
+            header.push_str(next);
+        } else {
+            break;
+        }
+    }
+    let header = header.trim();
+    let after_keyword = header.get("function".len()..).unwrap_or("");
+    // `function [a,b] = name(args)` – the name follows the last `=` in front of
+    // the argument list; `function name(args)` has no `=` at all.
+    let arg_list = after_keyword.find('(').unwrap_or(after_keyword.len());
+    let after_outputs = match after_keyword[..arg_list].rfind('=') {
+        Some(eq) => &after_keyword[eq + 1..],
+        None => after_keyword,
+    };
+    let name = after_outputs
+        .split(['(', ';', ',', ' ', '\t'])
+        .find(|part| !part.is_empty())?;
+    (!name.is_empty()).then(|| name.to_string())
+}
+
+/// Whether the line opens with the MATLAB `function` keyword (and not with an
+/// identifier that merely starts with those letters, such as `functions`).
+fn starts_with_function_keyword(line: &str) -> bool {
+    match line.strip_prefix("function") {
+        Some(rest) => rest
+            .chars()
+            .next()
+            .is_none_or(|c| !c.is_alphanumeric() && c != '_'),
+        None => false,
+    }
+}
+
+/// Drop a trailing `% …` comment from a MATLAB source line.
+fn strip_comment(line: &str) -> &str {
+    match line.find('%') {
+        Some(at) => &line[..at],
+        None => line,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::script_function_name;
+
+    #[test]
+    fn single_line_function_header() {
+        assert_eq!(
+            script_function_name("function y = fcn(u)\ny = u;"),
+            Some("fcn".to_string())
+        );
+    }
+
+    #[test]
+    fn multi_output_function_header() {
+        assert_eq!(
+            script_function_name("function [x,y] = test(u,v)\ny = u;\nx=v;"),
+            Some("test".to_string())
+        );
+    }
+
+    #[test]
+    fn function_header_with_continuation_line() {
+        let script = "function [out] = ...\n    myFunc(u)\ny = u;";
+        assert_eq!(script_function_name(script), Some("myFunc".to_string()));
+    }
+
+    #[test]
+    fn function_header_with_multiple_continuation_lines() {
+        let script = "function ...\n  result ...\n  = ...\n  compute(x)\ny = x;";
+        assert_eq!(script_function_name(script), Some("compute".to_string()));
+    }
+
+    #[test]
+    fn function_header_no_outputs_with_continuation() {
+        let script = "function ...\n  doit(u)\ny = u;";
+        assert_eq!(script_function_name(script), Some("doit".to_string()));
+    }
+
+    #[test]
+    fn function_header_after_comment_lines() {
+        let script = "% Copyright\n%% cell marker\n\nfunction y = later(u)\ny = u;";
+        assert_eq!(script_function_name(script), Some("later".to_string()));
+    }
+
+    #[test]
+    fn commented_out_header_is_ignored() {
+        let script = "% function y = wrong(u)\nfunction y = right(u)\ny = u;";
+        assert_eq!(script_function_name(script), Some("right".to_string()));
+    }
+
+    #[test]
+    fn header_without_outputs() {
+        assert_eq!(
+            script_function_name("function noOut(u)\ndisp(u);"),
+            Some("noOut".to_string())
+        );
+    }
+
+    #[test]
+    fn identifier_starting_with_function_is_not_a_header() {
+        assert_eq!(script_function_name("functions = 3;\ny = functions;"), None);
+    }
+
+    #[test]
+    fn no_function_header_returns_none() {
+        assert_eq!(script_function_name("y = u;"), None);
+    }
+
+    #[test]
+    fn function_header_with_continuation_in_arguments() {
+        let script = concat!(
+            "function [q_des, dq_des, ddq_des, running_1__ready_0, q_ref_out] = ...\n",
+            "    JojoJointInterpolator(dq_ref, ddq_ref, eigenvalues, dt, ...\n",
+            "    consider_position_constraints, consider_velocity_constraints, ...\n",
+            "    q_lowerlimit, q_upperlimit, dq_lowerlimit, dq_upperlimit, follow_q_meas, ...\n",
+            "    q_target, update_q_target, shortcut_update, reset, dq_measured, q_measured)\n",
+            "y = u;"
+        );
+        assert_eq!(
+            script_function_name(script),
+            Some("JojoJointInterpolator".to_string())
+        );
+    }
 }

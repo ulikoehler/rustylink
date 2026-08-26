@@ -19,7 +19,6 @@ pub struct Rgb(pub u8, pub u8, pub u8);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum IconSpec {
     Utf8(&'static str),
-    Svg(&'static str),
     Phosphor(&'static str),
     /// Typeset math (fraction bar / superscript / overbar); see
     /// [`crate::egui_app::render::draw_math_icon`].

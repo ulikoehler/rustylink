@@ -21,7 +21,7 @@ pub fn show_zoom_controls(
                 ui.horizontal(|ui| {
                     let mut zoom_by = |factor: f32| {
                         let old_zoom = *zoom;
-                        let new_zoom = (old_zoom * factor).clamp(0.2, 10.0);
+                        let new_zoom = (old_zoom * factor).clamp(0.2, 30.0);
                         if (new_zoom - old_zoom).abs() <= f32::EPSILON {
                             return;
                         }
