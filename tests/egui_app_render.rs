@@ -1,6 +1,6 @@
 use eframe::egui::{Pos2, Rect, Vec2};
 use rustylink::block_types::IconSpec;
-use rustylink::egui_app::{PortLabelMaxWidths, compute_icon_available_rect, icon_assets};
+use rustylink::egui_app::{PortLabelMaxWidths, compute_icon_available_rect};
 
 #[test]
 fn icon_available_rect_respects_10_percent_margin() {
@@ -43,132 +43,6 @@ fn icon_available_rect_degenerates_safely_when_insets_exceed_width() {
     );
     assert!(avail.width() <= 0.0);
     assert!((avail.center().x - rect.center().x).abs() < 1e-6);
-}
-
-#[test]
-fn embedded_svg_assets_exist() {
-    for path in &[
-        "matrix/identity_matrix.svg",
-        "matrix/is_triangular.svg",
-        "matrix/is_symmetric.svg",
-        "matrix/matrix_product.svg",
-        "matrix/cross_product.svg",
-        "matrix/submatrix.svg",
-        "matrix/create_diagonal_matrix.svg",
-        "matrix/expand_scalar_to_matrix.svg",
-        "matrix/extract_diagonal.svg",
-    ] {
-        let bytes = icon_assets::get(path);
-        assert!(bytes.is_some(), "missing asset {}", path);
-    }
-}
-
-#[test]
-fn svg_parse_extract_diagonal_embedded() {
-    // Ensure the new icon actually parses, catching any embedding or SVG errors.
-    let bytes = icon_assets::get("matrix/extract_diagonal.svg").unwrap();
-    let options = usvg::Options::default();
-    let tree = usvg::Tree::from_data(&bytes, &options).unwrap();
-    assert!(tree.size().width() > 0.0 && tree.size().height() > 0.0);
-}
-
-#[test]
-fn block_type_registry_contains_matrix_library_icons() {
-    use rustylink::block_types::IconSpec;
-    use rustylink::simulink_libraries::types::SimulinkIcon;
-    let map = rustylink::block_types::get_block_type_config_map();
-    let r = map.read().unwrap();
-    for def in rustylink::simulink_libraries::libraries::matrix::BLOCKS {
-        if let Some(SimulinkIcon::Svg(icon)) = def.icon {
-            assert_eq!(
-                r.get(def.block_type).and_then(|c| c.icon),
-                Some(IconSpec::Svg(icon)),
-                "registry entry for {}",
-                def.block_type,
-            );
-        }
-    }
-}
-
-/// Verify that `create_stub_block` blocks (as produced by `initial_system()`)
-/// resolve to their SVG icon via Phase 4 (block_type lookup) when
-/// `library_block_path` is `None`.  This is the code path exercised when the
-/// virtual-library browser displays the library grid directly.  The three
-/// blocks that prompted this test are "Identity Matrix", "Is Triangular", and
-/// "Is Symmetric".
-#[test]
-fn icon_lookup_stub_block_initial_system_no_library_path() {
-    use rustylink::block_types::IconSpec;
-    use rustylink::simulink_libraries::stubs;
-    use rustylink::simulink_libraries::types::SimulinkIcon;
-    for def in rustylink::simulink_libraries::libraries::matrix::BLOCKS {
-        if let Some(SimulinkIcon::Svg(icon)) = def.icon {
-            let (ins, outs) = stubs::matrix_port_counts_if_known(def.block_type).unwrap_or((1, 1));
-            let blk = stubs::create_stub_block(def.block_type, ins, outs);
-            assert!(
-                blk.library_block_path.is_none(),
-                "stub block should have no library_block_path"
-            );
-            let cfg = rustylink::egui_app::get_block_type_cfg(&blk);
-            assert_eq!(
-                cfg.icon,
-                Some(IconSpec::Svg(icon)),
-                "stub block '{}' (Phase 4 lookup) should resolve to icon '{}'",
-                def.block_type,
-                icon
-            );
-        }
-    }
-}
-
-/// Ensure identity_matrix.svg (which contains <text> elements, unlike the
-/// purely-geometric sibling icons) parses and rasterizes without error.
-#[test]
-fn svg_rasterization_identity_matrix() {
-    let bytes = icon_assets::get("matrix/identity_matrix.svg").unwrap();
-    let options = usvg::Options::default();
-    // Parsing must succeed.
-    let tree = usvg::Tree::from_data(&bytes, &options).unwrap();
-    assert!(tree.size().width() > 0.0 && tree.size().height() > 0.0);
-    // Rasterisation must also succeed.
-    let image = egui_extras::image::load_svg_bytes_with_size(
-        &bytes,
-        egui::SizeHint::Size {
-            width: 128,
-            height: 128,
-            maintain_aspect_ratio: true,
-        },
-        &options,
-    )
-    .unwrap();
-    assert!(image.size[0] > 0 && image.size[1] > 0);
-}
-
-#[test]
-fn svg_rasterization_preserves_aspect_ratio() {
-    let bytes = icon_assets::get("matrix/is_triangular.svg").unwrap();
-    let options = usvg::Options::default();
-
-    let tree = usvg::Tree::from_data(&bytes, &options).unwrap();
-    let src_w = tree.size().width();
-    let src_h = tree.size().height();
-    let src_ratio = src_w / src_h;
-
-    let image = egui_extras::image::load_svg_bytes_with_size(
-        &bytes,
-        egui::SizeHint::Size {
-            width: 128,
-            height: 64,
-            maintain_aspect_ratio: true,
-        },
-        &options,
-    )
-    .unwrap();
-
-    assert!(image.size[0] <= 128);
-    assert!(image.size[1] <= 64);
-    let out_ratio = image.size[0] as f32 / image.size[1] as f32;
-    assert!((out_ratio - src_ratio).abs() < 0.02);
 }
 
 // -- tests moved from `src/egui_app/render.rs` --
@@ -215,7 +89,7 @@ fn icon_lookup_accepts_normalized_slx_library_path() {
 
 /// Blocks whose SLX name uses different capitalisation than the registry key
 /// (e.g. "Cross product" with a lowercase 'p') must still resolve to the
-/// correct SVG icon via the case-insensitive fallback, and must NOT fall
+/// correct definition via the case-insensitive fallback, and must NOT fall
 /// through to the generic block_type icon (the "×" Product icon).
 #[test]
 fn icon_lookup_cross_product_case_insensitive() {
@@ -229,35 +103,10 @@ fn icon_lookup_cross_product_case_insensitive() {
 }
 
 #[test]
-fn icon_lookup_matrix_library_icons() {
-    use rustylink::simulink_libraries::types::SimulinkIcon;
-    for def in rustylink::simulink_libraries::libraries::matrix::BLOCKS {
-        if let Some(SimulinkIcon::Svg(icon)) = def.icon {
-            let mut blk = rustylink::editor::operations::create_default_block(
-                "SubSystem",
-                def.block_type,
-                0,
-                0,
-                1,
-                1,
-            );
-            blk.library_block_path = Some(format!("matrix_library/{}", def.block_type));
-            let cfg = rustylink::egui_app::get_block_type_cfg(&blk);
-            assert_eq!(
-                cfg.icon,
-                Some(IconSpec::Svg(icon)),
-                "block {}",
-                def.block_type
-            );
-        }
-    }
-}
-
-#[test]
 fn icon_lookup_diagonal_matrix_alias() {
     // using the shorter/legacy name as a library path should still hit
-    // the same SVG icon.  this exercises the alias support we just added
-    // to the matrix library.
+    // the same definition.  this exercises the alias support in the
+    // matrix library.
     let mut blk =
         rustylink::editor::operations::create_default_block("SubSystem", "Foo", 0, 0, 1, 1);
     blk.library_block_path = Some("matrix_library/DiagonalMatrix".to_string());
@@ -308,31 +157,6 @@ fn icon_lookup_simulink_discrete_derivative() {
     // instead of the flat SVG, matching Simulink's block mask.
     let cfg = rustylink::egui_app::get_block_type_cfg(&b);
     assert_eq!(cfg.icon, Some(IconSpec::Math("frac:K(z-1)/Ts z")));
-}
-
-#[test]
-fn svg_parse_matrix_square_embedded() {
-    let bytes = rustylink::egui_app::icon_assets::get("matrix/matrix_square.svg")
-        .expect("matrix_square.svg must be embedded");
-
-    let mut options = usvg::Options::default();
-    // Keep consistent with runtime behavior: populate the font DB if possible.
-    if let Some(db) = rustylink::egui_app::embedded_egui_sans_fontdb() {
-        options.fontdb = db;
-        options.font_family = "sans-serif".to_owned();
-    }
-
-    let image = egui_extras::image::load_svg_bytes_with_size(
-        &bytes,
-        egui::SizeHint::Size {
-            width: 256,
-            height: 256,
-            maintain_aspect_ratio: true,
-        },
-        &options,
-    )
-    .expect("matrix_square.svg must parse");
-    assert!(image.size[0] > 0 && image.size[1] > 0);
 }
 
 #[test]
@@ -479,12 +303,17 @@ fn subsystem_control_ports_come_from_the_contained_port_blocks() {
     assert_eq!(events_of("Subsystem"), 0);
 }
 
-/// The reinitialize port of `Atomic Subsystem with Reinit` enters on the input
-/// side above the two data inputs, and pushes them down a slot.
+/// The reinitialize port of `Atomic Subsystem with Reinit` (which carries
+/// `ShowSubsystemReinitializePorts = on`) sits at a fixed position in its own
+/// top section, the data inputs are distributed below the separator line, and
+/// all three are on the left edge.
 #[test]
 fn reinit_event_port_sits_above_the_data_inputs() {
     use eframe::egui::{Pos2, Rect};
-    use rustylink::egui_app::ui::signal_routing::{compute_port_info, endpoint_pos};
+    use rustylink::egui_app::ui::signal_routing::{
+        compute_port_info, endpoint_pos, is_reinit_subsystem_counts, REINIT_PORT_FRAC,
+        REINIT_SEP_FRAC,
+    };
     use rustylink::model::{EndpointRef, SlxArchive};
 
     let file = std::fs::File::open("simulink_test_models/Simulink_Blocks.slx")
@@ -499,6 +328,10 @@ fn reinit_event_port_sits_above_the_data_inputs() {
         .expect("subsystem missing from the model");
     let sid = block.sid.clone().expect("subsystem has a SID");
     let (counts, _) = compute_port_info(&system.lines, &system.blocks);
+    assert!(
+        is_reinit_subsystem_counts(&counts, &sid),
+        "block should be flagged as a reinit subsystem"
+    );
     let rect = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(100.0, 120.0));
     let at = |port_type: &str, index: u32| {
         endpoint_pos(
@@ -516,12 +349,21 @@ fn reinit_event_port_sits_above_the_data_inputs() {
     let event = at("event", 1);
     let in1 = at("in", 1);
     let in2 = at("in", 2);
-    // All three on the left edge, event first, then the data inputs.
+    // All three on the left edge.
     for p in [event, in1, in2] {
         assert_eq!(p.x, rect.left());
     }
-    assert!(event.y < in1.y, "{event:?} must sit above {in1:?}");
-    assert!(in1.y < in2.y, "{in1:?} must sit above {in2:?}");
+    // The reinit port sits at the fixed fraction in the top section.
+    let expected_event_y = rect.top() + REINIT_PORT_FRAC * rect.height();
+    assert!(
+        (event.y - expected_event_y).abs() < 0.5,
+        "event {event:?} should be at y={expected_event_y}"
+    );
+    // Data inputs are below the separator line.
+    let sep_y = rect.top() + REINIT_SEP_FRAC * rect.height();
+    assert!(in1.y > sep_y, "in1 {in1:?} must be below separator y={sep_y}");
+    assert!(in2.y > sep_y, "in2 {in2:?} must be below separator y={sep_y}");
+    assert!(in1.y < in2.y, "in1 {in1:?} must sit above {in2:?}");
 }
 
 /// Control ports are numbered per type, so an `enable:1` and a `trigger:1`

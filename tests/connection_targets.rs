@@ -415,11 +415,7 @@ fn mux_does_not_append_explicit_names_to_forwarded_boundary_paths() {
         "targets: {targets:?}"
     );
     // Boundary path targets are no longer generated.
-    assert!(
-        !targets
-            .iter()
-            .any(|target| target.path == "model/Sub/Out1")
-    );
+    assert!(!targets.iter().any(|target| target.path == "model/Sub/Out1"));
 }
 
 #[test]
@@ -3699,8 +3695,22 @@ fn bus_through_subsystem_no_boundary_targets() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
-            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "B",
+                "2",
+                vec![port("out", 1, Some("b"))],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusCreator",
@@ -3808,8 +3818,22 @@ fn bus_through_subsystem_signal_name_preserved() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
-            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "B",
+                "2",
+                vec![port("out", 1, Some("b"))],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusCreator",
@@ -3867,8 +3891,22 @@ fn bus_selector_upstream_does_not_overwrite_bus_signal_name() {
     let system = System {
         properties: props(&[("Name", "model")]),
         blocks: vec![
-            block("Constant", "A", "1", vec![port("out", 1, Some("a"))], None, &[]),
-            block("Constant", "B", "2", vec![port("out", 1, Some("b"))], None, &[]),
+            block(
+                "Constant",
+                "A",
+                "1",
+                vec![port("out", 1, Some("a"))],
+                None,
+                &[],
+            ),
+            block(
+                "Constant",
+                "B",
+                "2",
+                vec![port("out", 1, Some("b"))],
+                None,
+                &[],
+            ),
             block(
                 "BusCreator",
                 "BusCreator",

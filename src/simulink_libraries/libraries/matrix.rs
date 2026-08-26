@@ -1,8 +1,8 @@
 //! Matrix-operations library (`matrix_library`).
 //!
-//! These blocks carry dedicated SVG icons shipped under `icons/matrix/`.  Port
-//! counts mirror [`crate::simulink_libraries::stubs::MATRIX_BLOCKS`], which the
-//! core parser uses to synthesise stubs when the `.slx` library file is absent.
+//! Port counts mirror [`crate::simulink_libraries::stubs::MATRIX_BLOCKS`], which
+//! the core parser uses to synthesise stubs when the `.slx` library file is
+//! absent.
 
 #![cfg(feature = "egui")]
 

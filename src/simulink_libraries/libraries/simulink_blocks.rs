@@ -302,10 +302,13 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_static_renderer(renderers::static_lookup_table),
 
     SimulinkBlockDefinition::new("Cosine", "Lookup Tables")
-        .with_description("Cosine function via lookup table")
+        .with_description("Sine and Cosine lookup-table function")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
-        .with_block_label(BlockLabelPolicy::Fixed("cos(2*pi*u)"))
-        .with_port_labels(PortLabelPolicy::Fixed(&["u"]), PortLabelPolicy::None),
+        .with_metadata_keys(&[MetadataKey::with_default("Formula", "")])
+        .with_port_labels(
+            PortLabelPolicy::Fixed(&["u"]),
+            PortLabelPolicy::MetadataDependent(renderers::sine_cosine_output_labels),
+        ),
 
     SimulinkBlockDefinition::new("Sine", "Lookup Tables")
         .with_description("Sine function via lookup table")

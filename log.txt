@@ -1,0 +1,1 @@
+zsh: datei oder Verzeichnis nicht gefunden: ./target/release/asx

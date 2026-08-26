@@ -2512,12 +2512,13 @@ pub(crate) fn update_internal(
                 let cfg = get_block_type_cfg(b);
                 let event_ins =
                     crate::simulink_libraries::renderers::subsystem_event_input_count(b);
-                let in_count = b
+                let reinit = crate::simulink_libraries::renderers::is_reinit_subsystem(b);
+                let data_ins = b
                     .port_counts
                     .as_ref()
                     .and_then(|p| p.ins)
-                    .unwrap_or(cfg.default_ins)
-                    + event_ins;
+                    .unwrap_or(cfg.default_ins);
+                let in_count = if reinit { data_ins } else { data_ins + event_ins };
                 let out_count = b
                     .port_counts
                     .as_ref()
@@ -2526,13 +2527,35 @@ pub(crate) fn update_internal(
                 if in_count == 0 && out_count == 0 {
                     continue;
                 }
-                let (ins, outs) = crate::egui_app::geometry::port_indicator_positions_with_overrides(
+                let mirrored = b.block_mirror.unwrap_or(false);
+                // Reinit subsystems distribute data inputs below the separator
+                // line; other blocks use the standard even distribution.
+                let ins: Vec<eframe::egui::Pos2> = if reinit && data_ins > 0 {
+                    let side = crate::egui_app::geometry::port_side_for("in", mirrored);
+                    (1..=data_ins)
+                        .map(|i| {
+                            crate::egui_app::ui::signal_routing::reinit_data_input_pos(
+                                brect, side, i, data_ins,
+                            )
+                        })
+                        .collect()
+                } else {
+                    let (ins, _) = crate::egui_app::geometry::port_indicator_positions_with_overrides(
+                        brect,
+                        in_count,
+                        out_count,
+                        mirrored,
+                        &cfg.port_position_overrides,
+                    );
+                    ins
+                };
+                let outs = crate::egui_app::geometry::port_indicator_positions_with_overrides(
                     brect,
                     in_count,
                     out_count,
-                    b.block_mirror.unwrap_or(false),
+                    mirrored,
                     &cfg.port_position_overrides,
-                );
+                ).1;
                 let mut request = |index: usize, is_input: bool, y: f32| {
                     let index = index as u32 + 1;
                     if wired.contains(&(sid.clone(), index, is_input)) {
@@ -2542,8 +2565,14 @@ pub(crate) fn update_internal(
                         port_label_requests.push((sid.clone(), index, is_input, y));
                     }
                 };
-                for (i, p) in ins.iter().enumerate().skip(event_ins as usize) {
-                    request(i - event_ins as usize, true, p.y);
+                if reinit {
+                    for (i, p) in ins.iter().enumerate() {
+                        request(i, true, p.y);
+                    }
+                } else {
+                    for (i, p) in ins.iter().enumerate().skip(event_ins as usize) {
+                        request(i - event_ins as usize, true, p.y);
+                    }
                 }
                 for (i, p) in outs.iter().enumerate() {
                     request(i, false, p.y);
@@ -2706,12 +2735,13 @@ pub(crate) fn update_internal(
             // virtual-library defaults carried in BlockTypeConfig.
             // Lifecycle event ports take the first slots on the input side.
             let event_ins = crate::simulink_libraries::renderers::subsystem_event_input_count(b);
-            let in_count = b
+            let reinit = crate::simulink_libraries::renderers::is_reinit_subsystem(b);
+            let data_ins = b
                 .port_counts
                 .as_ref()
                 .and_then(|p| p.ins)
-                .unwrap_or(cfg.default_ins)
-                + event_ins;
+                .unwrap_or(cfg.default_ins);
+            let in_count = if reinit { data_ins } else { data_ins + event_ins };
             let out_count = b
                 .port_counts
                 .as_ref()
@@ -2720,7 +2750,28 @@ pub(crate) fn update_internal(
             if in_count > 0 || out_count > 0 {
                 let mirrored = b.block_mirror.unwrap_or(false);
                 let overrides = &cfg.port_position_overrides;
-                let (ins, outs) = crate::egui_app::geometry::port_indicator_positions_with_overrides(
+                // Reinit subsystems distribute data inputs below the separator
+                // line; the reinit port itself gets no chevron (its pictogram
+                // is drawn by the static renderer).
+                let ins: Vec<eframe::egui::Pos2> = if reinit && data_ins > 0 {
+                    let side = crate::egui_app::geometry::port_side_for("in", mirrored);
+                    (1..=data_ins)
+                        .map(|i| {
+                            crate::egui_app::ui::signal_routing::reinit_data_input_pos(
+                                *r_screen, side, i, data_ins,
+                            )
+                        })
+                        .collect()
+                } else {
+                    crate::egui_app::geometry::port_indicator_positions_with_overrides(
+                        *r_screen,
+                        in_count,
+                        out_count,
+                        mirrored,
+                        overrides,
+                    ).0
+                };
+                let (_, outs) = crate::egui_app::geometry::port_indicator_positions_with_overrides(
                     *r_screen,
                     in_count,
                     out_count,
@@ -2734,10 +2785,16 @@ pub(crate) fn update_internal(
                     let port_idx = (i as u32) + 1;
                     // Skip chevron if this input port is connected; an event
                     // port is never wired through the data-input numbering.
-                    if port_idx > event_ins
+                    // Reinit subsystems have no event offset on data inputs.
+                    let data_idx = if reinit {
+                        port_idx
+                    } else {
+                        port_idx - event_ins
+                    };
+                    if (reinit || port_idx > event_ins)
                         && connected_ports.contains(&(
                             block_sid.to_string(),
-                            port_idx - event_ins,
+                            data_idx,
                             true,
                         ))
                     {

@@ -4,9 +4,8 @@ use crate::block_types::{self, BlockTypeConfig};
 use crate::model::Block;
 use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Vec2};
 
-use super::icon_assets;
 use std::collections::HashSet;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 fn normalize_library_block_path(path: &str) -> Option<String> {
     let path = path.trim();
@@ -723,6 +722,9 @@ fn draw_stacked_lines(painter: &egui::Painter, avail: &Rect, spec: &str, color: 
 /// * `c CX,CY,R` – stroked circle (`R` is a fraction of the icon width).
 /// * `d CX,CY,R` – filled dot.
 /// * `o CX,CY,W,H` – stroked obround (the In/Out ports of a subsystem preview).
+/// * `pg R,G,B,A X1,Y1 X2,Y2 X3,Y3 …` – filled polygon with an explicit RGBA
+///   fill (each channel 0..=255, alpha included) and the standard outline
+///   stroke.  Used for the shaded 3-D faces of the Matrix Concatenate icon.
 /// * `t X,Y,H TEXT` – `TEXT` centred at `X,Y` with cap height `H` (a fraction
 ///   of the icon height), for the letters Simulink sets inside its pictograms
 ///   (`A ⇒ D`, the `U` of Is Triangular).
@@ -790,6 +792,24 @@ pub fn draw_plot_icon(
                 let half = Vec2::new(nums[2] * avail.width(), nums[3] * avail.height()) * 0.5;
                 let r = Rect::from_center_size(c, half * 2.0);
                 painter.rect_stroke(r, r.height() * 0.5, stroke, egui::StrokeKind::Inside);
+            }
+            // Filled polygon with an explicit RGBA fill: the first four numbers
+            // are R,G,B,A (0..=255), the rest are vertex pairs.  Used for the
+            // shaded 3-D faces of the Matrix Concatenate icon.
+            "pg" if nums.len() >= 10 => {
+                let fill = Color32::from_rgba_unmultiplied(
+                    nums[0].round().clamp(0.0, 255.0) as u8,
+                    nums[1].round().clamp(0.0, 255.0) as u8,
+                    nums[2].round().clamp(0.0, 255.0) as u8,
+                    nums[3].round().clamp(0.0, 255.0) as u8,
+                );
+                let pts: Vec<Pos2> = nums[4..]
+                    .chunks_exact(2)
+                    .map(|c| at(c[0], c[1]))
+                    .collect();
+                if pts.len() >= 3 {
+                    painter.add(egui::Shape::convex_polygon(pts, fill, stroke));
+                }
             }
             "t" if nums.len() >= 3 => {
                 let Some((_, text)) = args.split_once(char::is_whitespace) else {
@@ -1011,125 +1031,6 @@ fn draw_overbar(painter: &egui::Painter, avail: &Rect, base: &str, color: Color3
     );
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-struct SvgCacheKey {
-    path: &'static str,
-    request_w: usize,
-    request_h: usize,
-}
-
-#[derive(Clone)]
-struct SvgCachedTexture {
-    texture: egui::TextureHandle,
-    px_size: [usize; 2],
-}
-
-pub fn embedded_egui_sans_fontdb() -> Option<Arc<usvg::fontdb::Database>> {
-    static FONTDB: OnceLock<Option<Arc<usvg::fontdb::Database>>> = OnceLock::new();
-    FONTDB
-        .get_or_init(|| {
-            let font_defs = egui::FontDefinitions::default();
-            let ubuntu = font_defs.font_data.get("Ubuntu-Light")?;
-
-            let mut db = usvg::fontdb::Database::new();
-            db.load_font_data(ubuntu.as_ref().font.as_ref().to_vec());
-
-            // Ensure CSS generic `sans-serif` resolves to the embedded font.
-            // Use the actual family name declared in the font (typically "Ubuntu").
-            let family_name = db
-                .faces()
-                .next()
-                .and_then(|face| face.families.first().map(|(family, _lang)| family.clone()));
-            if let Some(family_name) = family_name {
-                db.set_sans_serif_family(family_name.clone());
-                // reasonable fallback for `serif` too, in case SVG uses it
-                db.set_serif_family(family_name);
-            }
-
-            Some(Arc::new(db))
-        })
-        .clone()
-}
-
-fn svg_dest_size_points(avail_points: Vec2, px_size: [usize; 2], pixels_per_point: f32) -> Vec2 {
-    if pixels_per_point <= 0.0 {
-        return Vec2::ZERO;
-    }
-
-    let w_points = px_size[0] as f32 / pixels_per_point;
-    let h_points = px_size[1] as f32 / pixels_per_point;
-    if w_points <= 0.0 || h_points <= 0.0 {
-        return Vec2::ZERO;
-    }
-
-    let scale = (avail_points.x / w_points)
-        .min(avail_points.y / h_points)
-        .clamp(0.0, 1.0);
-    Vec2::new(w_points * scale, h_points * scale)
-}
-
-fn get_or_create_svg_texture(
-    ctx: &egui::Context,
-    path: &'static str,
-    request_px: [usize; 2],
-) -> Option<SvgCachedTexture> {
-    let cache_id = egui::Id::new("rustylink_svg_icon_cache");
-    let key = SvgCacheKey {
-        path,
-        request_w: request_px[0],
-        request_h: request_px[1],
-    };
-
-    // IMPORTANT: never call `ctx.load_texture` inside `ctx.data_mut`, since both
-    // take a write lock on the same internal context lock, which will deadlock.
-    if let Some(hit) = ctx.data_mut(|d| {
-        d.get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
-            cache_id,
-        )
-        .get(&key)
-        .cloned()
-    }) {
-        return Some(hit);
-    }
-
-    let bytes = icon_assets::get(path)?;
-    let mut options = usvg::Options::default();
-    // usvg's font database is empty by default; populate it from egui's embedded fonts.
-    // This avoids relying on system-installed fonts.
-    if let Some(db) = embedded_egui_sans_fontdb() {
-        options.fontdb = db;
-        options.font_family = "sans-serif".to_owned();
-    }
-
-    let image = egui_extras::image::load_svg_bytes_with_size(
-        &bytes,
-        egui::SizeHint::Size {
-            width: request_px[0].min(u32::MAX as usize) as u32,
-            height: request_px[1].min(u32::MAX as usize) as u32,
-            maintain_aspect_ratio: true,
-        },
-        &options,
-    )
-    .ok()?;
-    let px_size = image.size;
-
-    let texture = ctx.load_texture(
-        format!("rustylink_svg:{path}:{}x{}", request_px[0], request_px[1]),
-        image,
-        egui::TextureOptions::LINEAR,
-    );
-    let value = SvgCachedTexture { texture, px_size };
-
-    // Insert after creating the texture (to avoid deadlock), then return the stored value.
-    Some(ctx.data_mut(|d| {
-        let cache = d
-            .get_temp_mut_or_default::<std::collections::HashMap<SvgCacheKey, SvgCachedTexture>>(
-                cache_id,
-            );
-        cache.entry(key).or_insert_with(|| value.clone()).clone()
-    }))
-}
-
 /// Emit a one-time-per-block-type warning when no icon can be resolved.
 static ICON_WARNED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
@@ -1192,40 +1093,13 @@ pub fn draw_icon_spec(
                 color,
             );
         }
-        block_types::IconSpec::Svg(path) => {
-            let avail_rect = compute_icon_available_rect(rect, font_scale, port_label_widths);
-            let avail_points = avail_rect.size();
-            if avail_points.x <= 1.0 || avail_points.y <= 1.0 {
-                return;
-            }
-
-            let ctx = painter.ctx();
-            let pixels_per_point = ctx.pixels_per_point();
-            let request_px = [
-                (avail_points.x * pixels_per_point).round().max(1.0) as usize,
-                (avail_points.y * pixels_per_point).round().max(1.0) as usize,
-            ];
-
-            let Some(svg) = get_or_create_svg_texture(ctx, path, request_px) else {
-                return;
-            };
-
-            let dest_size = svg_dest_size_points(avail_points, svg.px_size, pixels_per_point);
-            if dest_size.x <= 1.0 || dest_size.y <= 1.0 {
-                return;
-            }
-
-            let dest_rect = Rect::from_center_size(avail_rect.center(), dest_size);
-            let uv = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
-            painter.image(svg.texture.id(), dest_rect, uv, Color32::WHITE);
-        }
     }
 }
 
 /// Draw a single-glyph [`IconSpec`] (Utf8 / Phosphor) rotated 90° clockwise,
 /// centered in `rect`.  Used only by the far-zoom dashboard fallback for the
 /// Toggle/Rocker switches, which Simulink draws vertically.  Non-glyph specs
-/// (Svg / Math) fall back to the unrotated [`draw_icon_spec`].
+/// (Math / Plot) fall back to the unrotated [`draw_icon_spec`].
 pub fn draw_icon_spec_rotated_quarter(
     painter: &egui::Painter,
     rect: &Rect,

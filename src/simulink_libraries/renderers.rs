@@ -14,6 +14,17 @@ use crate::model::Block;
 
 use super::types::RenderContext;
 
+/// Vertical fraction (from the top) at which the reinit port sits on a
+/// `ShowSubsystemReinitializePorts` subsystem.  Must match the constant in
+/// `egui_app::ui::signal_routing`.
+const REINIT_PORT_FRAC: f32 = 0.12;
+
+/// Vertical fraction (from the top) at which the separator line is drawn on a
+/// `ShowSubsystemReinitializePorts` subsystem; data inputs are distributed in
+/// the region below it.  Must match the constant in
+/// `egui_app::ui::signal_routing`.
+const REINIT_SEP_FRAC: f32 = 0.25;
+
 /// Resolved body colors for a self-painting renderer.
 fn body_colors(ctx: &RenderContext<'_>) -> crate::egui_app::render::BodyColors {
     crate::egui_app::render::BodyColors {
@@ -184,6 +195,29 @@ pub fn trigonometry_port_labels(
         return Vec::new();
     }
     vec!["sin".to_string(), "cos".to_string()]
+}
+
+/// Output port labels for the Sine/Cosine lookup-table Reference blocks
+/// (`simulink/Lookup Tables/Cosine`): the block's `Formula` from
+/// `<InstanceData>`, split on ` and ` so a SineCosine block labels its two
+/// outputs `sin(2*pi*u)` / `cos(2*pi*u)`.  Returns one label per output port;
+/// an empty/short vector falls back to the default for the missing ports.
+pub fn sine_cosine_output_labels(
+    _block: &Block,
+    meta: &super::metadata::BlockMetadata,
+    is_input: bool,
+) -> Vec<String> {
+    if is_input {
+        return Vec::new();
+    }
+    let Some(formula) = meta.get("Formula") else {
+        return Vec::new();
+    };
+    formula
+        .split(" and ")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
 }
 
 /// A saturation curve (flat, ramp, flat) normalised to the icon area – the
@@ -751,15 +785,83 @@ pub fn static_subsystem(
     // Lifecycle event ports enter on the input side, above the data inputs,
     // with their pictogram and event name beside them.
     let events = subsystem_event_input_glyphs(block);
-    if !events.is_empty() {
+    let event_count = subsystem_event_input_count(block);
+    let mirrored = block.block_mirror.unwrap_or(false);
+    let side = crate::egui_app::geometry::port_side_for("in", mirrored);
+    let reinit = is_reinit_subsystem(block);
+    eprintln!(
+        "[REINIT_DEBUG] block={:?} reinit={} event_count={} events_len={} subsystem_loaded={}",
+        block.name,
+        reinit,
+        event_count,
+        events.len(),
+        block.subsystem.is_some()
+    );
+
+    if reinit {
+        // ShowSubsystemReinitializePorts: the reinit port sits in its own
+        // section at the top of the input side, a horizontal separator line
+        // spans the full block width beneath it, and the data inputs are
+        // distributed in the lower section.
+        let sep_y = rect.top() + REINIT_SEP_FRAC * rect.height();
+        let stroke = eframe::egui::Stroke::new(
+            (1.4 * ctx.font_scale).max(0.75),
+            ctx.text_color,
+        );
+        eprintln!(
+            "[REINIT_DRAW] block={:?} rect={:?} sep_y={} text_color={:?}",
+            block.name, rect, sep_y, ctx.text_color
+        );
+        painter.line_segment(
+            [
+                eframe::egui::pos2(rect.left(), sep_y),
+                eframe::egui::pos2(rect.right(), sep_y),
+            ],
+            stroke,
+        );
+        let size = (rect.height() * REINIT_SEP_FRAC * 0.6)
+            .min(rect.width() * 0.34)
+            .min(14.0 * ctx.font_scale)
+            .max(4.0);
+        // Use the resolved event glyphs when available; fall back to the
+        // generic reinit pictogram + "reinit" label when the subsystem
+        // contents are not loaded.
+        let fallback = format!(
+            "{}; t 2.20,0.50,0.50 reinit",
+            event_port_glyph(&EventKind::Reinitialize)
+        );
+        let glyphs: Vec<&str> = if !events.is_empty() {
+            events.iter().map(String::as_str).collect()
+        } else {
+            vec![fallback.as_str()]
+        };
+        for event in &glyphs {
+            let y = rect.top() + REINIT_PORT_FRAC * rect.height();
+            let x = if mirrored {
+                rect.right() - size * 1.2
+            } else {
+                rect.left() + size * 0.2
+            };
+            let glyph = Rect::from_min_size(
+                eframe::egui::pos2(x, y - size * 0.5),
+                eframe::egui::vec2(size, size),
+            );
+            crate::egui_app::render::draw_plot_icon(
+                painter,
+                &glyph,
+                ctx.font_scale,
+                event,
+                ctx.text_color,
+                None,
+            );
+        }
+    } else if !events.is_empty() {
         let data_ins = block
             .port_counts
             .as_ref()
             .and_then(|counts| counts.ins)
             .unwrap_or(0);
         let total_ins = data_ins + events.len() as u32;
-        let mirrored = block.block_mirror.unwrap_or(false);
-        let side = crate::egui_app::geometry::port_side_for("in", mirrored);
         let size = (rect.height() / (total_ins as f32 + 1.0))
             .min(rect.width() * 0.34)
             .min(14.0 * ctx.font_scale)
@@ -1007,20 +1109,33 @@ pub fn static_event_listener(
 }
 
 /// Static renderer for the ResetPort block: the pictogram of the edge it
-/// resets on – the same one its subsystem shows at the reset port it adds.
+/// resets on – the same one its subsystem shows at the reset port it adds –
+/// followed by the `R` annotation the subsystem draws beside it.  The block is
+/// small, so the pictogram is drawn in a narrower sub-rect (66% of the block
+/// width) so the `R` at spec x = 1.32 lands inside the block to its right,
+/// matching the subsystem reset port's relative layout.
 pub fn static_reset_port(
     painter: &Painter,
     _block: &Block,
     rect: &Rect,
     ctx: &RenderContext<'_>,
 ) -> bool {
-    let spec =
+    let pictogram =
         reset_spec(ctx.metadata.get("ResetTriggerType").or(Some("rising"))).unwrap_or(RISING_EDGE);
+    let spec = format!("{pictogram}; t 1.32,0.78,0.50 R");
+    // Map spec x = 1.32 onto the block's right edge by using a sub-rect whose
+    // width is `rect.width() / 1.32`.  Center it vertically so the pictogram
+    // keeps its full height.
+    let sub_w = rect.width() / 1.32;
+    let sub_rect = Rect::from_min_size(
+        eframe::egui::pos2(rect.center().x - sub_w * 0.5, rect.top()),
+        eframe::egui::vec2(sub_w, rect.height()),
+    );
     crate::egui_app::render::draw_plot_icon(
         painter,
-        rect,
+        &sub_rect,
         ctx.font_scale,
-        spec,
+        &spec,
         ctx.text_color,
         ctx.port_label_widths,
     );
@@ -1076,6 +1191,16 @@ pub fn subsystem_event_input_count(block: &Block) -> u32 {
             .unwrap_or(0);
     }
     u32::from(SubsystemContent::of(block).event_port.is_some())
+}
+
+/// Whether the block carries `ShowSubsystemReinitializePorts = on`, meaning
+/// Simulink draws the reinit port in its own section at the top of the input
+/// side, a horizontal separator line beneath it, and the data inputs below.
+pub fn is_reinit_subsystem(block: &Block) -> bool {
+    block
+        .properties
+        .get("ShowSubsystemReinitializePorts")
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("on"))
 }
 
 /// The lifecycle pictogram of an event port, drawn inside its own square.
@@ -1251,8 +1376,9 @@ impl SubsystemContent {
     }
 }
 
-/// Static renderer for the Matrix Concatenate block: stacked blocks with the
-/// `ConcatenateDimension` they are joined along printed in the corner.
+/// Static renderer for the Matrix Concatenate block: two cuboids offset
+/// diagonally (one back-right, one front-left) with shaded faces and the
+/// `ConcatenateDimension` they are joined along printed in the front cuboid.
 pub fn static_matrix_concatenate(
     painter: &Painter,
     _block: &Block,
@@ -1265,20 +1391,33 @@ pub fn static_matrix_concatenate(
         .unwrap_or("2")
         .trim();
     let dim = if raw.is_empty() { "2" } else { raw };
-    // Two cuboids of equal height standing side by side on one baseline and
-    // sharing a face – the two operands being concatenated – seen from the
-    // front left, with the concatenation dimension in the bottom right corner.
+    // Two cuboids seen from the front-left, the back one offset up-right and
+    // the front one offset down-left, joined where they overlap.  Faces are
+    // filled with the SVG's semi-transparent greys; the L-shaped front face of
+    // the back cuboid is split into two convex rectangles.
     let spec = format!(
         concat!(
-            // Front faces of the left and the right cuboid.
-            "r 0.10,0.34 0.44,0.80; r 0.44,0.34 0.72,0.80;",
-            // Top faces, receding up and to the right.
-            "p 0.10,0.34 0.22,0.18 0.84,0.18 0.72,0.34;",
-            // The shared edge continued across the top face.
-            "p 0.44,0.34 0.56,0.18;",
-            // Right side face of the right cuboid.
-            "p 0.72,0.80 0.84,0.64 0.84,0.18;",
-            "t 0.65,0.71,0.26 {dim}"
+            // ── Back cuboid (drawn first, behind) ──────────────────────────
+            // Top face (light grey).
+            "pg 235,235,235,128 0.265,0.167 0.412,0 1.0,0 0.853,0.167;",
+            // Right side face (darker grey).
+            "pg 180,180,180,128 0.853,0.7 0.853,0.167 1.0,0 1.0,0.533;",
+            // Front face (white) – L-shape split into two convex rectangles.
+            "pg 255,255,255,128 0.265,0.167 0.853,0.167 0.853,0.3 0.265,0.3;",
+            "pg 255,255,255,128 0.735,0.3 0.853,0.3 0.853,0.7 0.735,0.7;",
+            // ── Front cuboid (drawn second, in front) ───────────────────────
+            // Top face (light grey).
+            "pg 235,235,235,128 0,0.467 0.147,0.3 0.735,0.3 0.588,0.467;",
+            // Right side face (darker grey).
+            "pg 180,180,180,128 0.588,1.0 0.588,0.467 0.735,0.3 0.735,0.833;",
+            // Front face (white).
+            "pg 255,255,255,128 0,0.467 0.588,0.467 0.588,1.0 0,1.0;",
+            // ── Dashed edge connectors (faint) ──────────────────────────────
+            "a 0.147,0.3 0.265,0.167;",
+            "a 0.735,0.833 0.853,0.7;",
+            "a 0.735,0.3 0.853,0.167;",
+            // ── Concatenation dimension in the front cuboid's face ───────────
+            "t 0.29,0.73,0.22 {dim}"
         ),
         dim = dim
     );
