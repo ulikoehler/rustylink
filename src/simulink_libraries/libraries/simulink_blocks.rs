@@ -305,6 +305,10 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Sine and Cosine lookup-table function")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_metadata_keys(&[MetadataKey::with_default("Formula", "")])
+        // Simulink draws no icon for these lookup-table Reference blocks; their
+        // identity comes from the output port labels (`Formula`), so claim the
+        // interior to keep the `?` placeholder away.
+        .with_static_renderer(renderers::static_nothing)
         .with_port_labels(
             PortLabelPolicy::Fixed(&["u"]),
             PortLabelPolicy::MetadataDependent(renderers::sine_cosine_output_labels),

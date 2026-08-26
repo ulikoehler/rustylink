@@ -2747,12 +2747,31 @@ pub(crate) fn update_internal(
                 .as_ref()
                 .and_then(|p| p.outs)
                 .unwrap_or(cfg.default_outs);
-            if in_count > 0 || out_count > 0 {
+            if in_count > 0 || out_count > 0 || (reinit && event_ins > 0) {
                 let mirrored = b.block_mirror.unwrap_or(false);
                 let overrides = &cfg.port_position_overrides;
-                // Reinit subsystems distribute data inputs below the separator
-                // line; the reinit port itself gets no chevron (its pictogram
-                // is drawn by the static renderer).
+                // Reinit subsystems: draw a chevron for the reinit port at its
+                // fixed position, then distribute data inputs below the
+                // separator line.
+                if reinit && event_ins > 0 {
+                    let side = crate::egui_app::geometry::port_side_for("in", mirrored);
+                    let reinit_y = r_screen.top()
+                        + crate::egui_app::ui::signal_routing::REINIT_PORT_FRAC * r_screen.height();
+                    let reinit_pos = match side {
+                        crate::egui_app::geometry::PortSide::Out => {
+                            eframe::egui::pos2(r_screen.right(), reinit_y)
+                        }
+                        _ => eframe::egui::pos2(r_screen.left(), reinit_y),
+                    };
+                    paint_port_chevron_placed(
+                        &painter,
+                        reinit_pos,
+                        !mirrored,
+                        None,
+                        font_scale,
+                        Color32::from_rgb(60, 60, 200),
+                    );
+                }
                 let ins: Vec<eframe::egui::Pos2> = if reinit && data_ins > 0 {
                     let side = crate::egui_app::geometry::port_side_for("in", mirrored);
                     (1..=data_ins)

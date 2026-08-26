@@ -785,18 +785,10 @@ pub fn static_subsystem(
     // Lifecycle event ports enter on the input side, above the data inputs,
     // with their pictogram and event name beside them.
     let events = subsystem_event_input_glyphs(block);
-    let event_count = subsystem_event_input_count(block);
+    let _event_count = subsystem_event_input_count(block);
     let mirrored = block.block_mirror.unwrap_or(false);
     let side = crate::egui_app::geometry::port_side_for("in", mirrored);
     let reinit = is_reinit_subsystem(block);
-    eprintln!(
-        "[REINIT_DEBUG] block={:?} reinit={} event_count={} events_len={} subsystem_loaded={}",
-        block.name,
-        reinit,
-        event_count,
-        events.len(),
-        block.subsystem.is_some()
-    );
 
     if reinit {
         // ShowSubsystemReinitializePorts: the reinit port sits in its own
@@ -807,10 +799,6 @@ pub fn static_subsystem(
         let stroke = eframe::egui::Stroke::new(
             (1.4 * ctx.font_scale).max(0.75),
             ctx.text_color,
-        );
-        eprintln!(
-            "[REINIT_DRAW] block={:?} rect={:?} sep_y={} text_color={:?}",
-            block.name, rect, sep_y, ctx.text_color
         );
         painter.line_segment(
             [
@@ -1111,9 +1099,11 @@ pub fn static_event_listener(
 /// Static renderer for the ResetPort block: the pictogram of the edge it
 /// resets on – the same one its subsystem shows at the reset port it adds –
 /// followed by the `R` annotation the subsystem draws beside it.  The block is
-/// small, so the pictogram is drawn in a narrower sub-rect (66% of the block
-/// width) so the `R` at spec x = 1.32 lands inside the block to its right,
-/// matching the subsystem reset port's relative layout.
+/// small, so the pictogram is drawn in a narrower sub-rect so the `R` at spec
+/// x = 1.32 lands inside the block to its right, matching the subsystem reset
+/// port's relative layout.  The divisor 1.6 accounts for the 10% margin
+/// `compute_icon_available_rect` subtracts from each side, keeping the `R`
+/// comfortably inside the block while shrinking the pictogram slightly.
 pub fn static_reset_port(
     painter: &Painter,
     _block: &Block,
@@ -1123,10 +1113,12 @@ pub fn static_reset_port(
     let pictogram =
         reset_spec(ctx.metadata.get("ResetTriggerType").or(Some("rising"))).unwrap_or(RISING_EDGE);
     let spec = format!("{pictogram}; t 1.32,0.78,0.50 R");
-    // Map spec x = 1.32 onto the block's right edge by using a sub-rect whose
-    // width is `rect.width() / 1.32`.  Center it vertically so the pictogram
-    // keeps its full height.
-    let sub_w = rect.width() / 1.32;
+    // Map spec x = 1.32 onto ~82% of the block width by using a sub-rect
+    // whose width is `rect.width() / 1.6`.  After the 10% margin
+    // `compute_icon_available_rect` subtracts, the `R` center lands at ~91%
+    // of the block width — safely inside.  Center it vertically so the
+    // pictogram keeps its full height.
+    let sub_w = rect.width() / 1.6;
     let sub_rect = Rect::from_min_size(
         eframe::egui::pos2(rect.center().x - sub_w * 0.5, rect.top()),
         eframe::egui::vec2(sub_w, rect.height()),
@@ -1181,16 +1173,27 @@ pub fn subsystem_event_input_glyphs(block: &Block) -> Vec<String> {
 
 /// How many lifecycle event ports enter the subsystem on its input side, above
 /// the data inputs.  Falls back to `<PortCounts event=…/>` when the contents
-/// are not loaded.
+/// are not loaded or the nested EventListener is not found.
 pub fn subsystem_event_input_count(block: &Block) -> u32 {
-    if block.subsystem.is_none() {
-        return block
+    let from_counts = || {
+        block
             .port_counts
             .as_ref()
             .and_then(|counts| counts.event)
-            .unwrap_or(0);
+            .unwrap_or(0)
+    };
+    if block.subsystem.is_none() {
+        return from_counts();
     }
-    u32::from(SubsystemContent::of(block).event_port.is_some())
+    let from_content = u32::from(SubsystemContent::of(block).event_port.is_some());
+    if from_content > 0 {
+        from_content
+    } else {
+        // The subsystem is loaded but the nested EventListener was not found
+        // (e.g. its own subsystem ref was not resolved).  Fall back to the
+        // PortCounts `event` attribute so the port is still counted.
+        from_counts()
+    }
 }
 
 /// Whether the block carries `ShowSubsystemReinitializePorts = on`, meaning
@@ -1402,9 +1405,13 @@ pub fn static_matrix_concatenate(
             "pg 235,235,235,128 0.265,0.167 0.412,0 1.0,0 0.853,0.167;",
             // Right side face (darker grey).
             "pg 180,180,180,128 0.853,0.7 0.853,0.167 1.0,0 1.0,0.533;",
-            // Front face (white) – L-shape split into two convex rectangles.
-            "pg 255,255,255,128 0.265,0.167 0.853,0.167 0.853,0.3 0.265,0.3;",
-            "pg 255,255,255,128 0.735,0.3 0.853,0.3 0.853,0.7 0.735,0.7;",
+            // Front face (white) – L-shape split into two convex rectangles,
+            // filled without stroke (`pf`) so the internal seam is invisible;
+            // the external boundary is traced separately by the `p` command.
+            "pf 255,255,255,128 0.265,0.167 0.853,0.167 0.853,0.3 0.265,0.3;",
+            "pf 255,255,255,128 0.735,0.3 0.853,0.3 0.853,0.7 0.735,0.7;",
+            // L-shape external outline (closed polyline).
+            "p 0.265,0.167 0.853,0.167 0.853,0.7 0.735,0.7 0.735,0.3 0.265,0.3 0.265,0.167;",
             // ── Front cuboid (drawn second, in front) ───────────────────────
             // Top face (light grey).
             "pg 235,235,235,128 0,0.467 0.147,0.3 0.735,0.3 0.588,0.467;",

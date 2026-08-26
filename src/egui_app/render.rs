@@ -725,6 +725,10 @@ fn draw_stacked_lines(painter: &egui::Painter, avail: &Rect, spec: &str, color: 
 /// * `pg R,G,B,A X1,Y1 X2,Y2 X3,Y3 …` – filled polygon with an explicit RGBA
 ///   fill (each channel 0..=255, alpha included) and the standard outline
 ///   stroke.  Used for the shaded 3-D faces of the Matrix Concatenate icon.
+/// * `pf R,G,B,A X1,Y1 X2,Y2 X3,Y3 …` – filled polygon with an explicit RGBA
+///   fill but NO outline stroke.  Used for the concave L-shape pieces of the
+///   Matrix Concatenate icon so the internal seam is not stroked; the external
+///   boundary is drawn separately by a `p` command.
 /// * `t X,Y,H TEXT` – `TEXT` centred at `X,Y` with cap height `H` (a fraction
 ///   of the icon height), for the letters Simulink sets inside its pictograms
 ///   (`A ⇒ D`, the `U` of Is Triangular).
@@ -809,6 +813,26 @@ pub fn draw_plot_icon(
                     .collect();
                 if pts.len() >= 3 {
                     painter.add(egui::Shape::convex_polygon(pts, fill, stroke));
+                }
+            }
+            // Filled polygon with an explicit RGBA fill but NO outline stroke:
+            // same format as `pg`, used for the concave L-shape of the Matrix
+            // Concatenate icon so the internal seam between the two convex
+            // pieces is not stroked (the outline is drawn separately by a `p`
+            // command tracing only the external boundary).
+            "pf" if nums.len() >= 10 => {
+                let fill = Color32::from_rgba_unmultiplied(
+                    nums[0].round().clamp(0.0, 255.0) as u8,
+                    nums[1].round().clamp(0.0, 255.0) as u8,
+                    nums[2].round().clamp(0.0, 255.0) as u8,
+                    nums[3].round().clamp(0.0, 255.0) as u8,
+                );
+                let pts: Vec<Pos2> = nums[4..]
+                    .chunks_exact(2)
+                    .map(|c| at(c[0], c[1]))
+                    .collect();
+                if pts.len() >= 3 {
+                    painter.add(egui::Shape::convex_polygon(pts, fill, Stroke::NONE));
                 }
             }
             "t" if nums.len() >= 3 => {
