@@ -777,6 +777,37 @@ pub fn draw_plot_icon(
                     painter.add(egui::Shape::line(pts, s));
                 }
             }
+            // Cubic Bezier curve: first pair is the start point (SVG M), each
+            // subsequent group of 3 pairs is a cubic segment (SVG C: two
+            // control points + endpoint).  Each segment is sampled with 16
+            // steps for a smooth polyline.
+            "bc" if nums.len() >= 8 && (nums.len() - 2) % 6 == 0 => {
+                let mut pts: Vec<Pos2> = Vec::new();
+                pts.push(at(nums[0], nums[1]));
+                let segs = (nums.len() - 2) / 6;
+                let steps = 16;
+                for s in 0..segs {
+                    let base = 2 + s * 6;
+                    let p0 = *pts.last().unwrap();
+                    let p1 = at(nums[base], nums[base + 1]);
+                    let p2 = at(nums[base + 2], nums[base + 3]);
+                    let p3 = at(nums[base + 4], nums[base + 5]);
+                    for i in 1..=steps {
+                        let t = i as f32 / steps as f32;
+                        let u = 1.0 - t;
+                        let x = p0.x * (u * u * u)
+                            + p1.x * (3.0 * u * u * t)
+                            + p2.x * (3.0 * u * t * t)
+                            + p3.x * (t * t * t);
+                        let y = p0.y * (u * u * u)
+                            + p1.y * (3.0 * u * u * t)
+                            + p2.y * (3.0 * u * t * t)
+                            + p3.y * (t * t * t);
+                        pts.push(Pos2::new(x, y));
+                    }
+                }
+                painter.add(egui::Shape::line(pts, stroke));
+            }
             "b" | "r" | "f" if nums.len() >= 4 => {
                 let r = Rect::from_two_pos(at(nums[0], nums[1]), at(nums[2], nums[3]));
                 match kind {

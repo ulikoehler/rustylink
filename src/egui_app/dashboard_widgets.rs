@@ -1914,9 +1914,10 @@ fn render_checkbox_control_widget(
     if app.live_mode_enabled && changed {
         let value = if current { on_value } else { off_value };
         app.queue_dashboard_control(block.clone(), DashboardControlValue::Scalar(value));
-        return true;
     }
-    false
+    // The live visual has been drawn above; return `true` so the caller does
+    // not also draw the static renderer on top of it.
+    true
 }
 
 #[cfg(feature = "dashboard")]
@@ -2010,9 +2011,10 @@ fn render_combo_box_control_widget(
 
     if let Some(value) = selected_value {
         app.queue_dashboard_control(block.clone(), DashboardControlValue::Scalar(value));
-        return true;
     }
-    false
+    // The live visual has been drawn above; return `true` so the caller does
+    // not also draw the static renderer on top of it.
+    true
 }
 
 #[cfg(feature = "dashboard")]
@@ -2072,9 +2074,10 @@ fn render_edit_field_control_widget(
         && let Some(value) = submitted
     {
         app.queue_dashboard_control(block.clone(), DashboardControlValue::Scalar(value));
-        return true;
     }
-    false
+    // The live visual has been drawn above; return `true` so the caller does
+    // not also draw the static renderer on top of it.
+    true
 }
 
 #[cfg(feature = "dashboard")]
@@ -2111,15 +2114,14 @@ fn render_push_button_control_widget(
         if is_down && !was_down {
             app.dashboard_active_pulses.insert(storage_key.clone());
             app.queue_dashboard_control(block.clone(), DashboardControlValue::PulseHigh);
-            return true;
-        }
-        if was_down && !ui.input(|input| input.pointer.primary_down()) {
+        } else if was_down && !ui.input(|input| input.pointer.primary_down()) {
             app.dashboard_active_pulses.remove(&storage_key);
             app.queue_dashboard_control(block.clone(), DashboardControlValue::PulseLow);
-            return true;
         }
     }
-    false
+    // The live visual has been drawn above; return `true` so the caller does
+    // not also draw the static renderer on top of it.
+    true
 }
 
 /// A painter-only per-widget live visual: the single concern of "draw this
@@ -2204,6 +2206,9 @@ fn render_painted_control_widget(
         return false;
     }
 
+    // The live visual has been drawn above; queue any interaction side effect
+    // but always return `true` so the caller does not also draw the static
+    // renderer on top of the live visual.
     match kind {
         "bool" => {
             if let Some(preview_value) = preview_value {
@@ -2211,27 +2216,16 @@ fn render_painted_control_widget(
                     block.clone(),
                     DashboardControlValue::Bool(preview_value >= 0.5),
                 );
-                true
-            } else {
-                false
             }
         }
-        "discrete" => {
+        "discrete" | "scalar" => {
             if let Some(value) = preview_value {
                 app.queue_dashboard_control(block.clone(), DashboardControlValue::Scalar(value));
-                return true;
             }
-            false
         }
-        "scalar" => {
-            if let Some(value) = preview_value {
-                app.queue_dashboard_control(block.clone(), DashboardControlValue::Scalar(value));
-                return true;
-            }
-            false
-        }
-        _ => false,
+        _ => {}
     }
+    true
 }
 
 // ─── Per-block interactive control entry points ─────────────────────────────

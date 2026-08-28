@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 170" xmlns:bx="https://boxy-svg.com">
+  <line x1="20" y1="0" x2="20" y2="170" stroke="#999" stroke-width="1" style="stroke-width: 1px;"/>
+  <line x1="0.583" y1="150.118" x2="280" y2="150.118" stroke="#999" stroke-width="1" style="stroke-width: 1px;"/>
+  <defs>
+    <bx:grid x="0" y="0" width="10" height="10" divisions="1"/>
+    <bx:grid x="0" y="0" width="10" height="10" divisions="1"/>
+    <bx:grid x="0" y="0" width="10" height="10" divisions="1"/>
+  </defs>
+  <line x1="-185.13" y1="-0.795" x2="-185.13" y2="169.205" stroke="#999" stroke-width="1" style="stroke-width: 1px;"/>
+  <line x1="107.436" y1="142.33" x2="172.563" y2="20" stroke="black" stroke-width="1.5" style="stroke-width: 1.5px;"/>
+  <path d="M 120 120 L 160 120 L 160 44.357 L 120 120 Z" fill="#ccc" opacity="0.7" stroke="none" stroke-width="1" style="stroke-width: 1px;"/>
+  <path d="M 20 80 C 40 40 60 40 80 80 C 100 120 120 120 140 80 C 160 40 180 40 200 80 C 220 120 240 120 260 80" fill="none" stroke="black" stroke-width="1.5" style="stroke-width: 1.5px;"/>
+</svg>

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 170" xmlns:bx="https://boxy-svg.com">
+  <line x1="20" y1="0" x2="20" y2="170" stroke="#999" stroke-width="1" style="stroke-width: 1px;"/>
+  <line x1="0.583" y1="150.118" x2="280" y2="150.118" stroke="#999" stroke-width="1" style="stroke-width: 1px;"/>
+  <defs>
+    <bx:grid x="0" y="0" width="10" height="10" divisions="1"/>
+  </defs>
+  <polygon style="fill: rgba(204, 204, 204, 0.7); stroke: none; transform-origin: 140px 35px 0px;" points="20 40 190 40 190 20 200 20 200 0 260 0 260 60 20 60" transform="matrix(-1, 0, 0, -1, 0, 0)"/>
+  <path d="M 20 76.706 C 24.8 68.047 29.6 68.047 34.4 76.706 C 39.2 85.364 44 85.364 48.8 76.706 C 53.6 68.047 58.4 69.778 63.2 76.706 C 72.8 94.023 82.4 59.388 96.8 42.07 C 111.2 24.752 125.6 24.752 140 50.729 C 154.4 76.706 159.2 120 173.6 120 C 188 120 192.8 76.706 202.4 50.729 C 212 24.752 221.6 24.752 231.2 42.07 C 238.88 59.388 240.8 72.376 245.6 76.706 C 250.4 85.364 255.2 85.364 260 76.706" fill="none" stroke="black" stroke-width="1.5" style="stroke-width: 1.5px;"/>
+  <polygon style="fill: rgba(204, 204, 204, 0.7); stroke: none; stroke-width: 1px; transform-origin: 140px 115px 0px;" points="20 140 70 140 70 110 130 110 130 145 260 145 260 90 20 90" transform="matrix(-1, 0, 0, -1, 0, 0)"/>
+  <polyline style="fill: none; stroke: rgb(0, 0, 0);" points="20 70 80 70 80 50 90 50 90 30 260 30"/>
+  <polyline style="fill: none; stroke: rgb(0, 0, 0);" points="20 85 150 85 150 120 210 120 210 90 260 90"/>
+</svg>
