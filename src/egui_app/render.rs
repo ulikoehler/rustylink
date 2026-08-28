@@ -2,7 +2,7 @@
 
 use crate::block_types::{self, BlockTypeConfig};
 use crate::model::Block;
-use eframe::egui::{self, Align2, Color32, Pos2, Rect, Stroke, Vec2};
+use eframe::egui::{self, Align2, Color32, Mesh, Pos2, Rect, Stroke, Vec2};
 
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
@@ -735,6 +735,92 @@ fn draw_stacked_lines(painter: &egui::Painter, avail: &Rect, spec: &str, color: 
 ///
 /// Unknown commands are skipped, so a malformed spec degrades to blank rather
 /// than panicking.
+
+/// Triangulate a (possibly concave) simple polygon via ear-clipping and
+/// return a filled [`Mesh`].  Used by the `pf` command for the stepped band
+/// shapes of the Check Dynamic block icons, which are concave and therefore
+/// cannot use `Shape::convex_polygon`.
+fn concave_polygon_mesh(pts: &[Pos2], fill: Color32) -> Mesh {
+    let mut mesh = Mesh::default();
+    // Ensure CCW winding (in screen coords, y-down).  The ear-clipper below
+    // expects CCW so that `cross > 0` identifies convex ("ear") vertices.
+    // Signed area: positive = CW (screen coords), negative = CCW.
+    let signed_area: f32 = pts
+        .windows(2)
+        .map(|w| (w[1].x - w[0].x) * (w[1].y + w[0].y))
+        .sum::<f32>()
+        + (pts[0].x - pts[pts.len() - 1].x) * (pts[0].y + pts[pts.len() - 1].y);
+    let pts: Vec<Pos2> = if signed_area > 0.0 {
+        pts.iter().rev().copied().collect()
+    } else {
+        pts.to_vec()
+    };
+    for &p in &pts {
+        mesh.vertices.push(egui::epaint::Vertex {
+            pos: p,
+            uv: (0.0, 0.0).into(),
+            color: fill,
+        });
+    }
+    // Ear-clipping: repeatedly find an "ear" (a triangle whose interior is
+    // inside the polygon and contains no other vertex) and clip it.
+    let mut indices: Vec<usize> = (0..pts.len()).collect();
+    let mut guard = 0;
+    while indices.len() > 2 && guard < 10_000 {
+        guard += 1;
+        let n = indices.len();
+        let mut clipped = false;
+        for i in 0..n {
+            let ia = indices[(i + n - 1) % n];
+            let ib = indices[i];
+            let ic = indices[(i + 1) % n];
+            let a = pts[ia];
+            let b = pts[ib];
+            let c = pts[ic];
+            // Cross product of (b-a) x (c-b); positive = left turn (CCW ear).
+            let cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+            if cross <= 0.0 {
+                continue; // reflex or degenerate vertex
+            }
+            // Check no other vertex is inside this triangle.
+            let inside = |p: Pos2| -> bool {
+                let d1 = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+                let d2 = (c.x - b.x) * (p.y - b.y) - (c.y - b.y) * (p.x - b.x);
+                let d3 = (a.x - c.x) * (p.y - c.y) - (a.y - c.y) * (p.x - c.x);
+                d1 >= 0.0 && d2 >= 0.0 && d3 >= 0.0
+            };
+            let mut ok = true;
+            for &j in &indices {
+                if j == ia || j == ib || j == ic {
+                    continue;
+                }
+                if inside(pts[j]) {
+                    ok = false;
+                    break;
+                }
+            }
+            if ok {
+                mesh.indices.extend([ia as u32, ib as u32, ic as u32]);
+                indices.remove(i);
+                clipped = true;
+                break;
+            }
+        }
+        if !clipped {
+            // Fallback: fan triangulation from vertex 0.
+            for i in 1..indices.len() - 1 {
+                mesh.indices.extend([
+                    indices[0] as u32,
+                    indices[i] as u32,
+                    indices[i + 1] as u32,
+                ]);
+            }
+            break;
+        }
+    }
+    mesh
+}
+
 pub fn draw_plot_icon(
     painter: &egui::Painter,
     rect: &Rect,
@@ -863,7 +949,7 @@ pub fn draw_plot_icon(
                     .map(|c| at(c[0], c[1]))
                     .collect();
                 if pts.len() >= 3 {
-                    painter.add(egui::Shape::convex_polygon(pts, fill, Stroke::NONE));
+                    painter.add(egui::Shape::mesh(concave_polygon_mesh(&pts, fill)));
                 }
             }
             "t" if nums.len() >= 3 => {
