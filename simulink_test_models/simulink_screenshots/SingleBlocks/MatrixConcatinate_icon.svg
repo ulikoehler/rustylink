@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 170 150" width="171.0px" height="149.882px">
+  <polygon style="fill: rgba(235, 235, 235, 0.5); stroke: rgb(0, 0, 0);" points="45.0 25.0 70.0 0.0 170.0 0.0 145.0 25.0"/>
+  <polygon style="fill: rgba(180, 180, 180, 0.5); stroke: rgb(0, 0, 0);" points="145.0 105.0 145.0 25.0 170.0 0.0 170.0 80.0"/>
+  <polygon style="fill: rgba(255, 255, 255, 0.5); stroke: rgb(0, 0, 0);" points="45.0 25.0 145.0 25.0 145.0 105.0 125.0 105.0 125.0 45.0 45.0 45.0"/>
+
+  <polygon style="fill: rgba(235, 235, 235, 0.5); stroke: rgb(0, 0, 0);" points="0.0 70.0 25 45 125 45 100 70"/>
+  <polygon style="fill: rgba(180, 180, 180, 0.5); stroke: rgb(0, 0, 0);" points="100.0 150.0 100 70 125 45 125 125"/>
+  <rect x="0" y="70" width="100" height="80" style="stroke: rgb(0, 0, 0); fill: rgba(255, 255, 255, 0.5);"/>
+
+  <line style="fill: none; stroke-width: 1px; stroke-dasharray: 4px; stroke: rgb(95, 95, 95);" x1="25" y1="45" x2="45" y2="25"/>
+  <line style="fill: none; stroke-width: 1px; stroke-dasharray: 4px; stroke: rgb(95, 95, 95);;" x1="125.0" y1="125.0" x2="145.0" y2="105.0"/>
+  <line style="fill: none; stroke-width: 1px; stroke-dasharray: 4px; stroke: rgb(95, 95, 95);" x1="125.0" y1="45.0" x2="145.0" y2="25.0"/>
+</svg>

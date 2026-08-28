@@ -686,6 +686,22 @@ pub struct SubsystemApp {
     /// When `true`, dashboard blocks render live values from `live_values` instead of static icons.
     pub live_mode_enabled: bool,
 
+    /// Whether live-mode hover tooltips are enabled (toolbar toggle).
+    pub live_tooltips_enabled: bool,
+
+    /// Set by Esc to suppress tooltips until the pointer moves.
+    pub tooltip_suppressed: bool,
+
+    /// Key (block SID or line index key) of the element currently hovered for
+    /// a tooltip, set during rendering so the plugin can request its
+    /// datafields.  `None` when no tooltip is shown.
+    pub hovered_tooltip_key: Option<String>,
+
+    /// Key of the element currently hovered (for tooltip), tracked even when
+    /// tooltips are suppressed by Esc.  Used to detect when the pointer leaves
+    /// all elements so suppression can be cleared.
+    pub currently_hovered_key: Option<String>,
+
     /// Live values for dashboard blocks, keyed by `DashboardBinding::uuid()`.
     pub live_values: HashMap<String, crate::live_values::LiveValueEntry>,
 
@@ -812,6 +828,10 @@ impl SubsystemApp {
             move_mode_enabled: false,
             add_mode_enabled: false,
             live_mode_enabled: false,
+            live_tooltips_enabled: true,
+            tooltip_suppressed: false,
+            hovered_tooltip_key: None,
+            currently_hovered_key: None,
             live_values: HashMap::new(),
             live_block_values: HashMap::new(),
             live_block_tooltips: HashMap::new(),

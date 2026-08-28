@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 170" xmlns:bx="https://boxy-svg.com">
+  <line x1="20" y1="0" x2="20" y2="170" stroke="#999" stroke-width="1" style="stroke-width: 1px;"/>
+  <line x1="0.583" y1="150.118" x2="280" y2="150.118" stroke="#999" stroke-width="1" style="stroke-width: 1px;"/>
+  <defs>
+    <bx:grid x="0" y="0" width="10" height="10" divisions="1"/>
+    <bx:grid x="0" y="0" width="10" height="10" divisions="1"/>
+    <bx:grid x="0" y="0" width="10" height="10" divisions="1"/>
+  </defs>
+  <path d="M 20 94.062 C 26.317 112.812 38.948 130 54.736 130 C 70.526 130 83.157 112.812 98.948 100.312 C 114.737 87.812 127.369 80 143.158 80 C 158.948 80 171.58 87.812 187.369 100.312 C 203.158 112.812 215.79 120.625 231.579 112.812 C 247.369 105 253.684 90.937 260.001 81.562" fill="none" stroke="black" stroke-width="1.5" style="stroke-width: 1.5px; transform-origin: 140px 105px 0px;" transform="matrix(-1, 0, 0, -1, 0, 0)"/>
+  <path d="M 20 45.938 C 26.316 27.188 38.947 10 54.736 10 C 70.526 10 83.158 27.188 98.947 39.688 C 114.736 52.188 127.369 60 143.158 60 C 158.947 60 171.579 52.188 187.369 39.688 C 203.158 27.188 215.79 19.375 231.579 27.188 C 247.369 35 253.684 49.063 260 58.438" fill="none" stroke="black" stroke-width="1.5" style="stroke-width: 1.5px; transform-origin: 140px 35px 0px;" transform="matrix(-1, 0, 0, -1, 0, 0)"/>
+  <polygon style="fill: rgba(204, 204, 204, 0.7); stroke: none;" points="20 46 110 46 110 54 170 54 170 60 260 60 260 80 170 80 170 86 110 86 110 94 20.01 94"/>
+  <polyline style="fill: none; stroke: rgb(0, 0, 0); stroke-width: 1px;" points="20 46 110 46 110 54 170 54 170 60 260 60"/>
+  <polyline style="fill: none; stroke: rgb(0, 0, 0); stroke-width: 1px;" points="20 94 110 94 110 86 170 86 170 80 260 80"/>
+</svg>

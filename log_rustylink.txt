@@ -1,4 +1,0 @@
-   Compiling rustylink v3.0.2 (/home/kueh_js/Dokumente/Programming/rustylink-refactor)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.88s
-     Running `target/debug/examples/egui_viewer simulink_test_models/Simulink_Blocks.slx`
-Initial subsystem at /: 275 blocks, 1 lines, 16 annotations

@@ -180,6 +180,44 @@ fn show_pointer_tooltip_text(ui: &egui::Ui, id: egui::Id, tooltip: &str) {
     });
 }
 
+/// Returns true if the pointer is currently hovering over any of the given
+/// block screen rects.  Used to skip line tooltips when the pointer is
+/// actually over a block (blocks are visually on top of lines).
+fn pointer_over_any_block(
+    ui: &egui::Ui,
+    sid_screen_map: &HashMap<String, egui::Rect>,
+) -> bool {
+    let Some(pos) = ui.ctx().pointer_hover_pos() else {
+        return false;
+    };
+    sid_screen_map.values().any(|rect| rect.contains(pos))
+}
+
+/// Returns true if the pointer is within `threshold` pixels of any line
+/// segment.  Uses the same 8.0px threshold as the click detection.
+fn pointer_near_any_segment(ui: &egui::Ui, segments: &[(egui::Pos2, egui::Pos2)]) -> bool {
+    let Some(cp) = ui.ctx().pointer_hover_pos() else {
+        return false;
+    };
+    let threshold = 8.0;
+    segments.iter().any(|(a, b)| {
+        let ab_x = b.x - a.x;
+        let ab_y = b.y - a.y;
+        let len_sq = ab_x * ab_x + ab_y * ab_y;
+        let t = if len_sq < 1e-6 {
+            0.0
+        } else {
+            ((cp.x - a.x) * ab_x + (cp.y - a.y) * ab_y) / len_sq
+        };
+        let t = t.clamp(0.0, 1.0);
+        let proj_x = a.x + ab_x * t;
+        let proj_y = a.y + ab_y * t;
+        let dx = cp.x - proj_x;
+        let dy = cp.y - proj_y;
+        (dx * dx + dy * dy).sqrt() <= threshold
+    })
+}
+
 fn show_pointer_tooltip_entries(ui: &egui::Ui, id: egui::Id, entries: &[LiveTooltipEntry]) {
     let _ = egui::Tooltip::always_open(
         ui.ctx().clone(),
@@ -229,6 +267,29 @@ fn toggle_manual_switch_setting(
     block: &crate::model::Block,
 ) -> Option<bool> {
     let block_sid = block.sid.as_ref()?;
+
+    // Read the current switch state from the live parameter value (which, in
+    // live mode, is what the display reflects).  Fall back to the model's
+    // static `current_setting` when no live value has arrived yet.
+    //
+    // Done with an immutable borrow of `app` before the mutable
+    // `resolve_subsystem_by_vec_mut` borrow below.
+    let live_enabled = app
+        .live_block_values
+        .get(&app.live_value_key_for_block(block))
+        .and_then(crate::live_values::LiveValueEntry::first_f64)
+        .map(|value| value >= 0.5);
+    let model_enabled = resolve_subsystem_by_vec(&app.root, &app.path)
+        .and_then(|system| {
+            system
+                .blocks
+                .iter()
+                .find(|candidate| candidate.sid.as_deref() == Some(block_sid.as_str()))
+        })
+        .and_then(|block| block.current_setting.as_deref())
+        .map(|setting| setting == "1");
+    let current_enabled = live_enabled.or(model_enabled).unwrap_or(false);
+
     let path = app.path.clone();
     let system = resolve_subsystem_by_vec_mut(&mut app.root, &path)?;
     let live_block = system
@@ -236,7 +297,7 @@ fn toggle_manual_switch_setting(
         .iter_mut()
         .find(|candidate| candidate.sid.as_ref() == Some(block_sid))?;
 
-    let enabled = !matches!(live_block.current_setting.as_deref(), Some("1"));
+    let enabled = !current_enabled;
     live_block.current_setting = Some(if enabled { "1" } else { "0" }.to_string());
     app.view_cache.invalidate();
     Some(enabled)
@@ -533,6 +594,21 @@ pub(crate) fn update_internal(
             {
                 app.live_mode_enabled = !app.live_mode_enabled;
                 ui.ctx().request_repaint();
+            }
+
+            if app.live_mode_enabled {
+                ui.separator();
+                let tooltip_label = if app.live_tooltips_enabled {
+                    "Tooltips: On"
+                } else {
+                    "Tooltips: Off"
+                };
+                if ui
+                    .selectable_label(app.live_tooltips_enabled, tooltip_label)
+                    .clicked()
+                {
+                    app.live_tooltips_enabled = !app.live_tooltips_enabled;
+                }
             }
 
             ui.separator();
@@ -835,6 +911,13 @@ pub(crate) fn update_internal(
                 app.layout_dirty = true;
                 app.view_cache.invalidate();
             }
+        }
+
+        // ── Tooltip suppression: Esc closes tooltips ──
+        // Suppression is cleared when the pointer leaves all elements
+        // (see the hover-leave check before the rendering loops).
+        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+            app.tooltip_suppressed = true;
         }
         // Get system reference AFTER undo/redo (which may mutate app.root)
         let sys = match resolve_subsystem_by_vec(&app.root, &app.path) {
@@ -1494,6 +1577,20 @@ pub(crate) fn update_internal(
                 sid_mirrored.insert(sid.clone(), b.block_mirror.unwrap_or(false));
             }
         }
+        // Tracks whether a tooltip has already been shown this frame, so that
+        // at most one tooltip is visible at a time (blocks win over lines).
+        let mut tooltip_shown = false;
+        // Reset the hovered-tooltip key so the plugin knows which element
+        // (if any) is currently showing a tooltip and can request its data.
+        app.hovered_tooltip_key = None;
+        // Save previous frame's hovered key, then reset for this frame.
+        let prev_hovered_key = app.currently_hovered_key.take();
+        // Clear Esc suppression when the pointer has left all elements
+        // (no element was hovered last frame).  When the user comes back
+        // to an element, the tooltip will show again.
+        if app.tooltip_suppressed && prev_hovered_key.is_none() {
+            app.tooltip_suppressed = false;
+        }
         for (li, line) in sys_lines.iter().enumerate() {
             let Some(src) = line.src.as_ref() else {
                 continue;
@@ -1589,12 +1686,27 @@ pub(crate) fn update_internal(
             let resp = if app.live_mode_enabled {
                 if let Some(tooltip_entries) = app.live_line_tooltips.get(&li) {
                     let resp = ui.allocate_rect(hit_rect, Sense::hover());
-                    if resp.hovered() {
-                        show_pointer_tooltip_entries(
-                            ui,
-                            app.egui_id(("line_value_tooltip", li)),
-                            tooltip_entries,
-                        );
+                    if resp.hovered() && !pointer_over_any_block(ui, &sid_screen_map) {
+                        // Precise per-segment distance check (same as click
+                        // detection) so the tooltip only shows when the pointer
+                        // is actually near a line segment, not in the bounding
+                        // box empty space.
+                        if pointer_near_any_segment(ui, &segments_all) {
+                            let key = format!("__line_{}", li);
+                            app.currently_hovered_key = Some(key.clone());
+                            if app.live_tooltips_enabled
+                                && !app.tooltip_suppressed
+                                && !tooltip_shown
+                            {
+                                show_pointer_tooltip_entries(
+                                    ui,
+                                    app.egui_id(("line_value_tooltip", li)),
+                                    tooltip_entries,
+                                );
+                                tooltip_shown = true;
+                                app.hovered_tooltip_key = Some(key);
+                            }
+                        }
                     }
                     resp
                 } else {
@@ -3113,6 +3225,12 @@ pub(crate) fn update_internal(
             } else {
                 None
             };
+            // In live mode, respect the tooltip toggle and suppression state.
+            // Outside live mode, value tooltips (Display/Constant) are always shown.
+            let live_tooltip_blocked = app.live_mode_enabled
+                && (!app.live_tooltips_enabled || app.tooltip_suppressed || tooltip_shown);
+            // Always interact so we can track hover even when tooltips are
+            // suppressed (needed for Esc hover-leave detection).
             if live_tooltip_entries.is_some() || value_tooltip.is_some() {
                 let hover_key = b.sid.clone().unwrap_or_else(|| b.name.clone());
                 let resp = ui.interact(
@@ -3121,10 +3239,17 @@ pub(crate) fn update_internal(
                     Sense::hover(),
                 );
                 if resp.hovered() {
-                    if let Some(entries) = live_tooltip_entries {
-                        show_pointer_tooltip_entries(ui, resp.id, entries);
-                    } else if let Some(tooltip) = value_tooltip.as_deref() {
-                        show_pointer_tooltip_text(ui, resp.id, tooltip);
+                    app.currently_hovered_key = Some(live_hover_key.clone());
+                    if !live_tooltip_blocked {
+                        if let Some(entries) = live_tooltip_entries {
+                            show_pointer_tooltip_entries(ui, resp.id, entries);
+                            tooltip_shown = true;
+                            app.hovered_tooltip_key = Some(live_hover_key.clone());
+                        } else if let Some(tooltip) = value_tooltip.as_deref() {
+                            show_pointer_tooltip_text(ui, resp.id, tooltip);
+                            tooltip_shown = true;
+                            app.hovered_tooltip_key = Some(live_hover_key.clone());
+                        }
                     }
                 }
             }
