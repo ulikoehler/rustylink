@@ -245,15 +245,10 @@ fn resolve_virtual_simulink_logic_and_bit() {
         sys.blocks[0].library_block_path.as_deref(),
         Some("simulink/Logic and Bit/SomeBlock")
     );
-    assert_eq!(
-        sys.blocks[0].port_counts.as_ref().and_then(|p| p.ins),
-        Some(1)
-    );
-    assert_eq!(
-        sys.blocks[0].port_counts.as_ref().and_then(|p| p.outs),
-        Some(1)
-    );
-    assert_eq!(sys.blocks[0].ports.len(), 2);
+    // A block with no <PortCounts> of its own gets no ports from the stub;
+    // the rendering layer falls back to catalog defaults for port count.
+    assert!(sys.blocks[0].port_counts.is_none());
+    assert_eq!(sys.blocks[0].ports.len(), 0);
 }
 
 #[test]

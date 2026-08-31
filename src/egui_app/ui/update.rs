@@ -2673,8 +2673,10 @@ pub(crate) fn update_internal(
                     if wired.contains(&(sid.clone(), index, is_input)) {
                         return;
                     }
-                    if port_label_defined_name(b, index, is_input, &cfg).is_some() {
-                        port_label_requests.push((sid.clone(), index, is_input, y));
+                    if let Some(name) = port_label_defined_name(b, index, is_input, &cfg) {
+                        if !name.is_empty() {
+                            port_label_requests.push((sid.clone(), index, is_input, y));
+                        }
                     }
                 };
                 if reinit {
@@ -2727,6 +2729,9 @@ pub(crate) fn update_internal(
                 }
 
                 let pname = port_label_display_name(block, *index, *is_input, &cfg);
+                if pname.is_empty() {
+                    continue;
+                }
                 let avail_w = (brect.width() - 8.0 * font_scale).max(1.0);
                 let font_id = egui::FontId::proportional(view_transform::shared_canvas_text_font_px(
                     font_scale,
@@ -3424,6 +3429,9 @@ pub(crate) fn update_internal(
             }
             let mirrored = block.block_mirror.unwrap_or(false);
             let pname = port_label_display_name(block, index, is_input, &cfg);
+            if pname.is_empty() {
+                continue;
+            }
             let avail_w = (brect.width() - 8.0 * font_scale).max(1.0);
             let font_id = egui::FontId::proportional(view_transform::shared_canvas_text_font_px(
                 font_scale,

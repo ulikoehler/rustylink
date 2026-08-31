@@ -422,4 +422,18 @@ mod tests {
             Some("JojoJointInterpolator".to_string())
         );
     }
+
+    #[test]
+    fn function_header_with_long_name_on_continuation_line() {
+        let script = concat!(
+            "function [follow_q_meas, control_mode] = ...\n",
+            "    Control_Mode_Preprocessor(desired_control_mode, collision_1OK_0_danger, new_collision_trigger, internal_simulation_enabled, is_real_experiment, Robot_DEF) ...\n",
+            "%% body\n",
+            "follow_q_meas = 0;"
+        );
+        assert_eq!(
+            script_function_name(script),
+            Some("Control_Mode_Preprocessor".to_string())
+        );
+    }
 }

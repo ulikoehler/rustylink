@@ -84,7 +84,6 @@ pub fn port_label_defined_name(
     render::subsystem_boundary_port_name(block, index, logical_is_input)
         .or_else(|| crate::simulink_libraries::render::port_label(block, index, logical_is_input))
         .or_else(catalog_name)
-        .filter(|name| !name.is_empty())
 }
 
 /// Resolve a block's [`BlockTypeConfig`] from the unified catalog.
