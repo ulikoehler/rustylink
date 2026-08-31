@@ -12,3 +12,4 @@ perf.data
 perf.data.old
 simulink_test_models/slprj/
 log_rustylink.txt
+*.autosave
