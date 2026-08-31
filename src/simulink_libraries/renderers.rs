@@ -2304,6 +2304,255 @@ pub fn static_scope(
 // `libraries::dashboard`, delegating to the matching `dashboard_widgets`
 // drawing routine.
 
+// ────────────────────────────────────────────────────────────────────────────
+// VariantStart / VariantEnd / VariantSink / VariantSource renderers.
+//
+// These blocks have a trapezoid body (drawn by the shared fill/stroke code)
+// and small empty squares at each port.  In live mode the active port square
+// is filled and a connecting lever line is drawn from the active input to
+// the active output, like the ManualSwitch.
+// ────────────────────────────────────────────────────────────────────────────
+
+use crate::connection_targets::active_variant_port_index;
+
+/// Draw a small square at each port position.  Returns `true` (the renderer
+/// fully handles the interior).
+pub fn static_variant_connector(
+    painter: &Painter,
+    block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    draw_variant_port_squares(painter, block, rect, ctx, None);
+    true
+}
+
+/// Live renderer: fills the active port square and draws a connecting lever
+/// line from the active input to the active output.
+pub fn live_variant_connector(
+    _app: &mut crate::egui_app::state::SubsystemApp,
+    ui: &mut eframe::egui::Ui,
+    block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+) -> bool {
+    let active = active_variant_port_index(block);
+    if active.is_none() {
+        // Can't determine the active variant — fall back to static.
+        return false;
+    }
+    draw_variant_port_squares(&ui.painter().with_clip_rect(*rect), block, rect, ctx, active);
+    draw_variant_lever(&ui.painter().with_clip_rect(*rect), block, rect, ctx, active);
+    true
+}
+
+/// Draw the small port squares for a variant routing block.
+/// When `active_port` is `Some`, that port's square is filled dark.
+fn draw_variant_port_squares(
+    painter: &Painter,
+    block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+    active_port: Option<u32>,
+) {
+    let stroke_w = (1.5 * ctx.font_scale).clamp(1.0, 3.0);
+    let square_size = (6.0 * ctx.font_scale).clamp(3.0, 10.0);
+    let half = square_size / 2.0;
+    let col_active = eframe::egui::Color32::from_rgb(32, 32, 32);
+    let col_inactive = eframe::egui::Color32::from_rgb(110, 110, 110);
+    let fill_active = eframe::egui::Color32::from_rgb(32, 32, 32);
+
+    let (max_in, max_out) = variant_port_counts(block);
+    let coords = ctx.port_y;
+
+    // Draw input port squares (left side).
+    for idx in 1..=max_in {
+        let y = coords
+            .and_then(|c| c.inputs.get(&idx).copied())
+            .unwrap_or_else(|| {
+                crate::egui_app::geometry::port_anchor_pos(
+                    *rect,
+                    crate::egui_app::geometry::PortSide::In,
+                    idx,
+                    Some(max_in),
+                )
+                .y
+            });
+        let center = eframe::egui::pos2(rect.left() + half + 1.0, y);
+        let is_active = active_port.is_some_and(|p| p == idx);
+        let color = if is_active { col_active } else { col_inactive };
+        if is_active {
+            painter.rect_filled(
+                eframe::egui::Rect::from_center_size(
+                    center,
+                    eframe::egui::vec2(square_size, square_size),
+                ),
+                0.0,
+                fill_active,
+            );
+        } else {
+            painter.rect_stroke(
+                eframe::egui::Rect::from_center_size(
+                    center,
+                    eframe::egui::vec2(square_size, square_size),
+                ),
+                0.0,
+                eframe::egui::Stroke::new(stroke_w, color),
+                eframe::egui::StrokeKind::Inside,
+            );
+        }
+    }
+
+    // Draw output port squares (right side).
+    for idx in 1..=max_out {
+        let y = coords
+            .and_then(|c| c.outputs.get(&idx).copied())
+            .unwrap_or_else(|| {
+                crate::egui_app::geometry::port_anchor_pos(
+                    *rect,
+                    crate::egui_app::geometry::PortSide::Out,
+                    idx,
+                    Some(max_out),
+                )
+                .y
+            });
+        let center = eframe::egui::pos2(rect.right() - half - 1.0, y);
+        let is_active = active_port.is_some_and(|p| p == idx);
+        let color = if is_active { col_active } else { col_inactive };
+        if is_active {
+            painter.rect_filled(
+                eframe::egui::Rect::from_center_size(
+                    center,
+                    eframe::egui::vec2(square_size, square_size),
+                ),
+                0.0,
+                fill_active,
+            );
+        } else {
+            painter.rect_stroke(
+                eframe::egui::Rect::from_center_size(
+                    center,
+                    eframe::egui::vec2(square_size, square_size),
+                ),
+                0.0,
+                eframe::egui::Stroke::new(stroke_w, color),
+                eframe::egui::StrokeKind::Inside,
+            );
+        }
+    }
+}
+
+/// Draw the connecting lever line from the active input port to the active
+/// output port.
+fn draw_variant_lever(
+    painter: &Painter,
+    block: &Block,
+    rect: &Rect,
+    ctx: &RenderContext<'_>,
+    active_port: Option<u32>,
+) {
+    let Some(active) = active_port else {
+        return;
+    };
+    let stroke_w = (1.5 * ctx.font_scale).clamp(1.0, 3.0);
+    let col = eframe::egui::Color32::from_rgb(32, 32, 32);
+    let square_size = (6.0 * ctx.font_scale).clamp(3.0, 10.0);
+    let half = square_size / 2.0;
+    let (max_in, max_out) = variant_port_counts(block);
+    let coords = ctx.port_y;
+
+    let (start, end) = if max_in == 1 && max_out > 1 {
+        // VariantStart / VariantSink: 1 input → N outputs.
+        // Active port index refers to the output port.
+        let in_y = coords
+            .and_then(|c| c.inputs.get(&1).copied())
+            .unwrap_or_else(|| {
+                crate::egui_app::geometry::port_anchor_pos(
+                    *rect,
+                    crate::egui_app::geometry::PortSide::In,
+                    1,
+                    Some(max_in),
+                )
+                .y
+            });
+        let out_y = coords
+            .and_then(|c| c.outputs.get(&active).copied())
+            .unwrap_or_else(|| {
+                crate::egui_app::geometry::port_anchor_pos(
+                    *rect,
+                    crate::egui_app::geometry::PortSide::Out,
+                    active,
+                    Some(max_out),
+                )
+                .y
+            });
+        (
+            eframe::egui::pos2(rect.left() + half + 1.0 + half, in_y),
+            eframe::egui::pos2(rect.right() - half - 1.0 - half, out_y),
+        )
+    } else if max_in > 1 && max_out == 1 {
+        // VariantEnd / VariantSource: N inputs → 1 output.
+        // Active port index refers to the input port.
+        let in_y = coords
+            .and_then(|c| c.inputs.get(&active).copied())
+            .unwrap_or_else(|| {
+                crate::egui_app::geometry::port_anchor_pos(
+                    *rect,
+                    crate::egui_app::geometry::PortSide::In,
+                    active,
+                    Some(max_in),
+                )
+                .y
+            });
+        let out_y = coords
+            .and_then(|c| c.outputs.get(&1).copied())
+            .unwrap_or_else(|| {
+                crate::egui_app::geometry::port_anchor_pos(
+                    *rect,
+                    crate::egui_app::geometry::PortSide::Out,
+                    1,
+                    Some(max_out),
+                )
+                .y
+            });
+        (
+            eframe::egui::pos2(rect.left() + half + 1.0 + half, in_y),
+            eframe::egui::pos2(rect.right() - half - 1.0 - half, out_y),
+        )
+    } else {
+        return;
+    };
+
+    painter.line_segment([start, end], eframe::egui::Stroke::new(stroke_w, col));
+}
+
+/// Get the (input_count, output_count) for a variant routing block.
+fn variant_port_counts(block: &Block) -> (u32, u32) {
+    let ins = block
+        .port_counts
+        .as_ref()
+        .and_then(|c| c.ins)
+        .unwrap_or_else(|| {
+            block
+                .ports
+                .iter()
+                .filter(|p| p.port_type == "in")
+                .count() as u32
+        });
+    let outs = block
+        .port_counts
+        .as_ref()
+        .and_then(|c| c.outs)
+        .unwrap_or_else(|| {
+            block
+                .ports
+                .iter()
+                .filter(|p| p.port_type == "out")
+                .count() as u32
+        });
+    (ins, outs)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

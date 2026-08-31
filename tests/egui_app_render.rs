@@ -343,6 +343,7 @@ fn reinit_event_port_sits_above_the_data_inputs() {
             },
             &counts,
             false,
+            &[],
         )
     };
 
@@ -395,13 +396,71 @@ fn enable_and_trigger_endpoints_land_on_different_top_edge_slots() {
         port_index: 1,
     };
 
-    let enable = endpoint_pos(rect, &control("enable"), &port_counts, false);
-    let trigger = endpoint_pos(rect, &control("trigger"), &port_counts, false);
+    let enable = endpoint_pos(rect, &control("enable"), &port_counts, false, &[]);
+    let trigger = endpoint_pos(rect, &control("trigger"), &port_counts, false, &[]);
 
     assert_eq!(enable.y, rect.top());
     assert_eq!(trigger.y, rect.top());
     assert_eq!(enable.x, 30.0);
     assert_eq!(trigger.x, 60.0);
+}
+
+/// A round Sum places its last input on the bottom edge via a
+/// `PortPositionOverride`.  `endpoint_pos` must honour that override so line
+/// endpoints land on the bottom edge, not the default left-edge slot.
+#[test]
+fn round_sum_last_input_endpoint_uses_bottom_override() {
+    use eframe::egui::{Pos2, Rect};
+    use rustylink::egui_app::ui::signal_routing::{compute_port_info, endpoint_pos};
+    use rustylink::model::EndpointRef;
+    use rustylink::simulink_libraries::libraries::core::ROUND_SUM_PORT_OVERRIDES;
+
+    // Build a synthetic round-Sum-like block with 4 inputs.
+    let mut block = rustylink::editor::operations::create_default_block("Sum", "Sum4", 0, 0, 4, 1);
+    block.sid = Some("479".to_string());
+    block.properties
+        .insert("IconShape".to_string(), "round".to_string());
+    block.properties
+        .insert("Inputs".to_string(), "-+++".to_string());
+
+    let (port_counts, _) = compute_port_info(&[], std::slice::from_ref(&block));
+    let rect = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(20.0, 20.0));
+
+    // Port 4 is the last input; the override places it on the bottom edge at
+    // fraction 0.5, i.e. (10, 20).
+    let ep = EndpointRef {
+        sid: "479".to_string(),
+        port_type: "in".to_string(),
+        port_index: 4,
+    };
+    let pos = endpoint_pos(rect, &ep, &port_counts, false, ROUND_SUM_PORT_OVERRIDES);
+    assert_eq!(pos.x, 10.0, "bottom port x should be centered");
+    assert_eq!(pos.y, 20.0, "bottom port y should be at rect.bottom()");
+
+    // Without the override, port 4 would be on the left edge.
+    let pos_no_override = endpoint_pos(rect, &ep, &port_counts, false, &[]);
+    assert_eq!(
+        pos_no_override.x, 0.0,
+        "without override, port 4 should be on the left edge"
+    );
+}
+
+/// Control port endpoints without an explicit port index (e.g. `"480#enable"`)
+/// must parse successfully and default to port index 1.
+#[test]
+fn parse_endpoint_control_port_without_index_defaults_to_1() {
+    use rustylink::parser::helpers::parse_endpoint;
+
+    let ep = parse_endpoint("480#enable").expect("control port endpoint should parse");
+    assert_eq!(ep.sid, "480");
+    assert_eq!(ep.port_type, "enable");
+    assert_eq!(ep.port_index, 1);
+
+    // Standard format still works.
+    let ep2 = parse_endpoint("18#out:1").expect("standard endpoint should parse");
+    assert_eq!(ep2.sid, "18");
+    assert_eq!(ep2.port_type, "out");
+    assert_eq!(ep2.port_index, 1);
 }
 
 #[test]

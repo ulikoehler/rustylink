@@ -32,12 +32,23 @@ struct Args {
     /// Additional directories to search for library `.slx` files. Can be repeated.
     #[arg(short = 'L', long = "lib")]
     lib: Vec<String>,
+
+    /// Which variant is active in "sim codegen switching" mode: `codegen` (default) or `sim`.
+    #[arg(long = "sim-codegen-mode", value_name = "MODE", default_value = "codegen")]
+    sim_codegen_mode: String,
 }
 
 #[cfg(feature = "egui")]
 fn main() -> Result<()> {
     let args = Args::parse();
     let path = Utf8PathBuf::from(&args.file);
+
+    // Apply the sim/codegen variant mode before building any resolver.
+    match args.sim_codegen_mode.as_str() {
+        "sim" => rustylink::set_sim_codegen_mode(rustylink::SimCodegenMode::Sim),
+        "codegen" => rustylink::set_sim_codegen_mode(rustylink::SimCodegenMode::Codegen),
+        _ => {}
+    }
 
     // Build library search paths
     let mut lib_paths: Vec<Utf8PathBuf> = Vec::new();

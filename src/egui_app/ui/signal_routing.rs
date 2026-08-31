@@ -225,11 +225,17 @@ pub fn reinit_data_input_pos(
 /// Control ports are numbered per type (`enable:1` *and* `trigger:1`), so their
 /// index says nothing about where they sit on the top edge; the slot recorded
 /// by [`compute_port_info`] does.
+///
+/// `overrides` carries the block's [`PortPositionOverride`] entries (e.g. a
+/// round Sum wraps its last input onto the bottom edge).  When an override
+/// matches the endpoint's side and (adjusted) index, its placement is used
+/// instead of the standard evenly-distributed anchor.
 pub fn endpoint_pos(
     rect: eframe::egui::Rect,
     ep: &crate::model::EndpointRef,
     port_counts: &std::collections::HashMap<(String, u8), u32>,
     mirrored: bool,
+    overrides: &[crate::simulink_libraries::types::PortPositionOverride],
 ) -> Pos2 {
     let is_event = ep.port_type.eq_ignore_ascii_case("event");
     let reinit = is_reinit_subsystem_counts(port_counts, &ep.sid);
@@ -274,6 +280,19 @@ pub fn endpoint_pos(
     } else {
         ep.port_index
     };
+
+    // Apply a matching port-position override (e.g. round Sum's last input on
+    // the bottom edge).  Only data inputs (kind 0) and data outputs (kind 1)
+    // are eligible; control ports (kind 2) and events keep their standard
+    // placement.
+    if kind == 0 || kind == 1 {
+        let is_input = kind == 0;
+        let count = num_ports.unwrap_or(index.max(1));
+        if let Some(ovr) = overrides.iter().find(|o| o.matches(is_input, index, count)) {
+            return crate::egui_app::geometry::placement_pos(rect, ovr.placement, ovr.fraction);
+        }
+    }
+
     crate::egui_app::geometry::port_anchor_pos(rect, side, index, num_ports)
 }
 

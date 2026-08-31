@@ -156,7 +156,7 @@ pub fn port_indicator_positions_with_overrides(
 }
 
 /// Convert a [`PortPlacement`] + fraction to a concrete position on a block rect.
-fn placement_pos(
+pub fn placement_pos(
     r: Rect,
     placement: crate::simulink_libraries::types::PortPlacement,
     fraction: f32,

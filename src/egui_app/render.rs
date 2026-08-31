@@ -109,6 +109,30 @@ pub fn fill_block_body(
             // shortest side, giving a stadium/obround).
             painter.rect_filled(rect, rect.height() * 0.5, bg);
         }
+        BlockShape::TrapezoidRight => {
+            let pts = trapezoid_right_points(rect);
+            let mut path = egui::epaint::PathShape::closed_line(pts, Stroke::NONE);
+            path.fill = bg;
+            painter.add(egui::Shape::Path(path));
+        }
+        BlockShape::TrapezoidLeft => {
+            let pts = trapezoid_left_points(rect);
+            let mut path = egui::epaint::PathShape::closed_line(pts, Stroke::NONE);
+            path.fill = bg;
+            painter.add(egui::Shape::Path(path));
+        }
+        BlockShape::TrapezoidStemRight => {
+            let pts = trapezoid_stem_right_points(rect);
+            let mut path = egui::epaint::PathShape::closed_line(pts, Stroke::NONE);
+            path.fill = bg;
+            painter.add(egui::Shape::Path(path));
+        }
+        BlockShape::TrapezoidStemLeft => {
+            let pts = trapezoid_stem_left_points(rect);
+            let mut path = egui::epaint::PathShape::closed_line(pts, Stroke::NONE);
+            path.fill = bg;
+            painter.add(egui::Shape::Path(path));
+        }
         BlockShape::None => {
             // The block's static renderer paints its own body; nothing here.
         }
@@ -173,10 +197,132 @@ pub fn stroke_block_body(
         BlockShape::Obround => {
             painter.rect_stroke(rect, rect.height() * 0.5, stroke, egui::StrokeKind::Inside);
         }
+        BlockShape::TrapezoidRight => {
+            let pts = trapezoid_right_points(rect);
+            painter.add(egui::Shape::Path(egui::epaint::PathShape::closed_line(
+                pts, stroke,
+            )));
+        }
+        BlockShape::TrapezoidLeft => {
+            let pts = trapezoid_left_points(rect);
+            painter.add(egui::Shape::Path(egui::epaint::PathShape::closed_line(
+                pts, stroke,
+            )));
+        }
+        BlockShape::TrapezoidStemRight => {
+            let pts = trapezoid_stem_right_points(rect);
+            painter.add(egui::Shape::Path(egui::epaint::PathShape::closed_line(
+                pts, stroke,
+            )));
+        }
+        BlockShape::TrapezoidStemLeft => {
+            let pts = trapezoid_stem_left_points(rect);
+            painter.add(egui::Shape::Path(egui::epaint::PathShape::closed_line(
+                pts, stroke,
+            )));
+        }
         BlockShape::None => {
             // The block's static renderer paints its own outline; nothing here.
         }
     }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Trapezoid geometry helpers for VariantStart/End/Sink/Source blocks.
+//
+// TrapezoidRight/Left use 30° sloped sides (shallower than 45°).
+// The narrow side height is `H - 2*W*tan(30°)`, clamped to ≥ 0.
+//
+// TrapezoidStemRight/Left have a rectangular section on the WIDE side
+// (top + bottom horizontal bars + vertical bar), then 45° taper to the
+// narrow side.  The rectangle takes 1/3 of the width.
+// ────────────────────────────────────────────────────────────────────────────
+
+/// tan(30°) — shallower slope for VariantStart/End trapezoids.
+const TAN_30: f32 = 0.57735;
+
+/// Trapezoid wide on the right, narrow on the left (VariantStart).
+/// 30° sloped sides.
+fn trapezoid_right_points(rect: Rect) -> Vec<egui::Pos2> {
+    let w = rect.width();
+    let h = rect.height();
+    let cy = rect.center().y;
+    let narrow_half = ((h - 2.0 * w * TAN_30) / 2.0).max(0.0);
+    vec![
+        egui::pos2(rect.left(), cy - narrow_half),
+        egui::pos2(rect.right(), rect.top()),
+        egui::pos2(rect.right(), rect.bottom()),
+        egui::pos2(rect.left(), cy + narrow_half),
+    ]
+}
+
+/// Trapezoid wide on the left, narrow on the right (VariantEnd).
+/// 30° sloped sides.
+fn trapezoid_left_points(rect: Rect) -> Vec<egui::Pos2> {
+    let w = rect.width();
+    let h = rect.height();
+    let cy = rect.center().y;
+    let narrow_half = ((h - 2.0 * w * TAN_30) / 2.0).max(0.0);
+    vec![
+        egui::pos2(rect.left(), rect.top()),
+        egui::pos2(rect.right(), cy - narrow_half),
+        egui::pos2(rect.right(), cy + narrow_half),
+        egui::pos2(rect.left(), rect.bottom()),
+    ]
+}
+
+/// Trapezoid with rectangular section on the wide right side, then 45°
+/// taper to narrow left (VariantSink).
+///
+/// ```text
+///    _____
+///   /     |
+///         |
+///         |
+///   \_____|
+/// ```
+fn trapezoid_stem_right_points(rect: Rect) -> Vec<egui::Pos2> {
+    let w = rect.width();
+    let h = rect.height();
+    let cy = rect.center().y;
+    let stem_w = w / 3.0;
+    let taper_w = w - stem_w;
+    let narrow_half = ((h - 2.0 * taper_w) / 2.0).max(0.0);
+    vec![
+        egui::pos2(rect.left(), cy - narrow_half),
+        egui::pos2(rect.right() - stem_w, rect.top()),
+        egui::pos2(rect.right(), rect.top()),
+        egui::pos2(rect.right(), rect.bottom()),
+        egui::pos2(rect.right() - stem_w, rect.bottom()),
+        egui::pos2(rect.left(), cy + narrow_half),
+    ]
+}
+
+/// Trapezoid with rectangular section on the wide left side, then 45°
+/// taper to narrow right (VariantSource).
+///
+/// ```text
+/// _____
+/// |       \
+/// |        |
+/// |        |
+/// |____/
+/// ```
+fn trapezoid_stem_left_points(rect: Rect) -> Vec<egui::Pos2> {
+    let w = rect.width();
+    let h = rect.height();
+    let cy = rect.center().y;
+    let stem_w = w / 3.0;
+    let taper_w = w - stem_w;
+    let narrow_half = ((h - 2.0 * taper_w) / 2.0).max(0.0);
+    vec![
+        egui::pos2(rect.left(), rect.top()),
+        egui::pos2(rect.left() + stem_w, rect.top()),
+        egui::pos2(rect.right(), cy - narrow_half),
+        egui::pos2(rect.right(), cy + narrow_half),
+        egui::pos2(rect.left() + stem_w, rect.bottom()),
+        egui::pos2(rect.left(), rect.bottom()),
+    ]
 }
 
 pub fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {

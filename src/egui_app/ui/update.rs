@@ -1572,9 +1572,17 @@ pub(crate) fn update_internal(
         let mut port_y_screen: HashMap<(String, u32, bool), f32> = HashMap::new();
         // Precompute mirroring for each block SID in this view
         let mut sid_mirrored: HashMap<String, bool> = HashMap::new();
+        // Precompute port-position overrides for each block SID (e.g. a round
+        // Sum wraps its last input onto the bottom edge).  Resolved once per
+        // frame so every line endpoint lookup reuses the same overrides.
+        let mut sid_port_overrides: HashMap<String, Vec<crate::simulink_libraries::types::PortPositionOverride>> = HashMap::new();
         for (b, _r) in &blocks {
             if let Some(sid) = &b.sid {
                 sid_mirrored.insert(sid.clone(), b.block_mirror.unwrap_or(false));
+                let cfg = get_block_type_cfg(b);
+                if !cfg.port_position_overrides.is_empty() {
+                    sid_port_overrides.insert(sid.clone(), cfg.port_position_overrides.clone());
+                }
             }
         }
         // Tracks whether a tooltip has already been shown this frame, so that
@@ -1600,7 +1608,8 @@ pub(crate) fn update_internal(
             };
             let mut offsets_pts: Vec<Pos2> = Vec::new();
             let mirrored_src = sid_mirrored.get(&src.sid).copied().unwrap_or(false);
-            let mut cur = signal_routing::endpoint_pos(*sr, src, &port_counts, mirrored_src);
+            let src_overrides = sid_port_overrides.get(&src.sid).map(|v| v.as_slice()).unwrap_or(&[]);
+            let mut cur = signal_routing::endpoint_pos(*sr, src, &port_counts, mirrored_src, src_overrides);
             offsets_pts.push(cur);
             for off in &line.points {
                 cur = Pos2::new(cur.x + off.x as f32, cur.y + off.y as f32);
@@ -1624,7 +1633,8 @@ pub(crate) fn update_internal(
                         .find(|b| b.sid.as_ref() == Some(&dst.sid))
                         .and_then(|b| b.block_mirror)
                         .unwrap_or(false);
-                    let dst_pt = signal_routing::endpoint_pos(*dr, dst, &port_counts, mirrored_dst);
+                    let dst_overrides = sid_port_overrides.get(&dst.sid).map(|v| v.as_slice()).unwrap_or(&[]);
+                    let dst_pt = signal_routing::endpoint_pos(*dr, dst, &port_counts, mirrored_dst, dst_overrides);
                     let dst_screen = to_screen(dst_pt);
                     screen_pts.push(dst_screen);
                     if dst.port_type == "in" {
@@ -1653,6 +1663,7 @@ pub(crate) fn update_internal(
                     &mut segments_all,
                     &mut port_y_screen,
                     &sid_mirrored,
+                    &sid_port_overrides,
                 );
             }
             let pad = 8.0;
@@ -1737,6 +1748,7 @@ pub(crate) fn update_internal(
             out: &mut Vec<(Pos2, Pos2)>,
             port_y_screen: &mut HashMap<(String, u32, bool), f32>,
             sid_mirrored: &HashMap<String, bool>,
+            sid_port_overrides: &HashMap<String, Vec<crate::simulink_libraries::types::PortPositionOverride>>,
         ) {
             let mut pts: Vec<Pos2> = vec![start];
             let mut cur = start;
@@ -1749,8 +1761,9 @@ pub(crate) fn update_internal(
             if let Some(dstb) = &br.dst
                 && let Some(dr) = sid_map.get(&dstb.sid) {
                     let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
+                    let dst_overrides = sid_port_overrides.get(&dstb.sid).map(|v| v.as_slice()).unwrap_or(&[]);
                     let end_pt =
-                        signal_routing::endpoint_pos(*dr, dstb, port_counts, mirrored_dst);
+                        signal_routing::endpoint_pos(*dr, dstb, port_counts, mirrored_dst, dst_overrides);
                     let a = to_screen(*pts.last().unwrap_or(&cur));
                     let b = to_screen(end_pt);
                     signal_routing::push_orthogonal_segments(&[a, b], out);
@@ -1768,6 +1781,7 @@ pub(crate) fn update_internal(
                     out,
                     port_y_screen,
                     sid_mirrored,
+                    sid_port_overrides,
                 );
             }
         }
@@ -1814,6 +1828,7 @@ pub(crate) fn update_internal(
             color: Color32,
             port_label_requests: &mut Vec<(String, u32, bool, f32)>,
             sid_mirrored: &HashMap<String, bool>,
+            sid_port_overrides: &HashMap<String, Vec<crate::simulink_libraries::types::PortPositionOverride>>,
         ) {
             let mut pts: Vec<Pos2> = vec![start];
             let mut cur = start;
@@ -1828,13 +1843,16 @@ pub(crate) fn update_internal(
             if let Some(dstb) = &br.dst
                 && let Some(dr) = sid_map.get(&dstb.sid) {
                     let mirrored_dst = sid_mirrored.get(&dstb.sid).copied().unwrap_or(false);
+                    let dst_overrides = sid_port_overrides.get(&dstb.sid).map(|v| v.as_slice()).unwrap_or(&[]);
                     let end_pt =
-                        signal_routing::endpoint_pos(*dr, dstb, port_counts, mirrored_dst);
+                        signal_routing::endpoint_pos(*dr, dstb, port_counts, mirrored_dst, dst_overrides);
                     let last = *pts.last().unwrap_or(&cur);
                     let a = to_screen(last);
                     let b = to_screen(end_pt);
                     let ortho = signal_routing::orthogonalize_polyline(&[a, b]);
-                    if dstb.port_type == "in" {
+                    let is_in_dst = dstb.port_type == "in"
+                        || crate::egui_app::geometry::is_control_port_type(&dstb.port_type);
+                    if is_in_dst {
                         for seg in ortho.windows(2).take(ortho.len().saturating_sub(2)) {
                             painter.line_segment([seg[0], seg[1]], stroke);
                         }
@@ -1842,7 +1860,9 @@ pub(crate) fn update_internal(
                             let n = ortho.len();
                             draw_arrow_with_trim(painter, ortho[n - 2], ortho[n - 1], color, stroke);
                         }
-                        port_label_requests.push((dstb.sid.clone(), dstb.port_index, true, b.y));
+                        if dstb.port_type == "in" {
+                            port_label_requests.push((dstb.sid.clone(), dstb.port_index, true, b.y));
+                        }
                     } else {
                         for seg in ortho.windows(2) {
                             painter.line_segment([seg[0], seg[1]], stroke);
@@ -1861,6 +1881,7 @@ pub(crate) fn update_internal(
                     color,
                     port_label_requests,
                     sid_mirrored,
+                    sid_port_overrides,
                 );
             }
         }
@@ -1893,7 +1914,10 @@ pub(crate) fn update_internal(
                 line_stroke_width(line_targets, app.selected_line_indices.contains(li)),
                 color,
             );
-            let has_in_dst = line.dst.as_ref().is_some_and(|dst| dst.port_type == "in");
+            let has_in_dst = line.dst.as_ref().is_some_and(|dst| {
+                dst.port_type == "in"
+                    || crate::egui_app::geometry::is_control_port_type(&dst.port_type)
+            });
             let mut draw_pts = screen_pts.clone();
             if draw_pts.len() >= 2 {
                 let dx = draw_pts[1].x - draw_pts[0].x;
@@ -1928,6 +1952,7 @@ pub(crate) fn update_internal(
                     color,
                     &mut port_label_requests,
                     &sid_mirrored,
+                    &sid_port_overrides,
                 );
             }
             if show_testpoint_marker
@@ -2325,6 +2350,7 @@ pub(crate) fn update_internal(
                     &mut segments,
                     &mut port_y_screen,
                     &sid_mirrored,
+                    &sid_port_overrides,
                 );
             }
             let mut best_len2 = -1.0f32;

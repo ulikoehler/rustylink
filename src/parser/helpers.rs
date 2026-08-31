@@ -28,16 +28,21 @@ pub fn parse_points(s: &str) -> Vec<Point> {
 }
 
 /// Parse an endpoint string like `"18#out:1"` into an [`EndpointRef`].
+///
+/// Control ports (enable, trigger, reset, …) can be referenced without a port
+/// index (e.g. `"480#enable"`); the index defaults to `1` in that case.
 pub fn parse_endpoint(s: &str) -> Result<EndpointRef> {
     let (sid_str, rest) = s
         .split_once('#')
         .ok_or_else(|| anyhow!("Invalid endpoint format: {}", s))?;
     let sid: String = sid_str.trim().to_string();
-    let (ptype, pidx_str) = rest
-        .split_once(':')
-        .ok_or_else(|| anyhow!("Invalid endpoint port format: {}", s))?;
-    let port_type = ptype.trim().to_string();
-    let port_index: u32 = pidx_str.trim().parse()?;
+    let (port_type, port_index) = match rest.trim().split_once(':') {
+        Some((ptype, pidx_str)) => {
+            (ptype.trim().to_string(), pidx_str.trim().parse::<u32>()?)
+        }
+        // No port index (e.g. "480#enable") – default to port 1.
+        None => (rest.trim().to_string(), 1),
+    };
     Ok(EndpointRef {
         sid,
         port_type,

@@ -57,6 +57,18 @@ pub enum SimulinkShape {
     /// Obround / stadium: a rectangle whose short ends are full semicircles
     /// (used for subsystem In/Outport blocks).
     Obround,
+    /// Isosceles trapezoid with 45° sides, wide on the right (VariantStart).
+    /// The narrow left side is centered vertically.
+    TrapezoidRight,
+    /// Isosceles trapezoid with 45° sides, wide on the left (VariantEnd).
+    /// The narrow right side is centered vertically.
+    TrapezoidLeft,
+    /// Trapezoid with a rectangular stem on the left, then 45° taper to a wide
+    /// right side (VariantSink).
+    TrapezoidStemRight,
+    /// Trapezoid with a wide left side, then 45° taper to a rectangular stem on
+    /// the right (VariantSource).
+    TrapezoidStemLeft,
     /// No body drawn by the shared fill/stroke passes: the block's
     /// `static_renderer` paints the entire body (fill + outline + interior)
     /// itself.  Used for metadata-dependent bodies such as Logic gates, whose
