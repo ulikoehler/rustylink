@@ -425,7 +425,7 @@ impl ConnectionTargetResolver {
                     }
                     "Mux" => self.mux_targets(system, block, line_targets),
                     "Demux" => self.demux_targets(system, block, src.port_index, line_targets),
-                    "Inport" => parent_ctx
+                    "Inport" | "InportShadow" => parent_ctx
                         .and_then(|ctx| ctx.incoming_by_port.get(&boundary_port_index(block)))
                         .cloned()
                         .unwrap_or_else(|| {
@@ -461,6 +461,7 @@ impl ConnectionTargetResolver {
                         | "Mux"
                         | "Demux"
                         | "Inport"
+                        | "InportShadow"
                         | "SubSystem"
                         | "Reference"
                         | "From"
@@ -883,7 +884,7 @@ impl ConnectionTargetResolver {
             "BusAssignment" => self.bus_selector_upstream_targets(system, block, line_targets),
             "Mux" => self.mux_upstream_targets(system, block, dst.port_index, line_targets),
             "Demux" => self.demux_upstream_targets(system, block, line_targets),
-            "Inport" => outgoing_line_indices_for_block(system, block)
+            "Inport" | "InportShadow" => outgoing_line_indices_for_block(system, block)
                 .into_iter()
                 .flat_map(|(line_index, _)| line_targets[line_index].clone())
                 .collect(),
@@ -1215,7 +1216,10 @@ fn child_outgoing_targets_by_port(
     line_targets: &[Vec<ConnectionTarget>],
 ) -> BTreeMap<u32, Vec<ConnectionTarget>> {
     let mut by_port = BTreeMap::new();
-    let inport_boundary_paths = subsystem_boundary_paths(resolver, system, system_path, "Inport");
+    let inport_boundary_paths: BTreeSet<String> = subsystem_boundary_paths(resolver, system, system_path, "Inport")
+        .union(&subsystem_boundary_paths(resolver, system, system_path, "InportShadow"))
+        .cloned()
+        .collect();
     for block in &system.blocks {
         if block.block_type != "Outport" {
             continue;
@@ -1246,7 +1250,7 @@ fn child_incoming_targets_by_port(
 ) -> BTreeMap<u32, Vec<ConnectionTarget>> {
     let mut by_port = BTreeMap::new();
     for block in &system.blocks {
-        if block.block_type != "Inport" {
+        if !matches!(block.block_type.as_str(), "Inport" | "InportShadow") {
             continue;
         }
 

@@ -369,7 +369,10 @@ pub(crate) fn subsystem_boundary_port_name(
         .as_ref()?
         .blocks
         .iter()
-        .filter(|child| child.block_type == boundary_type)
+        .filter(|child| {
+            child.block_type == boundary_type
+                || (boundary_type == "Inport" && child.block_type == "InportShadow")
+        })
         .find(|child| subsystem_boundary_port_index(child) == index)
         .and_then(|child| boundary_block_display_name(child, index))
 }

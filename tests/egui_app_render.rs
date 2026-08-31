@@ -403,3 +403,25 @@ fn enable_and_trigger_endpoints_land_on_different_top_edge_slots() {
     assert_eq!(enable.x, 30.0);
     assert_eq!(trigger.x, 60.0);
 }
+
+#[test]
+fn inport_shadow_resolves_to_same_definition_as_inport() {
+    use rustylink::simulink_libraries::resolve_definition;
+    use rustylink::simulink_libraries::types::SimulinkShape;
+
+    let block = rustylink::editor::operations::create_default_block(
+        "InportShadow",
+        "shadow",
+        0,
+        0,
+        0,
+        1,
+    );
+    let def = resolve_definition(&block);
+    assert_eq!(def.block_type, "InportShadow");
+    // Same shape as Inport
+    assert_eq!(def.shape, SimulinkShape::Obround);
+    // Same port topology: 0 inputs, 1 output
+    assert_eq!(def.inputs.default_count(), 0);
+    assert_eq!(def.outputs.default_count(), 1);
+}

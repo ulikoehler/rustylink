@@ -113,3 +113,49 @@ fn check_verification_reference_blocks_have_no_output_port() {
     assert_eq!(pc.ins, Some(3));
     assert_eq!(pc.outs, None, "Check Dynamic Range must not have an output port");
 }
+
+#[test]
+fn inport_shadow_block_parses_and_renders_like_inport() {
+    let xml = r#"<?xml version="1.0" encoding="utf-8"?>
+<System>
+  <Block BlockType="InportShadow" Name="joint_ref_bus_" SID="221298">
+    <P Name="Position">[375, 537, 410, 553]</P>
+    <P Name="ZOrder">6634</P>
+    <P Name="ForegroundColor">red</P>
+    <P Name="Port">2</P>
+    <PortProperties>
+      <Port Type="out" Index="1">
+        <P Name="PropagatedSignals">joint_ref_bus</P>
+      </Port>
+    </PortProperties>
+  </Block>
+</System>
+"#;
+
+    let path = Utf8PathBuf::from("mem://inport_shadow_test.xml");
+    let mut files = HashMap::new();
+    files.insert(path.as_str().to_string(), xml.to_string());
+    let source = MemSource { files };
+    let mut parser = SimulinkParser::new("/", source);
+    let system = parser.parse_system_file(&path).expect("parse system XML");
+
+    assert_eq!(system.blocks.len(), 1);
+    let b = &system.blocks[0];
+    assert_eq!(b.block_type, "InportShadow");
+    assert_eq!(b.name, "joint_ref_bus_");
+    assert_eq!(b.sid.as_deref(), Some("221298"));
+    // Port property is parsed
+    assert_eq!(b.properties.get("Port").map(|s| s.as_str()), Some("2"));
+    // One output port (the shadow feeds signals into the subsystem)
+    assert_eq!(b.ports.len(), 1);
+    assert_eq!(b.ports[0].port_type, "out");
+    assert_eq!(b.ports[0].index, Some(1));
+    // PropagatedSignals is preserved on the port
+    assert_eq!(
+        b.ports[0]
+            .properties
+            .get("PropagatedSignals")
+            .map(|s| s.as_str()),
+        Some("joint_ref_bus")
+    );
+}

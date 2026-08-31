@@ -268,6 +268,12 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_icon(icon("U > U/z")),
 
+    SimulinkBlockDefinition::new("DetectChange", "Logic and Bit Operations")
+        .with_aliases(&["Detect Change"])
+        .with_description("Detect change in signal value")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("U ~= U/z")),
+
     // ═══════════════════════════════════════════════════════════════════════
     //  Lookup Tables
     // ═══════════════════════════════════════════════════════════════════════

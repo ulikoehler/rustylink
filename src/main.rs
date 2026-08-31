@@ -55,6 +55,7 @@ fn main() -> Result<()> {
         let known_block_types = [
             "SubSystem",
             "Inport",
+            "InportShadow",
             "Outport",
             "Gain",
             "Sum",

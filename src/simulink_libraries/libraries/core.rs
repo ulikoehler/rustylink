@@ -80,6 +80,15 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_shape(SimulinkShape::Obround)
         .with_metadata_keys(&[MetadataKey::with_default("Port", "1")])
         .with_block_label(BlockLabelPolicy::MetadataDependent(labels::port_number)),
+    // An InportShadow shares the same outer subsystem port as an Inport
+    // (identified by its `Port` property) but allows a second block inside
+    // the subsystem to read from that port.  Visually identical to Inport.
+    SimulinkBlockDefinition::new("InportShadow", "Ports & Subsystems")
+        .with_description("Shadow input port sharing an outer subsystem port with an Inport")
+        .with_ports(IOPorts::None, IOPorts::Fixed(1))
+        .with_shape(SimulinkShape::Obround)
+        .with_metadata_keys(&[MetadataKey::with_default("Port", "1")])
+        .with_block_label(BlockLabelPolicy::MetadataDependent(labels::port_number)),
     SimulinkBlockDefinition::new("Outport", "Ports & Subsystems")
         .with_description("Create an output port for a subsystem")
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
