@@ -277,11 +277,11 @@ pub fn reinit_data_input_pos(
 ) -> Pos2 {
     let idx1 = if port_index == 0 { 1 } else { port_index };
     let n = num_ports.max(idx1);
-    let total_segments = n * 2 + 1;
     let top = rect.top() + REINIT_SEP_FRAC * rect.height();
     let bottom = rect.bottom();
-    let dy = (bottom - top) / (total_segments as f32);
-    let y = top + ((2 * idx1) as f32 - 0.5) * dy;
+    // Cell-centered distribution matching Simulink: (i - 0.5) / n.
+    let frac = (idx1 as f32 - 0.5) / (n as f32);
+    let y = top + frac * (bottom - top);
     match side {
         crate::egui_app::geometry::PortSide::Out => Pos2::new(rect.right(), y),
         _ => Pos2::new(rect.left(), y),
