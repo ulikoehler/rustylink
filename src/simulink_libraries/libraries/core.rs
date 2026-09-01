@@ -10,23 +10,13 @@
 use crate::simulink_libraries::labels;
 use crate::simulink_libraries::renderers;
 use crate::simulink_libraries::types::{
-    BlockLabelPolicy, IOPorts, MetadataKey, PortLabelPolicy, PortPlacement, PortPositionOverride,
+    BlockLabelPolicy, IOPorts, MetadataKey, PortLabelPolicy,
     SimulinkBlockDefinition, SimulinkIcon, SimulinkShape,
 };
 
 const fn icon(glyph: &'static str) -> SimulinkIcon {
     SimulinkIcon::Utf8(glyph)
 }
-
-/// Place the round Sum block's last input at the bottom (classic Simulink
-/// layout).  The rectangular variant keeps every input on the left edge.
-pub const ROUND_SUM_PORT_OVERRIDES: &[PortPositionOverride] = &[PortPositionOverride {
-    is_input: true,
-    port_index: 1,
-    from_end: true,
-    placement: PortPlacement::Bottom,
-    fraction: 0.5,
-}];
 
 pub static BLOCKS: &[SimulinkBlockDefinition] = &[
     // ── Math operations ────────────────────────────────────────────────
@@ -76,6 +66,15 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
     // Simulink writes the port's number inside the obround, not an arrow.
     SimulinkBlockDefinition::new("Inport", "Ports & Subsystems")
         .with_description("Create an input port for a subsystem")
+        .with_ports(IOPorts::None, IOPorts::Fixed(1))
+        .with_shape(SimulinkShape::Obround)
+        .with_metadata_keys(&[MetadataKey::with_default("Port", "1")])
+        .with_block_label(BlockLabelPolicy::MetadataDependent(labels::port_number)),
+    // An InportShadow shares the same outer subsystem port as an Inport
+    // (identified by its `Port` property) but allows a second block inside
+    // the subsystem to read from that port.  Visually identical to Inport.
+    SimulinkBlockDefinition::new("InportShadow", "Ports & Subsystems")
+        .with_description("Shadow input port sharing an outer subsystem port with an Inport")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_shape(SimulinkShape::Obround)
         .with_metadata_keys(&[MetadataKey::with_default("Port", "1")])

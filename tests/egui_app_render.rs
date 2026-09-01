@@ -327,7 +327,7 @@ fn reinit_event_port_sits_above_the_data_inputs() {
         .find(|b| b.name == "Atomic Subsystem with Reinit")
         .expect("subsystem missing from the model");
     let sid = block.sid.clone().expect("subsystem has a SID");
-    let (counts, _) = compute_port_info(&system.lines, &system.blocks);
+    let (counts, _, _) = compute_port_info(&system.lines, &system.blocks);
     assert!(
         is_reinit_subsystem_counts(&counts, &sid),
         "block should be flagged as a reinit subsystem"
@@ -343,6 +343,7 @@ fn reinit_event_port_sits_above_the_data_inputs() {
             },
             &counts,
             false,
+            &[],
         )
     };
 
@@ -387,7 +388,7 @@ fn enable_and_trigger_endpoints_land_on_different_top_edge_slots() {
         .expect("enabled and triggered subsystem missing from the model");
     let sid = block.sid.clone().expect("subsystem has a SID");
 
-    let (port_counts, _connected) = compute_port_info(&[], std::slice::from_ref(block));
+    let (port_counts, _connected, _connected_ctrl) = compute_port_info(&[], std::slice::from_ref(block));
     let rect = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(90.0, 60.0));
     let control = |port_type: &str| EndpointRef {
         sid: sid.clone(),
@@ -395,11 +396,145 @@ fn enable_and_trigger_endpoints_land_on_different_top_edge_slots() {
         port_index: 1,
     };
 
-    let enable = endpoint_pos(rect, &control("enable"), &port_counts, false);
-    let trigger = endpoint_pos(rect, &control("trigger"), &port_counts, false);
+    let enable = endpoint_pos(rect, &control("enable"), &port_counts, false, &[]);
+    let trigger = endpoint_pos(rect, &control("trigger"), &port_counts, false, &[]);
 
     assert_eq!(enable.y, rect.top());
     assert_eq!(trigger.y, rect.top());
     assert_eq!(enable.x, 30.0);
     assert_eq!(trigger.x, 60.0);
+}
+
+/// A round Sum distributes its input ports on the left semicircle (12
+/// o'clock → 9 o'clock → 6 o'clock).  `endpoint_pos` must honour the
+/// `PortPositionOverride` entries from `sum_port_overrides` so line endpoints
+/// land at the correct positions.
+#[test]
+fn round_sum_port_placement_uses_left_semicircle() {
+    use eframe::egui::{Pos2, Rect};
+    use rustylink::egui_app::ui::signal_routing::{compute_port_info, endpoint_pos};
+    use rustylink::model::EndpointRef;
+    use rustylink::simulink_libraries::metadata::extract_metadata;
+    use rustylink::simulink_libraries::renderers::sum_port_overrides;
+    use rustylink::simulink_libraries::resolve_definition;
+
+    // Build a synthetic round Sum with 4 inputs: "-+++"
+    // Slots: 0='-' at 90° (top), 1='+' at 150° (upper-left),
+    //        2='+' at 210° (lower-left), 3='+' at 270° (bottom)
+    let mut block = rustylink::editor::operations::create_default_block("Sum", "Sum4", 0, 0, 4, 1);
+    block.sid = Some("479".to_string());
+    block.properties
+        .insert("IconShape".to_string(), "round".to_string());
+    block.properties
+        .insert("Inputs".to_string(), "-+++".to_string());
+
+    let def = resolve_definition(&block);
+    let metadata = extract_metadata(&block, def);
+    let overrides = sum_port_overrides(&block, &metadata);
+    assert_eq!(overrides.len(), 4, "should have 4 port overrides");
+
+    let (port_counts, _, _) = compute_port_info(&[], std::slice::from_ref(&block));
+    let rect = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(20.0, 20.0));
+
+    // Port 1 (slot 0, '-'): at 90° → top edge, fraction 0.5 → (10, 0)
+    let ep1 = EndpointRef {
+        sid: "479".to_string(),
+        port_type: "in".to_string(),
+        port_index: 1,
+    };
+    let pos1 = endpoint_pos(rect, &ep1, &port_counts, false, &overrides);
+    assert_eq!(pos1.x, 10.0, "port 1 (top) x should be centered");
+    assert_eq!(pos1.y, 0.0, "port 1 (top) y should be at rect.top()");
+
+    // Port 4 (slot 3, '+'): at 270° → bottom edge, fraction 0.5 → (10, 20)
+    let ep4 = EndpointRef {
+        sid: "479".to_string(),
+        port_type: "in".to_string(),
+        port_index: 4,
+    };
+    let pos4 = endpoint_pos(rect, &ep4, &port_counts, false, &overrides);
+    assert_eq!(pos4.x, 10.0, "port 4 (bottom) x should be centered");
+    assert_eq!(pos4.y, 20.0, "port 4 (bottom) y should be at rect.bottom()");
+
+    // Without the override, port 4 would be on the left edge.
+    let pos_no_override = endpoint_pos(rect, &ep4, &port_counts, false, &[]);
+    assert_eq!(
+        pos_no_override.x, 0.0,
+        "without override, port 4 should be on the left edge"
+    );
+}
+
+/// A round Sum with `|` spacers (e.g. `|++`) must place ports at the correct
+/// angular positions, with the spacer taking a slot but no port.
+#[test]
+fn round_sum_spacer_placement() {
+    use rustylink::simulink_libraries::metadata::extract_metadata;
+    use rustylink::simulink_libraries::renderers::sum_port_overrides;
+    use rustylink::simulink_libraries::resolve_definition;
+    use rustylink::simulink_libraries::types::PortPlacement;
+
+    // "|++": 3 slots → slot 0='|' at 90° (top, spacer),
+    //        slot 1='+' at 180° (left), slot 2='+' at 270° (bottom)
+    let mut block = rustylink::editor::operations::create_default_block("Sum", "Sum", 0, 0, 2, 1);
+    block.properties
+        .insert("IconShape".to_string(), "round".to_string());
+    block.properties
+        .insert("Inputs".to_string(), "|++".to_string());
+
+    let def = resolve_definition(&block);
+    let metadata = extract_metadata(&block, def);
+    let overrides = sum_port_overrides(&block, &metadata);
+
+    // Only 2 actual ports (the `|` spacer doesn't count).
+    assert_eq!(overrides.len(), 2, "should have 2 port overrides for |++");
+
+    // Port 1 (slot 1): at 180° → left edge, fraction 0.5
+    assert_eq!(overrides[0].port_index, 1);
+    assert_eq!(overrides[0].placement, PortPlacement::Left);
+    assert!((overrides[0].fraction - 0.5).abs() < 1e-6);
+
+    // Port 2 (slot 2): at 270° → bottom edge, fraction 0.5
+    assert_eq!(overrides[1].port_index, 2);
+    assert_eq!(overrides[1].placement, PortPlacement::Bottom);
+    assert!((overrides[1].fraction - 0.5).abs() < 1e-6);
+}
+
+/// Control port endpoints without an explicit port index (e.g. `"480#enable"`)
+/// must parse successfully and default to port index 1.
+#[test]
+fn parse_endpoint_control_port_without_index_defaults_to_1() {
+    use rustylink::parser::helpers::parse_endpoint;
+
+    let ep = parse_endpoint("480#enable").expect("control port endpoint should parse");
+    assert_eq!(ep.sid, "480");
+    assert_eq!(ep.port_type, "enable");
+    assert_eq!(ep.port_index, 1);
+
+    // Standard format still works.
+    let ep2 = parse_endpoint("18#out:1").expect("standard endpoint should parse");
+    assert_eq!(ep2.sid, "18");
+    assert_eq!(ep2.port_type, "out");
+    assert_eq!(ep2.port_index, 1);
+}
+
+#[test]
+fn inport_shadow_resolves_to_same_definition_as_inport() {
+    use rustylink::simulink_libraries::resolve_definition;
+    use rustylink::simulink_libraries::types::SimulinkShape;
+
+    let block = rustylink::editor::operations::create_default_block(
+        "InportShadow",
+        "shadow",
+        0,
+        0,
+        0,
+        1,
+    );
+    let def = resolve_definition(&block);
+    assert_eq!(def.block_type, "InportShadow");
+    // Same shape as Inport
+    assert_eq!(def.shape, SimulinkShape::Obround);
+    // Same port topology: 0 inputs, 1 output
+    assert_eq!(def.inputs.default_count(), 0);
+    assert_eq!(def.outputs.default_count(), 1);
 }

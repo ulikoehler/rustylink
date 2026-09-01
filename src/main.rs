@@ -15,12 +15,23 @@ struct Cli {
     /// Print output as JSON (full tree)
     #[arg(short = 'j', long = "json")]
     json: bool,
+
+    /// Which variant is active in "sim codegen switching" mode: `codegen` (default) or `sim`.
+    #[arg(long = "sim-codegen-mode", value_name = "MODE", default_value = "codegen")]
+    sim_codegen_mode: String,
 }
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
     let path = Utf8PathBuf::from(&cli.simulink_file);
     let root_dir = Utf8PathBuf::from(".");
+
+    // Apply the sim/codegen variant mode before building any resolver.
+    match cli.sim_codegen_mode.as_str() {
+        "sim" => rustylink::set_sim_codegen_mode(rustylink::SimCodegenMode::Sim),
+        "codegen" => rustylink::set_sim_codegen_mode(rustylink::SimCodegenMode::Codegen),
+        _ => {}
+    }
 
     if cli.json {
         // Print the complete JSON tree
@@ -55,6 +66,7 @@ fn main() -> Result<()> {
         let known_block_types = [
             "SubSystem",
             "Inport",
+            "InportShadow",
             "Outport",
             "Gain",
             "Sum",
@@ -164,6 +176,10 @@ fn main() -> Result<()> {
             "RepeatingSequence",
             "RepeatingSequenceStair",
             "RepeatingSequenceRamp",
+            "VariantStart",
+            "VariantEnd",
+            "VariantSink",
+            "VariantSource",
         ];
         fn scan_xml(
             path: &Utf8PathBuf,

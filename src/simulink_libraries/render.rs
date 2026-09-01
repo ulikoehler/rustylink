@@ -173,10 +173,11 @@ pub fn port_label(block: &Block, index: u32, is_input: bool) -> Option<String> {
     names
         .get((index - 1) as usize)
         // The reset/enable markers stand for line art the block's renderer
-        // paints, not for a text label.
+        // paints, not for a text label.  An empty string is preserved: it
+        // signals an intentionally blank label (e.g. MultiPortSwitch's first
+        // input port), which is distinct from `None` (no policy answer).
         .filter(|s| {
-            !s.is_empty()
-                && s.as_str() != super::renderers::RESET_PORT
+            s.as_str() != super::renderers::RESET_PORT
                 && s.as_str() != super::renderers::ENABLE_PORT
         })
         .cloned()

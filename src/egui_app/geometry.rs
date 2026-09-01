@@ -57,14 +57,22 @@ pub fn port_chevron_size(font_scale: f32) -> (f32, f32, f32) {
 pub fn port_anchor_pos(r: Rect, side: PortSide, port_index: u32, num_ports: Option<u32>) -> Pos2 {
     let idx1 = if port_index == 0 { 1 } else { port_index };
     let n = num_ports.unwrap_or(idx1).max(idx1);
-    let total_segments = n * 2 + 1;
-    let y0 = r.top();
-    let y1 = r.bottom();
-    let dy = (y1 - y0) / (total_segments as f32);
-    let y = y0 + ((2 * idx1) as f32 - 0.5) * dy;
+    // Left/right edges use cell-centered distribution: the block is divided
+    // into n equal cells and port i sits at the center of cell i → fraction
+    // (i - 0.5) / n.  Verified empirically against line-point data in real
+    // models (Regler.slx, Franka_part.slx, …).
+    //
+    // Top-edge control ports use the even-spacing formula i/(n+1) instead,
+    // matching Simulink's subsystem control-port placement.
     match side {
-        PortSide::Out => Pos2::new(r.right(), y),
-        PortSide::In => Pos2::new(r.left(), y),
+        PortSide::Out => {
+            let y = r.top() + (idx1 as f32 - 0.5) / (n as f32) * r.height();
+            Pos2::new(r.right(), y)
+        }
+        PortSide::In => {
+            let y = r.top() + (idx1 as f32 - 0.5) / (n as f32) * r.height();
+            Pos2::new(r.left(), y)
+        }
         PortSide::Top => Pos2::new(
             r.left() + (idx1 as f32) / (n as f32 + 1.0) * r.width(),
             r.top(),
@@ -156,7 +164,7 @@ pub fn port_indicator_positions_with_overrides(
 }
 
 /// Convert a [`PortPlacement`] + fraction to a concrete position on a block rect.
-fn placement_pos(
+pub fn placement_pos(
     r: Rect,
     placement: crate::simulink_libraries::types::PortPlacement,
     fraction: f32,

@@ -268,6 +268,12 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_icon(icon("U > U/z")),
 
+    SimulinkBlockDefinition::new("DetectChange", "Logic and Bit Operations")
+        .with_aliases(&["Detect Change"])
+        .with_description("Detect change in signal value")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("U ~= U/z")),
+
     // ═══════════════════════════════════════════════════════════════════════
     //  Lookup Tables
     // ═══════════════════════════════════════════════════════════════════════
@@ -967,4 +973,39 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
         .with_metadata_keys(&[MetadataKey::with_default("DataStoreName", "A")])
         .with_static_renderer(renderers::static_data_store_access),
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  Variant routing blocks
+    // ═══════════════════════════════════════════════════════════════════════
+    SimulinkBlockDefinition::new("VariantStart", "Ports & Subsystems")
+        .with_aliases(&["Variant Start"])
+        .with_description("Variant start — routes input to one of N variant outputs")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Variable(0))
+        .with_shape(SimulinkShape::TrapezoidRight)
+        .with_static_renderer(renderers::static_variant_connector)
+        .with_live_renderer(renderers::live_variant_connector),
+
+    SimulinkBlockDefinition::new("VariantEnd", "Ports & Subsystems")
+        .with_aliases(&["Variant End"])
+        .with_description("Variant end — routes one of N variant inputs to output")
+        .with_ports(IOPorts::Variable(0), IOPorts::Fixed(1))
+        .with_shape(SimulinkShape::TrapezoidLeft)
+        .with_static_renderer(renderers::static_variant_connector)
+        .with_live_renderer(renderers::live_variant_connector),
+
+    SimulinkBlockDefinition::new("VariantSink", "Ports & Subsystems")
+        .with_aliases(&["Variant Sink"])
+        .with_description("Variant sink — routes input to one of N variant outputs")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Variable(0))
+        .with_shape(SimulinkShape::TrapezoidStemRight)
+        .with_static_renderer(renderers::static_variant_connector)
+        .with_live_renderer(renderers::live_variant_connector),
+
+    SimulinkBlockDefinition::new("VariantSource", "Ports & Subsystems")
+        .with_aliases(&["Variant Source"])
+        .with_description("Variant source — routes one of N variant inputs to output")
+        .with_ports(IOPorts::Variable(0), IOPorts::Fixed(1))
+        .with_shape(SimulinkShape::TrapezoidStemLeft)
+        .with_static_renderer(renderers::static_variant_connector)
+        .with_live_renderer(renderers::live_variant_connector),
 ];

@@ -247,11 +247,15 @@ impl<S: ContentSource> SimulinkParser<S> {
                         && let Some(lib_system) = cache.get_mut(lib_name)
                         && !lib_system.blocks.iter().any(|b| b.name == block_path)
                     {
-                        let ins = block.port_counts.as_ref().and_then(|p| p.ins).unwrap_or(1);
-                        let outs = block.port_counts.as_ref().and_then(|p| p.outs).unwrap_or(1);
+                        // Create a port-less stub: the model's own <PortCounts>
+                        // is authoritative, and the rendering layer falls back to
+                        // catalog defaults when the model omits a count.  Deriving
+                        // stub port counts from the block itself would be circular
+                        // and would fill in `None` fields (e.g. a Check block with
+                        // `<PortCounts in="1"/>` getting a spurious `out="0"`).
                         lib_system
                             .blocks
-                            .push(stubs::create_stub_block(block_path, ins, outs));
+                            .push(stubs::create_stub_block(block_path, 0, 0));
                     }
                 }
                 if let Some(lib_system) = cache.get(lib_name) {

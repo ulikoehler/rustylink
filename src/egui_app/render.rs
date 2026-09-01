@@ -109,6 +109,30 @@ pub fn fill_block_body(
             // shortest side, giving a stadium/obround).
             painter.rect_filled(rect, rect.height() * 0.5, bg);
         }
+        BlockShape::TrapezoidRight => {
+            let pts = trapezoid_right_points(rect);
+            let mut path = egui::epaint::PathShape::closed_line(pts, Stroke::NONE);
+            path.fill = bg;
+            painter.add(egui::Shape::Path(path));
+        }
+        BlockShape::TrapezoidLeft => {
+            let pts = trapezoid_left_points(rect);
+            let mut path = egui::epaint::PathShape::closed_line(pts, Stroke::NONE);
+            path.fill = bg;
+            painter.add(egui::Shape::Path(path));
+        }
+        BlockShape::TrapezoidStemRight => {
+            let pts = trapezoid_stem_right_points(rect);
+            let mut path = egui::epaint::PathShape::closed_line(pts, Stroke::NONE);
+            path.fill = bg;
+            painter.add(egui::Shape::Path(path));
+        }
+        BlockShape::TrapezoidStemLeft => {
+            let pts = trapezoid_stem_left_points(rect);
+            let mut path = egui::epaint::PathShape::closed_line(pts, Stroke::NONE);
+            path.fill = bg;
+            painter.add(egui::Shape::Path(path));
+        }
         BlockShape::None => {
             // The block's static renderer paints its own body; nothing here.
         }
@@ -173,10 +197,132 @@ pub fn stroke_block_body(
         BlockShape::Obround => {
             painter.rect_stroke(rect, rect.height() * 0.5, stroke, egui::StrokeKind::Inside);
         }
+        BlockShape::TrapezoidRight => {
+            let pts = trapezoid_right_points(rect);
+            painter.add(egui::Shape::Path(egui::epaint::PathShape::closed_line(
+                pts, stroke,
+            )));
+        }
+        BlockShape::TrapezoidLeft => {
+            let pts = trapezoid_left_points(rect);
+            painter.add(egui::Shape::Path(egui::epaint::PathShape::closed_line(
+                pts, stroke,
+            )));
+        }
+        BlockShape::TrapezoidStemRight => {
+            let pts = trapezoid_stem_right_points(rect);
+            painter.add(egui::Shape::Path(egui::epaint::PathShape::closed_line(
+                pts, stroke,
+            )));
+        }
+        BlockShape::TrapezoidStemLeft => {
+            let pts = trapezoid_stem_left_points(rect);
+            painter.add(egui::Shape::Path(egui::epaint::PathShape::closed_line(
+                pts, stroke,
+            )));
+        }
         BlockShape::None => {
             // The block's static renderer paints its own outline; nothing here.
         }
     }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Trapezoid geometry helpers for VariantStart/End/Sink/Source blocks.
+//
+// TrapezoidRight/Left use 30° sloped sides (shallower than 45°).
+// The narrow side height is `H - 2*W*tan(30°)`, clamped to ≥ 0.
+//
+// TrapezoidStemRight/Left have a rectangular section on the WIDE side
+// (top + bottom horizontal bars + vertical bar), then 45° taper to the
+// narrow side.  The rectangle takes 1/3 of the width.
+// ────────────────────────────────────────────────────────────────────────────
+
+/// tan(30°) — shallower slope for VariantStart/End trapezoids.
+const TAN_30: f32 = 0.57735;
+
+/// Trapezoid wide on the right, narrow on the left (VariantStart).
+/// 30° sloped sides.
+fn trapezoid_right_points(rect: Rect) -> Vec<egui::Pos2> {
+    let w = rect.width();
+    let h = rect.height();
+    let cy = rect.center().y;
+    let narrow_half = ((h - 2.0 * w * TAN_30) / 2.0).max(0.0);
+    vec![
+        egui::pos2(rect.left(), cy - narrow_half),
+        egui::pos2(rect.right(), rect.top()),
+        egui::pos2(rect.right(), rect.bottom()),
+        egui::pos2(rect.left(), cy + narrow_half),
+    ]
+}
+
+/// Trapezoid wide on the left, narrow on the right (VariantEnd).
+/// 30° sloped sides.
+fn trapezoid_left_points(rect: Rect) -> Vec<egui::Pos2> {
+    let w = rect.width();
+    let h = rect.height();
+    let cy = rect.center().y;
+    let narrow_half = ((h - 2.0 * w * TAN_30) / 2.0).max(0.0);
+    vec![
+        egui::pos2(rect.left(), rect.top()),
+        egui::pos2(rect.right(), cy - narrow_half),
+        egui::pos2(rect.right(), cy + narrow_half),
+        egui::pos2(rect.left(), rect.bottom()),
+    ]
+}
+
+/// Trapezoid with rectangular section on the wide right side, then 45°
+/// taper to narrow left (VariantSink).
+///
+/// ```text
+///    _____
+///   /     |
+///         |
+///         |
+///   \_____|
+/// ```
+fn trapezoid_stem_right_points(rect: Rect) -> Vec<egui::Pos2> {
+    let w = rect.width();
+    let h = rect.height();
+    let cy = rect.center().y;
+    let stem_w = w / 3.0;
+    let taper_w = w - stem_w;
+    let narrow_half = ((h - 2.0 * taper_w) / 2.0).max(0.0);
+    vec![
+        egui::pos2(rect.left(), cy - narrow_half),
+        egui::pos2(rect.right() - stem_w, rect.top()),
+        egui::pos2(rect.right(), rect.top()),
+        egui::pos2(rect.right(), rect.bottom()),
+        egui::pos2(rect.right() - stem_w, rect.bottom()),
+        egui::pos2(rect.left(), cy + narrow_half),
+    ]
+}
+
+/// Trapezoid with rectangular section on the wide left side, then 45°
+/// taper to narrow right (VariantSource).
+///
+/// ```text
+/// _____
+/// |       \
+/// |        |
+/// |        |
+/// |____/
+/// ```
+fn trapezoid_stem_left_points(rect: Rect) -> Vec<egui::Pos2> {
+    let w = rect.width();
+    let h = rect.height();
+    let cy = rect.center().y;
+    let stem_w = w / 3.0;
+    let taper_w = w - stem_w;
+    let narrow_half = ((h - 2.0 * taper_w) / 2.0).max(0.0);
+    vec![
+        egui::pos2(rect.left(), rect.top()),
+        egui::pos2(rect.left() + stem_w, rect.top()),
+        egui::pos2(rect.right(), cy - narrow_half),
+        egui::pos2(rect.right(), cy + narrow_half),
+        egui::pos2(rect.left() + stem_w, rect.bottom()),
+        egui::pos2(rect.left(), rect.bottom()),
+    ]
 }
 
 pub fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
@@ -186,7 +332,7 @@ pub fn get_block_type_cfg(block: &Block) -> BlockTypeConfig {
     let def = crate::simulink_libraries::resolve_definition(block);
     if let Some(f) = def.port_overrides_fn {
         let metadata = crate::simulink_libraries::metadata::extract_metadata(block, def);
-        cfg.port_position_overrides = f(block, &metadata).to_vec();
+        cfg.port_position_overrides = f(block, &metadata);
     }
     cfg
 }
@@ -369,7 +515,10 @@ pub(crate) fn subsystem_boundary_port_name(
         .as_ref()?
         .blocks
         .iter()
-        .filter(|child| child.block_type == boundary_type)
+        .filter(|child| {
+            child.block_type == boundary_type
+                || (boundary_type == "Inport" && child.block_type == "InportShadow")
+        })
         .find(|child| subsystem_boundary_port_index(child) == index)
         .and_then(|child| boundary_block_display_name(child, index))
 }
@@ -1970,6 +2119,7 @@ pub fn render_sum_block(
     operators: &[char],
     round: bool,
     colors: BodyColors,
+    inputs_str: &str,
 ) {
     let stroke = Stroke::new((1.6 * font_scale).clamp(1.0, 3.0), colors.border);
     if round {
@@ -1985,37 +2135,26 @@ pub fn render_sum_block(
     let text = colors.text;
 
     if round {
-        // Classic round Sum: the last operator sits at the bottom (matching the
-        // bottom-placed last input port), the rest stack down the left edge.
+        // Round Sum: place each operator label at its port's angular position
+        // on the left semicircle (matching the port placement from
+        // `sum_port_overrides`).
         let ops: &[char] = if operators.is_empty() {
             &['+', '+']
         } else {
             operators
         };
-        let side = ops.len() - 1;
-        for (i, op) in ops[..side].iter().enumerate() {
-            let f = (i as f32 + 1.0) / (side as f32 + 1.0);
-            painter.text(
-                Pos2::new(
-                    rect.left() + rect.width() * 0.28,
-                    rect.top() + (0.18 + f * 0.44) * rect.height(),
-                ),
-                Align2::CENTER_CENTER,
-                sign_str(*op),
-                font_id.clone(),
-                text,
-            );
+        let positions = round_sum_label_positions(rect, inputs_str);
+        for (i, op) in ops.iter().enumerate() {
+            if let Some(&pos) = positions.get(i) {
+                painter.text(
+                    pos,
+                    Align2::CENTER_CENTER,
+                    sign_str(*op),
+                    font_id.clone(),
+                    text,
+                );
+            }
         }
-        painter.text(
-            Pos2::new(
-                rect.center().x + rect.width() * 0.04,
-                rect.bottom() - rect.height() * 0.26,
-            ),
-            Align2::CENTER_CENTER,
-            sign_str(ops[side]),
-            font_id,
-            text,
-        );
     } else {
         // Rectangular Add: stack the per-input signs down the left edge.
         let ops: &[char] = if operators.is_empty() {
@@ -2082,6 +2221,121 @@ pub fn parse_input_operators(inputs: &str, default: char) -> Vec<char> {
     } else {
         ops
     }
+}
+
+/// Parse a Simulink Sum `Inputs` string into slots, preserving `|` spacers.
+///
+/// Each slot is `Some(char)` for an actual port (`+`, `-`, `*`, `/`) or
+/// `None` for a `|` spacer.  A bare number means that many `+` ports with
+/// no spacers.
+pub fn parse_sum_slots(inputs: &str) -> Vec<Option<char>> {
+    let s = inputs.trim();
+    if s.is_empty() {
+        return vec![Some('+'), Some('+')];
+    }
+    if let Ok(n) = s.parse::<usize>() {
+        return vec![Some('+'); n.max(1)];
+    }
+    s.chars()
+        .map(|c| if c == '|' { None } else { Some(c) })
+        .collect()
+}
+
+/// Compute the angle (radians, math convention: 0 = right, pi/2 = up,
+/// pi = left, 3*pi/2 = down) for each slot of a round Sum on the left
+/// semicircle.
+///
+/// For N total slots, slot i is at:
+/// - N == 1: 180° (9 o'clock)
+/// - N > 1:  90° + i * (180° / (N-1))
+///
+/// Returns `None` for `|` spacer slots.
+pub fn round_sum_slot_angles(slots: &[Option<char>]) -> Vec<Option<f32>> {
+    let n = slots.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    slots
+        .iter()
+        .enumerate()
+        .map(|(i, slot)| {
+            if slot.is_none() {
+                None
+            } else if n == 1 {
+                Some(std::f32::consts::PI)
+            } else {
+                Some(std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::PI / (n - 1) as f32)
+            }
+        })
+        .collect()
+}
+
+/// Map an angle (math convention) to a `(PortPlacement, fraction)` on a
+/// block's bounding rectangle.
+///
+/// For the left semicircle (90°..270°), the ray from the center hits the
+/// top, left, or bottom edge.  The fraction is the position along that edge.
+pub fn angle_to_placement(
+    angle: f32,
+) -> (crate::simulink_libraries::types::PortPlacement, f32) {
+    use crate::simulink_libraries::types::PortPlacement;
+
+    let cos_a = angle.cos();
+    let sin_a = angle.sin();
+
+    if sin_a.abs() > 1e-6 && cos_a.abs() > 1e-6 {
+        if sin_a.abs() > cos_a.abs() {
+            // Hits top or bottom
+            if sin_a > 0.0 {
+                // Top edge: fraction from 0.5 (at 90°) to 0.0 (at 135°)
+                let frac = 0.5 - 0.5 * (cos_a.abs() / sin_a.abs());
+                (PortPlacement::Top, frac)
+            } else {
+                // Bottom edge: fraction from 0.0 (at 225°) to 0.5 (at 270°)
+                let frac = 0.5 - 0.5 * (cos_a.abs() / sin_a.abs());
+                (PortPlacement::Bottom, frac)
+            }
+        } else {
+            // Hits left edge: fraction from top
+            let frac = 0.5 - 0.5 * (sin_a / cos_a.abs());
+            (PortPlacement::Left, frac.clamp(0.0, 1.0))
+        }
+    } else if sin_a.abs() > 1e-6 {
+        if sin_a > 0.0 {
+            (PortPlacement::Top, 0.5)
+        } else {
+            (PortPlacement::Bottom, 0.5)
+        }
+    } else {
+        (PortPlacement::Left, 0.5)
+    }
+}
+
+/// Compute the screen positions for the `+`/`-` operator labels inside a
+/// round Sum block, one per actual port (in order).
+///
+/// Labels are placed on the circle at the port's angle, slightly inward
+/// from the circle edge.
+pub fn round_sum_label_positions(rect: &Rect, inputs_str: &str) -> Vec<Pos2> {
+    let slots = parse_sum_slots(inputs_str);
+    let angles = round_sum_slot_angles(&slots);
+    let center = rect.center();
+    let radius = rect.size().min_elem() / 2.0;
+    // Place labels at 65% of the radius from center
+    let label_radius = radius * 0.65;
+
+    let mut positions = Vec::new();
+    for angle_opt in &angles {
+        if let Some(angle) = angle_opt {
+            // Convert math angle to screen direction:
+            // math: x = cos, y = sin (up)
+            // screen: x = cos, y = -sin (y is flipped)
+            let dx = angle.cos() * label_radius;
+            let dy = -angle.sin() * label_radius;
+            positions.push(Pos2::new(center.x + dx, center.y + dy));
+        }
+    }
+    positions
 }
 
 /// Draw a Product/Divide block interior (the shared passes draw the body).

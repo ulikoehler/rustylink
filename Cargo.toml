@@ -1,6 +1,6 @@
 [package]
 name = "rustylink"
-version = "3.0.3"
+version = "3.0.4"
 edition = "2024"
 homepage = "https://github.com/ulikoehler/rustylink"
 repository = "https://github.com/ulikoehler/rustylink"

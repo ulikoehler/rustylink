@@ -48,3 +48,7 @@ pub use block_types::{
 // who prefer to add a definition in code rather than as a catalog file.
 #[cfg(feature = "egui")]
 pub use simulink_libraries::register_user_definition;
+
+// Re-export the variant configuration API so embedding programs can select
+// the active sim/codegen variant before building a resolver.
+pub use connection_targets::{SimCodegenMode, set_sim_codegen_mode};

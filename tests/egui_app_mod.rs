@@ -1,7 +1,7 @@
 #![cfg(feature = "egui")]
 
 use indexmap::IndexMap;
-use rustylink::egui_app::{get_block_type_cfg, port_label_display_name};
+use rustylink::egui_app::{get_block_type_cfg, port_label_defined_name, port_label_display_name};
 use rustylink::model::System;
 
 #[test]
@@ -182,4 +182,30 @@ fn subsystem_port_numbers_follow_the_port_property_not_the_block_name() {
     assert_eq!(port_label_display_name(&block, 2, true, &cfg), "2");
     assert_eq!(port_label_display_name(&block, 1, false, &cfg), "1");
     assert_eq!(port_label_display_name(&block, 2, false, &cfg), "2");
+}
+
+#[test]
+fn multiport_switch_first_input_port_has_no_label() {
+    let mut block = rustylink::editor::operations::create_default_block(
+        "MultiPortSwitch",
+        "MultiPortSwitch",
+        0,
+        0,
+        4,
+        1,
+    );
+    block.port_counts = Some(rustylink::model::PortCounts {
+        ins: Some(4),
+        outs: Some(1),
+        ..Default::default()
+    });
+
+    let cfg = get_block_type_cfg(&block);
+    // The first input port (the control port) is intentionally unlabeled.
+    assert_eq!(port_label_display_name(&block, 1, true, &cfg), "");
+    // The data ports carry their index labels.
+    assert_eq!(port_label_display_name(&block, 2, true, &cfg), "1");
+    assert_eq!(port_label_display_name(&block, 3, true, &cfg), "2");
+    // The defined name for the first port is an empty string, not None.
+    assert_eq!(port_label_defined_name(&block, 1, true, &cfg), Some(String::new()));
 }
