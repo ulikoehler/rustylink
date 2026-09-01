@@ -42,27 +42,56 @@ fn sum_is_round(icon_shape: Option<&str>) -> bool {
     })
 }
 
-/// Port placement for the Sum block: only the round body wraps its last input
-/// onto the bottom edge; the rectangular one lists every input on the left.
+/// Port placement for the Sum block.
+///
+/// The round body distributes its input ports evenly on the **left
+/// semicircle** (from 12 o'clock through 9 o'clock to 6 o'clock),
+/// counterclockwise.  The `Inputs` property string may contain `|` spacer
+/// characters that occupy an angular slot but have no port — e.g. `|++`
+/// places a gap at 12 o'clock and ports at 9 and 6 o'clock.
+///
+/// The rectangular variant keeps every input on the left edge (no overrides).
 pub fn sum_port_overrides(
     _block: &Block,
     meta: &super::metadata::BlockMetadata,
-) -> &'static [super::types::PortPositionOverride] {
-    if sum_is_round(meta.get("IconShape")) {
-        super::libraries::core::ROUND_SUM_PORT_OVERRIDES
-    } else {
-        &[]
+) -> Vec<super::types::PortPositionOverride> {
+    if !sum_is_round(meta.get("IconShape")) {
+        return Vec::new();
     }
+
+    let inputs_str = meta.get("Inputs").unwrap_or("++");
+    let slots = crate::egui_app::render::parse_sum_slots(inputs_str);
+    if slots.is_empty() {
+        return Vec::new();
+    }
+
+    let angles = crate::egui_app::render::round_sum_slot_angles(&slots);
+    let mut overrides = Vec::new();
+    let mut port_index = 0u32;
+
+    for angle_opt in &angles {
+        if let Some(angle) = angle_opt {
+            port_index += 1;
+            let (placement, fraction) = crate::egui_app::render::angle_to_placement(*angle);
+            overrides.push(super::types::PortPositionOverride {
+                is_input: true,
+                port_index,
+                from_end: false,
+                placement,
+                fraction,
+            });
+        }
+    }
+
+    overrides
 }
 
 /// Static renderer for the Sum block. Reads `IconShape` (round vs rectangular)
 /// and `Inputs` (per-port +/- signs) from metadata and paints its own body.
 pub fn static_sum(painter: &Painter, _block: &Block, rect: &Rect, ctx: &RenderContext<'_>) -> bool {
     let round = sum_is_round(ctx.metadata.get("IconShape"));
-    let ops = crate::egui_app::render::parse_input_operators(
-        ctx.metadata.get("Inputs").unwrap_or_default(),
-        '+',
-    );
+    let inputs_str = ctx.metadata.get("Inputs").unwrap_or_default();
+    let ops = crate::egui_app::render::parse_input_operators(inputs_str, '+');
     crate::egui_app::render::render_sum_block(
         painter,
         rect,
@@ -70,6 +99,7 @@ pub fn static_sum(painter: &Painter, _block: &Block, rect: &Rect, ctx: &RenderCo
         &ops,
         round,
         body_colors(ctx),
+        inputs_str,
     );
     true
 }

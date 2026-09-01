@@ -1543,18 +1543,20 @@ pub(crate) fn update_internal(
             let bg_lum = line_coloring::rel_luminance(Color32::from_gray(245));
             app.view_cache.line_colors = line_coloring::assign_line_colors(&line_adjacency, bg_lum);
 
-            let (pc, cp) = signal_routing::compute_port_info(
+            let (pc, cp, ccp) = signal_routing::compute_port_info(
                 &sys_lines,
                 &owned_blocks,
             );
             app.view_cache.port_counts = pc;
             app.view_cache.connected_ports = cp;
+            app.view_cache.connected_control_ports = ccp;
             app.view_cache.mark_valid(&app.path, cache_gen);
         }
         // Move cached computed values out to avoid per-frame cloning.
         let line_colors = std::mem::take(&mut app.view_cache.line_colors);
         let port_counts = std::mem::take(&mut app.view_cache.port_counts);
         let connected_ports = std::mem::take(&mut app.view_cache.connected_ports);
+        let connected_control_ports = std::mem::take(&mut app.view_cache.connected_control_ports);
 
         let line_stroke_default = Stroke::new(2.0_f32, Color32::LIGHT_GREEN);
 
@@ -1650,7 +1652,19 @@ pub(crate) fn update_internal(
             if screen_pts.is_empty() {
                 continue;
             }
-            screen_pts = signal_routing::orthogonalize_polyline(&screen_pts);
+            // Determine whether the final segment should be horizontal (for
+            // left/right-edge ports) or vertical (for top/bottom-edge ports)
+            // so the arrow meets the block edge orthogonally.
+            let last_seg_horiz = line.dst.as_ref().and_then(|dst| {
+                let mirrored_dst = owned_blocks
+                    .iter()
+                    .find(|b| b.sid.as_ref() == Some(&dst.sid))
+                    .and_then(|b| b.block_mirror)
+                    .unwrap_or(false);
+                let dst_overrides = sid_port_overrides.get(&dst.sid).map(|v| v.as_slice()).unwrap_or(&[]);
+                signal_routing::dst_segment_horizontal(dst, dst_overrides, mirrored_dst, &port_counts)
+            });
+            screen_pts = signal_routing::orthogonalize_polyline_with_dst_side(&screen_pts, last_seg_horiz);
             let mut segments_all: Vec<(Pos2, Pos2)> = Vec::new();
             signal_routing::push_orthogonal_segments(&screen_pts, &mut segments_all);
             for br in &line.branches {
@@ -1849,7 +1863,8 @@ pub(crate) fn update_internal(
                     let last = *pts.last().unwrap_or(&cur);
                     let a = to_screen(last);
                     let b = to_screen(end_pt);
-                    let ortho = signal_routing::orthogonalize_polyline(&[a, b]);
+                    let last_seg_horiz = signal_routing::dst_segment_horizontal(dstb, dst_overrides, mirrored_dst, port_counts);
+                    let ortho = signal_routing::orthogonalize_polyline_with_dst_side(&[a, b], last_seg_horiz);
                     let is_in_dst = dstb.port_type == "in"
                         || crate::egui_app::geometry::is_control_port_type(&dstb.port_type);
                     if is_in_dst {
@@ -1869,6 +1884,10 @@ pub(crate) fn update_internal(
                         }
                     }
                 }
+            // Draw a junction dot at the sub-branch point when there are sub-branches.
+            if !br.branches.is_empty() {
+                painter.circle_filled(to_screen(*pts.last().unwrap_or(&cur)), 4.0, color);
+            }
             for sub in &br.branches {
                 draw_branch_rec(
                     painter,
@@ -1939,6 +1958,10 @@ pub(crate) fn update_internal(
                 } else {
                     painter.line_segment([seg[0], seg[1]], stroke);
                 }
+            }
+            // Draw a junction dot at the branch point when there are branches.
+            if !line.branches.is_empty() {
+                painter.circle_filled(to_screen(*main_anchor), 4.0, color);
             }
             for br in &line.branches {
                 draw_branch_rec(
@@ -3002,9 +3025,18 @@ pub(crate) fn update_internal(
                 }
             }
             // Enable/trigger/reset/event ports enter through the top edge.
-            let control_count =
-                crate::simulink_libraries::renderers::subsystem_control_port_count(b);
-            for i in 0..control_count {
+            let control_types =
+                crate::simulink_libraries::renderers::subsystem_control_port_types(b);
+            let control_count = control_types.len() as u32;
+            for (i, port_type) in control_types.iter().enumerate() {
+                // Skip the chevron pictogram when a line is connected to this
+                // control port — Simulink hides the port symbol once wired.
+                if let Some(sid) = &b.sid {
+                    let key = (sid.clone(), port_type.to_string());
+                    if connected_control_ports.contains(&key) {
+                        continue;
+                    }
+                }
                 let x = r_screen.left()
                     + (i as f32 + 1.0) / (control_count as f32 + 1.0) * r_screen.width();
                 paint_port_chevron_placed(
@@ -3553,6 +3585,7 @@ pub(crate) fn update_internal(
         app.view_cache.line_colors = line_colors;
         app.view_cache.port_counts = port_counts;
         app.view_cache.connected_ports = connected_ports;
+        app.view_cache.connected_control_ports = connected_control_ports;
     });
 
     // After the UI closure, call open_block_if_subsystem if needed

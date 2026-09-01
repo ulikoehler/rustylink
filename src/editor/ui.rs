@@ -822,7 +822,7 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
                 }
             }
         }
-        let (port_counts, _connected_ports) =
+        let (port_counts, _connected_ports, _connected_control_ports) =
             crate::egui_app::ui::signal_routing::compute_port_info(&sys_lines, &owned_blocks);
 
         // Color lines with graph coloring
@@ -891,6 +891,11 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             }
 
             // Draw branches
+            // Draw a junction dot at the branch point when there are branches.
+            if !line.branches.is_empty() {
+                let anchor = offsets_pts.last().unwrap_or(&cur);
+                ui.painter().circle_filled(to_screen(*anchor), 4.0, color);
+            }
             for br in &line.branches {
                 draw_branch_rec(
                     ui.painter(),
@@ -2089,6 +2094,10 @@ fn draw_branch_rec(
         } else {
             painter.line_segment([a, b], stroke);
         }
+    }
+    // Draw a junction dot at the sub-branch point when there are sub-branches.
+    if !br.branches.is_empty() {
+        painter.circle_filled(to_screen(*pts.last().unwrap_or(&cur)), 4.0, color);
     }
     for sub in &br.branches {
         draw_branch_rec(

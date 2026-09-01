@@ -260,7 +260,10 @@ pub struct RenderContext<'a> {
 pub type StaticRendererFn = fn(&Painter, &Block, &eframe::egui::Rect, &RenderContext<'_>) -> bool;
 
 /// Signature of a property-driven port-position override selector.
-pub type PortOverridesFn = fn(&Block, &BlockMetadata) -> &'static [PortPositionOverride];
+///
+/// Returns a `Vec` so overrides can be computed dynamically per block instance
+/// (e.g. a round Sum whose port positions depend on its `Inputs` property).
+pub type PortOverridesFn = fn(&Block, &BlockMetadata) -> Vec<PortPositionOverride>;
 
 /// Signature of an interior renderer used when **live mode is ON**.
 ///

@@ -381,6 +381,10 @@ pub struct ComputedViewCache {
     pub port_counts: std::collections::HashMap<(String, u8), u32>,
     /// Set of (SID, port_index, is_input) triples that have a connected signal.
     pub connected_ports: std::collections::HashSet<(String, u32, bool)>,
+    /// Set of (SID, port_type) pairs for connected control ports
+    /// (enable/trigger/reset/event).  Used to suppress the chevron pictogram
+    /// when a line is connected to the control port.
+    pub connected_control_ports: std::collections::HashSet<(String, String)>,
     /// Cached connection target graph reused across paint passes until invalidated.
     pub connection_target_resolver:
         Option<Arc<crate::connection_targets::ConnectionTargetResolver>>,
@@ -417,6 +421,7 @@ impl Default for ComputedViewCache {
             line_colors: Vec::new(),
             port_counts: std::collections::HashMap::new(),
             connected_ports: std::collections::HashSet::new(),
+            connected_control_ports: std::collections::HashSet::new(),
             connection_target_resolver: None,
             cached_resolver_sig: None,
             cached_sig_gen: 0,

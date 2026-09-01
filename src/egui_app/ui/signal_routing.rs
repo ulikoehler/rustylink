@@ -13,16 +13,43 @@ use eframe::egui::Pos2;
 /// Insert corner points so that every segment in the polyline is either
 /// horizontal or vertical (orthogonal routing, horizontal-first).
 pub fn orthogonalize_polyline(points: &[Pos2]) -> Vec<Pos2> {
+    orthogonalize_polyline_with_dst_side(points, None)
+}
+
+/// Like [`orthogonalize_polyline`], but lets the caller choose the corner
+/// order for the **last** diagonal segment so the final segment meets the
+/// destination block edge orthogonally.
+///
+/// `last_segment_horizontal`:
+/// - `None` → always horizontal-first (same as [`orthogonalize_polyline`]).
+/// - `Some(true)` → the last diagonal inserts a "vertical first" corner
+///   (`Pos2::new(a.x, b.y)`) so the final segment is horizontal — appropriate
+///   for ports on the left or right edge.
+/// - `Some(false)` → the last diagonal inserts a "horizontal first" corner
+///   so the final segment is vertical — appropriate for ports on the top or
+///   bottom edge.
+pub fn orthogonalize_polyline_with_dst_side(
+    points: &[Pos2],
+    last_segment_horizontal: Option<bool>,
+) -> Vec<Pos2> {
     if points.len() <= 1 {
         return points.to_vec();
     }
+    let n = points.len();
     let mut out = vec![points[0]];
-    for pair in points.windows(2) {
+    for (i, pair) in points.windows(2).enumerate() {
         let a = pair[0];
         let b = pair[1];
         if (a.x - b.x).abs() > f32::EPSILON && (a.y - b.y).abs() > f32::EPSILON {
-            // Diagonal segment — insert a corner (horizontal first)
-            let corner = Pos2::new(b.x, a.y);
+            // Diagonal segment — insert a corner.
+            // Default: horizontal first (corner at (b.x, a.y)).
+            // For the last segment, choose based on the destination port side.
+            let is_last = i == n - 2;
+            let corner = if is_last && last_segment_horizontal == Some(true) {
+                Pos2::new(a.x, b.y) // vertical first → last segment horizontal
+            } else {
+                Pos2::new(b.x, a.y) // horizontal first → last segment vertical
+            };
             if out.last().copied() != Some(corner) {
                 out.push(corner);
             }
@@ -32,6 +59,47 @@ pub fn orthogonalize_polyline(points: &[Pos2]) -> Vec<Pos2> {
         }
     }
     out
+}
+
+/// Determine whether the last segment of a line approaching endpoint `ep`
+/// should be horizontal (i.e. the port is on the left or right edge of the
+/// block).  Returns `Some(true)` for left/right-edge ports, `Some(false)` for
+/// top/bottom-edge ports, and `None` if unknown.
+pub fn dst_segment_horizontal(
+    ep: &crate::model::EndpointRef,
+    overrides: &[crate::simulink_libraries::types::PortPositionOverride],
+    mirrored: bool,
+    port_counts: &std::collections::HashMap<(String, u8), u32>,
+) -> Option<bool> {
+    use crate::egui_app::geometry::is_control_port_type;
+    use crate::simulink_libraries::types::PortPlacement;
+
+    // Control ports (enable/trigger/reset/event) enter from the top edge →
+    // the last segment should be vertical.
+    if is_control_port_type(&ep.port_type) {
+        return Some(false);
+    }
+
+    // Check for a port position override (e.g. round Sum bottom port).
+    let kind = port_kind(&ep.port_type);
+    if kind == 0 || kind == 1 {
+        let is_input = kind == 0;
+        let count = port_counts
+            .get(&(ep.sid.clone(), kind))
+            .copied()
+            .unwrap_or(ep.port_index);
+        if let Some(ovr) = overrides.iter().find(|o| o.matches(is_input, ep.port_index, count)) {
+            return match ovr.placement {
+                PortPlacement::Left | PortPlacement::Right => Some(true),
+                PortPlacement::Top | PortPlacement::Bottom => Some(false),
+            };
+        }
+    }
+
+    // Standard placement: inputs on left (or right if mirrored), outputs on
+    // right (or left if mirrored).  Both are horizontal sides.
+    let _ = mirrored;
+    Some(true)
 }
 
 /// Convert an orthogonalized polyline into `(start, end)` segment pairs.
@@ -301,6 +369,7 @@ pub fn register_endpoint(
     ep: &crate::model::EndpointRef,
     port_counts: &mut std::collections::HashMap<(String, u8), u32>,
     connected_ports: &mut std::collections::HashSet<(String, u32, bool)>,
+    connected_control_ports: &mut std::collections::HashSet<(String, String)>,
 ) {
     let kind = port_kind(&ep.port_type);
     let key = (ep.sid.clone(), kind);
@@ -311,6 +380,10 @@ pub fn register_endpoint(
         .or_insert(idx1);
     if kind != 2 {
         connected_ports.insert((ep.sid.clone(), ep.port_index, kind == 0));
+    } else {
+        // Control port (enable/trigger/reset/event/…): track by (sid, port_type)
+        // so the chevron can be suppressed when a line connects to it.
+        connected_control_ports.insert((ep.sid.clone(), ep.port_type.clone()));
     }
 }
 
@@ -319,12 +392,13 @@ pub fn register_branch_endpoints(
     branch: &crate::model::Branch,
     port_counts: &mut std::collections::HashMap<(String, u8), u32>,
     connected_ports: &mut std::collections::HashSet<(String, u32, bool)>,
+    connected_control_ports: &mut std::collections::HashSet<(String, String)>,
 ) {
     if let Some(dst) = &branch.dst {
-        register_endpoint(dst, port_counts, connected_ports);
+        register_endpoint(dst, port_counts, connected_ports, connected_control_ports);
     }
     for sub in &branch.branches {
-        register_branch_endpoints(sub, port_counts, connected_ports);
+        register_branch_endpoints(sub, port_counts, connected_ports, connected_control_ports);
     }
 }
 
@@ -336,21 +410,24 @@ pub fn compute_port_info(
 ) -> (
     std::collections::HashMap<(String, u8), u32>,
     std::collections::HashSet<(String, u32, bool)>,
+    std::collections::HashSet<(String, String)>,
 ) {
     let mut port_counts: std::collections::HashMap<(String, u8), u32> =
         std::collections::HashMap::new();
     let mut connected_ports: std::collections::HashSet<(String, u32, bool)> =
         std::collections::HashSet::new();
+    let mut connected_control_ports: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
 
     for line in lines {
         if let Some(src) = &line.src {
-            register_endpoint(src, &mut port_counts, &mut connected_ports);
+            register_endpoint(src, &mut port_counts, &mut connected_ports, &mut connected_control_ports);
         }
         if let Some(dst) = &line.dst {
-            register_endpoint(dst, &mut port_counts, &mut connected_ports);
+            register_endpoint(dst, &mut port_counts, &mut connected_ports, &mut connected_control_ports);
         }
         for br in &line.branches {
-            register_branch_endpoints(br, &mut port_counts, &mut connected_ports);
+            register_branch_endpoints(br, &mut port_counts, &mut connected_ports, &mut connected_control_ports);
         }
     }
 
@@ -409,7 +486,7 @@ pub fn compute_port_info(
         }
     }
 
-    (port_counts, connected_ports)
+    (port_counts, connected_ports, connected_control_ports)
 }
 
 // ---------------------------------------------------------------------------

@@ -10,23 +10,13 @@
 use crate::simulink_libraries::labels;
 use crate::simulink_libraries::renderers;
 use crate::simulink_libraries::types::{
-    BlockLabelPolicy, IOPorts, MetadataKey, PortLabelPolicy, PortPlacement, PortPositionOverride,
+    BlockLabelPolicy, IOPorts, MetadataKey, PortLabelPolicy,
     SimulinkBlockDefinition, SimulinkIcon, SimulinkShape,
 };
 
 const fn icon(glyph: &'static str) -> SimulinkIcon {
     SimulinkIcon::Utf8(glyph)
 }
-
-/// Place the round Sum block's last input at the bottom (classic Simulink
-/// layout).  The rectangular variant keeps every input on the left edge.
-pub const ROUND_SUM_PORT_OVERRIDES: &[PortPositionOverride] = &[PortPositionOverride {
-    is_input: true,
-    port_index: 1,
-    from_end: true,
-    placement: PortPlacement::Bottom,
-    fraction: 0.5,
-}];
 
 pub static BLOCKS: &[SimulinkBlockDefinition] = &[
     // ── Math operations ────────────────────────────────────────────────
