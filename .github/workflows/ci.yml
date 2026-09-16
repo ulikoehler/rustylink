@@ -53,18 +53,16 @@ jobs:
         run: rustup toolchain install stable --profile minimal
 
       # cache the tarpaulin binary to avoid reinstalling every run
+      # bump the vN suffix to force a newer tarpaulin version
       - name: Cache tarpaulin
         id: cache-tarpaulin
         uses: actions/cache@v5
         with:
           path: ~/.cargo/bin/cargo-tarpaulin
-          key: ${{ runner.os }}-tarpaulin-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-tarpaulin-
+          key: ${{ runner.os }}-cargo-tarpaulin-v1
 
       - name: Install cargo-tarpaulin
-        if: steps.cache-tarpaulin.outputs.cache-hit != 'true'
-        run: cargo install cargo-tarpaulin
+        run: command -v cargo-tarpaulin >/dev/null || cargo install cargo-tarpaulin
 
       - name: Run tarpaulin
         # Xml output is compatible with codecov and many other tools
