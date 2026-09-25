@@ -1,6 +1,6 @@
 [package]
 name = "rustylink"
-version = "3.0.6"
+version = "3.0.7"
 edition = "2024"
 homepage = "https://github.com/ulikoehler/rustylink"
 repository = "https://github.com/ulikoehler/rustylink"
@@ -56,7 +56,7 @@ optional = true
 
 [dependencies.liveplot]
 #path = "../liveplot-rs"
-version = "~2.3"
+version = "~2.4"
 optional = true
 default-features = false
 features = ["tiles", "fft", "parquet"]
