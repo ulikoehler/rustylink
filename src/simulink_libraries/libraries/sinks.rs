@@ -14,7 +14,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Display signals over time")
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
         .with_icon(SimulinkIcon::Phosphor(
-            egui_phosphor_icons::icons::WAVEFORM.as_str(),
+            egui_material_icons::icons::ICON_SHOW_CHART.codepoint,
         ))
         .with_static_renderer(renderers::static_scope),
     SimulinkBlockDefinition::new("Terminator", "Sinks")

@@ -478,7 +478,7 @@ fn show_scope_popout_window(app: &mut SubsystemApp, ui: &mut egui::Ui) {
         let mut open_flag = popout.open;
         let scope_key = popout.scope_key.clone();
         egui::Window::new(format!("Scope: {}", popout.title))
-            .id(egui::Id::new((
+            .id(egui::Id::unique((
                 "rustylink_viewer",
                 viewer_instance_id,
                 ("scope", "window", scope_key.as_str()),

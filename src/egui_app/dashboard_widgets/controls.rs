@@ -288,7 +288,7 @@ fn render_edit_field_control_widget(
                 content_rect.size(),
                 egui::TextEdit::singleline(buffer)
                     .id(edit_id)
-                    .horizontal_align(egui::Align::Center)
+                    .align(egui::Align2::CENTER_CENTER)
                     .frame(egui::Frame::NONE),
             );
             child_ui.painter().rect_stroke(

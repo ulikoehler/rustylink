@@ -1,6 +1,6 @@
 [package]
 name = "rustylink"
-version = "3.0.7"
+version = "3.1.0"
 edition = "2024"
 homepage = "https://github.com/ulikoehler/rustylink"
 repository = "https://github.com/ulikoehler/rustylink"
@@ -32,7 +32,7 @@ egui = [
 	"dep:rfd",
 	"dep:syntect",
 	"dep:liveplot",
-	"dep:egui_phosphor_icons",
+	"dep:egui_material_icons",
 ]
 ## Optional mask evaluation (parses very small subset of MATLAB mask scripts to show display text)
 mask = []
@@ -41,11 +41,11 @@ mask = []
 dashboard = ["egui"]
 
 [dependencies.egui]
-version = "0.36"
+version = "0.37"
 optional = true
 
 [dependencies.eframe]
-version = "0.36"
+version = "0.37"
 optional = true
 default-features = false
 features = ["glow", "default_fonts", "wayland", "x11"]
@@ -56,7 +56,7 @@ optional = true
 
 [dependencies.liveplot]
 #path = "../liveplot-rs"
-version = "~2.4"
+version = "~2.5"
 optional = true
 default-features = false
 features = ["tiles", "fft", "parquet"]
@@ -65,10 +65,9 @@ features = ["tiles", "fft", "parquet"]
 version = "0.17.2"
 optional = true
 
-# Must track the same egui generation as `eframe`/`egui` (0.35) so the
-# `FontDefinitions` types match for `add_fonts`.
-[dependencies.egui_phosphor_icons]
-version = "0.5"
+# Must track the same egui generation as `eframe`/`egui`.
+[dependencies.egui_material_icons]
+version = "0.9"
 optional = true
 
 [dev-dependencies]

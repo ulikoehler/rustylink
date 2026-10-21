@@ -47,7 +47,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Manually switch between two inputs")
         .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
         .with_icon(SimulinkIcon::Phosphor(
-            egui_phosphor_icons::icons::ARROWS_MERGE.as_str(),
+            egui_material_icons::icons::ICON_CALL_MERGE.codepoint,
         ))
         .with_static_renderer(renderers::static_manual_switch)
         .with_live_renderer(renderers::live_manual_switch),
@@ -56,7 +56,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
         .with_shape(SimulinkShape::Goto)
         .with_icon(SimulinkIcon::Phosphor(
-            egui_phosphor_icons::icons::ARROW_RIGHT.as_str(),
+            egui_material_icons::icons::ICON_ARROW_FORWARD.codepoint,
         ))
         .with_metadata_keys(&[MetadataKey::with_default("GotoTag", "A")])
         .with_block_label(BlockLabelPolicy::MetadataDependent(labels::goto_tag))
@@ -66,7 +66,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_shape(SimulinkShape::From)
         .with_icon(SimulinkIcon::Phosphor(
-            egui_phosphor_icons::icons::ARROW_LEFT.as_str(),
+            egui_material_icons::icons::ICON_ARROW_BACK.codepoint,
         ))
         .with_metadata_keys(&[MetadataKey::with_default("GotoTag", "A")])
         .with_block_label(BlockLabelPolicy::MetadataDependent(labels::goto_tag))

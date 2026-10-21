@@ -981,7 +981,7 @@ impl SubsystemApp {
     }
 
     pub fn egui_id(&self, key: impl std::hash::Hash + std::fmt::Debug) -> egui::Id {
-        egui::Id::new(("rustylink_viewer", self.instance_id, key))
+        egui::Id::unique(("rustylink_viewer", self.instance_id, key))
     }
 
     #[cfg(feature = "dashboard")]
