@@ -352,3 +352,13 @@ required-features = ["egui"]
 name = "e2e_linedrag"
 path = "tests/e2e_linedrag.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_chart"
+path = "tests/e2e_chart.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_ctrl"
+path = "tests/e2e_ctrl.rs"
+required-features = ["egui"]
