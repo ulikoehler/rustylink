@@ -247,3 +247,13 @@ required-features = ["egui"]
 name = "e2e_parser"
 path = "tests/e2e_parser.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_cli"
+path = "tests/e2e_cli.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_fuzz"
+path = "tests/e2e_fuzz.rs"
+required-features = ["egui"]
