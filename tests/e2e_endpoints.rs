@@ -10,7 +10,8 @@
 #[path = "e2e/harness/mod.rs"]
 mod harness;
 
-use harness::{BlockBuilder, EditorHarness, SystemBuilder, ViewerHarness, gain_chain};
+use eframe::egui;
+use harness::{BlockBuilder, EditorHarness, SystemBuilder, ViewerHarness, gain_chain, input};
 use rustylink::model::System;
 
 fn multi_in(n: u32) -> System {
@@ -252,4 +253,35 @@ fn ep_009_drawn_endpoint_matches_anchor_zooms() {
             "zoom {zoom}: endpoint frac {frac:.3}, want 0.5"
         );
     }
+}
+
+#[test]
+fn ep_010_pending_connection_starts_at_anchor() {
+    // The pending-connection preview must start at the out anchor — the same
+    // spot the finished line's endpoint lands.
+    let mut h = EditorHarness::new(multi_out(3));
+    h.idle(2);
+    let from = h.port_hit_pos("1", "out", 2); // anchor: out:2 of 3 → frac 0.5
+    h.frame(input::press(from));
+    h.frame(input::move_to(from + egui::vec2(30.0, 20.0)));
+    match &h.state.drag_mode {
+        rustylink::editor::state::DragMode::Connection {
+            src_sid,
+            src_port_index,
+            current_y,
+            ..
+        } => {
+            assert_eq!(src_sid.as_str(), "1");
+            assert_eq!(*src_port_index, 2, "drag sourced from out:2");
+            // current_y is MODEL-space; out:2 of 3 anchor = y 60 (0.5*120),
+            // pointer moved +20px (~+3 model) → expect ~60-80.
+            assert!(
+                (*current_y - 60.0).abs() < 30.0,
+                "tip tracks near out:2 anchor, got {current_y}"
+            );
+        }
+        other => panic!("expected Connection drag mode, got {other:?}"),
+    }
+    h.frame(input::release(from + egui::vec2(30.0, 20.0)));
+    h.idle(1);
 }
