@@ -272,3 +272,8 @@ required-features = ["egui"]
 name = "e2e_ops2"
 path = "tests/e2e_ops2.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_edge"
+path = "tests/e2e_edge.rs"
+required-features = ["egui"]
