@@ -362,3 +362,8 @@ required-features = ["egui"]
 name = "e2e_ctrl"
 path = "tests/e2e_ctrl.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_actions"
+path = "tests/e2e_actions.rs"
+required-features = ["egui"]

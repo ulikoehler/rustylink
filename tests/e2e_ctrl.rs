@@ -7,10 +7,9 @@ mod harness;
 
 use harness::EditorHarness;
 use harness::model_builders::{endpoint, line, props};
-use harness::{BlockBuilder, SystemBuilder, gain_chain};
+use harness::{BlockBuilder, SystemBuilder};
 use rustylink::connection_targets::ConnectionTargetResolver;
 use rustylink::model::Line;
-use rustylink::model::System;
 
 #[test]
 fn ctl_001_enable_endpoint_resolves() {
