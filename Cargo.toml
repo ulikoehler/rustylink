@@ -307,3 +307,8 @@ required-features = ["egui"]
 name = "e2e_extra"
 path = "tests/e2e_extra.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_keys"
+path = "tests/e2e_keys.rs"
+required-features = ["egui"]
