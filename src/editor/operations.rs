@@ -1557,9 +1557,9 @@ fn port_model_pos(
 ) -> (f32, f32) {
     let (l, t, r, b) = rect;
     let n = num_ports.max(port_index);
-    let total_segments = n * 2 + 1;
-    let dy = (b - t) / (total_segments as f32);
-    let y = t + ((2 * port_index) as f32 - 0.5) * dy;
+    // Match `port_anchor_pos`: cell-centred (i - 0.5)/n distribution so the
+    // snap position coincides with the drawn endpoint at every zoom level.
+    let y = t + ((port_index as f32 - 0.5) / n as f32) * (b - t);
 
     let is_left = matches!((port_type, mirrored), ("in", false) | ("out", true));
 

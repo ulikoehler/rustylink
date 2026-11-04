@@ -71,10 +71,11 @@ pub(super) fn draw_port_indicators(
     let ins_left_side = !mirrored;
     let outs_left_side = mirrored;
 
-    // Input ports
+    // Input ports — (i - 0.5)/n cell-centred fractions, matching the line
+    // endpoint anchors (`port_anchor_pos`) so chevrons sit exactly on arrows.
     for i in 0..in_count {
         let n = in_count.max(1);
-        let y = r_screen.top() + r_screen.height() * ((i as f32 + 1.0) / (n as f32 + 1.0));
+        let y = r_screen.top() + r_screen.height() * ((i as f32 + 0.5) / (n as f32));
         paint_port_chevron(
             ui.painter(),
             Pos2::new(in_x, y),
@@ -84,10 +85,10 @@ pub(super) fn draw_port_indicators(
         );
     }
 
-    // Output ports
+    // Output ports — same anchor formula as inputs.
     for i in 0..out_count {
         let n = out_count.max(1);
-        let y = r_screen.top() + r_screen.height() * ((i as f32 + 1.0) / (n as f32 + 1.0));
+        let y = r_screen.top() + r_screen.height() * ((i as f32 + 0.5) / (n as f32));
         paint_port_chevron(
             ui.painter(),
             Pos2::new(out_x, y),
@@ -391,10 +392,11 @@ pub(super) fn draw_port_interaction_areas(
         None => return,
     };
 
-    // Input ports
+    // Input ports — centre hit areas on the anchor positions so clicks/drags
+    // land on the chevrons that the line endpoints actually use.
     for i in 0..in_count {
         let n = in_count.max(1);
-        let y = r_screen.top() + r_screen.height() * ((i as f32 + 1.0) / (n as f32 + 1.0));
+        let y = r_screen.top() + r_screen.height() * ((i as f32 + 0.5) / (n as f32));
         let port_center = Pos2::new(in_x, y);
         let hit_rect = Rect::from_center_size(port_center, Vec2::splat(hit_size));
         let resp = ui.allocate_rect(hit_rect, Sense::click_and_drag());
@@ -410,10 +412,10 @@ pub(super) fn draw_port_interaction_areas(
         }
     }
 
-    // Output ports
+    // Output ports — same anchor formula as inputs.
     for i in 0..out_count {
         let n = out_count.max(1);
-        let y = r_screen.top() + r_screen.height() * ((i as f32 + 1.0) / (n as f32 + 1.0));
+        let y = r_screen.top() + r_screen.height() * ((i as f32 + 0.5) / (n as f32));
         let port_center = Pos2::new(out_x, y);
         let hit_rect = Rect::from_center_size(port_center, Vec2::splat(hit_size));
         let resp = ui.allocate_rect(hit_rect, Sense::click_and_drag());

@@ -151,12 +151,13 @@ impl EditorHarness {
             _ => b.port_counts.as_ref().and_then(|p| p.outs).unwrap_or(1),
         }
         .max(1);
-        let y = r.top() + r.height() * (index as f32) / (n as f32 + 1.0);
+        // Anchor formula (i - 0.5)/n — matches the renderer's port anchors.
+        let y = r.top() + r.height() * (index as f32 - 0.5) / (n as f32);
         Pos2::new(x, y)
     }
 
     /// Model-space position of a port the way `find_snap_port` computes it:
-    /// `y = t + (2i − 0.5) · h/(2n+1)`.
+    /// `y = t + (i − 0.5) · h/n` — the same anchor formula as the renderer.
     pub fn port_snap_model_pos(&self, sid: &str, kind: &str, index: u32) -> Pos2 {
         let (b, _) = self.block_and_screen_rect(sid).expect("block exists");
         let r = self.block_model_rect(sid).unwrap();
@@ -166,9 +167,7 @@ impl EditorHarness {
             _ => b.port_counts.as_ref().and_then(|p| p.outs).unwrap_or(1),
         }
         .max(index) as f32;
-        let total = n * 2.0 + 1.0;
-        let dy = r.height() / total;
-        let y = r.top() + (2.0 * index as f32 - 0.5) * dy;
+        let y = r.top() + (index as f32 - 0.5) / n * r.height();
         let x = match (kind, mirrored) {
             ("in", false) | ("out", true) => r.left(),
             _ => r.right(),
