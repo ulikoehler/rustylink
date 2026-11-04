@@ -791,6 +791,14 @@ pub struct SubsystemApp {
     /// Pending live dashboard control update for the host application.
     #[cfg(feature = "dashboard")]
     pub pending_dashboard_control: Option<DashboardControlEvent>,
+
+    /// The model↔screen transform used for the most recently rendered canvas
+    /// frame, updated once per frame by the viewer/editor update functions.
+    ///
+    /// Embedding applications can use this to map model coordinates to screen
+    /// coordinates (and back) for overlays; it is `None` until the first frame
+    /// with renderable content has completed.
+    pub last_canvas_transform: Option<crate::egui_app::ui::view_transform::ViewTransform>,
 }
 
 impl SubsystemApp {
@@ -874,6 +882,7 @@ impl SubsystemApp {
             dashboard_active_pulses: BTreeSet::new(),
             #[cfg(feature = "dashboard")]
             pending_dashboard_control: None,
+            last_canvas_transform: None,
         };
         if app
             .default_navigation_view_states

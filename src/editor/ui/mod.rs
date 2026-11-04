@@ -312,42 +312,43 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
         return;
     }
 
-    // Bounding box
-    let mut bb = blocks
-        .first()
-        .map(|x| x.1)
-        .or_else(|| annotations.first().map(|x| x.1))
-        .unwrap();
-    for (_, r) in &blocks {
-        bb = bb.union(*r);
-    }
-    for (_, r) in &annotations {
-        bb = bb.union(*r);
-    }
-
     let margin = 20.0;
-    let avail = ui.available_rect_before_wrap();
-    let avail_size = avail.size();
-    let width = bb.width().max(1.0);
-    let height = bb.height().max(1.0);
-    let sx = (avail_size.x - 2.0 * margin) / width;
-    let sy = (avail_size.y - 2.0 * margin) / height;
-    let base_scale = sx.min(sy).max(0.1);
-
-    if state.app.reset_view {
-        // Fit every block into the viewport and centre the fitted content so
-        // all blocks are visible in the screen rect (not anchored to a corner).
-        state.app.zoom = 1.0;
-        let extra_x = (avail_size.x - 2.0 * margin - bb.width() * base_scale).max(0.0);
-        let extra_y = (avail_size.y - 2.0 * margin - bb.height() * base_scale).max(0.0);
-        state.app.pan = Vec2::new(extra_x * 0.5, extra_y * 0.5);
-        state.app.reset_view = false;
-        ui.ctx().request_repaint();
-    }
 
     // Central panel rendering
     egui::CentralPanel::default().show(ui, |ui| {
+        // Bounding box and fit-scale use the PANEL's inner avail so that
+        // `to_screen` is a consistent transform (offset and scale must refer
+        // to the same viewport).
+        let mut bb = blocks
+            .first()
+            .map(|x| x.1)
+            .or_else(|| annotations.first().map(|x| x.1))
+            .unwrap();
+        for (_, r) in &blocks {
+            bb = bb.union(*r);
+        }
+        for (_, r) in &annotations {
+            bb = bb.union(*r);
+        }
+
         let avail = ui.available_rect_before_wrap();
+        let avail_size = avail.size();
+        let width = bb.width().max(1.0);
+        let height = bb.height().max(1.0);
+        let sx = (avail_size.x - 2.0 * margin) / width;
+        let sy = (avail_size.y - 2.0 * margin) / height;
+        let base_scale = sx.min(sy).max(0.1);
+
+        if state.app.reset_view {
+            // Fit every block into the viewport and centre the fitted content so
+            // all blocks are visible in the screen rect (not anchored to a corner).
+            state.app.zoom = 1.0;
+            let extra_x = (avail_size.x - 2.0 * margin - bb.width() * base_scale).max(0.0);
+            let extra_y = (avail_size.y - 2.0 * margin - bb.height() * base_scale).max(0.0);
+            state.app.pan = Vec2::new(extra_x * 0.5, extra_y * 0.5);
+            state.app.reset_view = false;
+            ui.ctx().request_repaint();
+        }
 
         // Canvas interaction
         let canvas_resp = ui.interact(
@@ -394,6 +395,10 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             let y = (p.y - avail.top() - margin - pan.y) / s + bb.top();
             Pos2::new(x, y)
         };
+
+        state.app.last_canvas_transform = Some(
+            crate::egui_app::ui::view_transform::ViewTransform::new(bb, avail, margin, zoom, pan),
+        );
 
         // Coupled to the model's measurement unit: `base_scale * zoom` is the
         // screen-pixels-per-model-unit scale used for block geometry, so text
@@ -597,15 +602,17 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             draw_port_indicators(ui, b, &r_screen, font_scale);
 
             // Resize handles for selected blocks
+            // Allocate the block's interaction rect FIRST: hit areas drawn
+            // later (resize handles, port chevrons) sit on top in egui's hit
+            // order and must be able to win drags over the block body.
+            let resp = ui.allocate_rect(r_screen, Sense::click_and_drag());
+
             if is_selected && !matches!(state.drag_mode, DragMode::Blocks { .. }) {
                 draw_resize_handles(ui, &r_screen, block_idx, state, &effective_r);
             }
 
             // Port interaction areas for connection dragging
             draw_port_interaction_areas(ui, b, &r_screen, font_scale, block_idx, state);
-
-            // Allocate interaction rect
-            let resp = ui.allocate_rect(r_screen, Sense::click_and_drag());
 
             // Context menu
             resp.context_menu(|ui| {
@@ -641,8 +648,13 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
         }
 
         // Handle block dragging (live preview via delta accumulation)
-        if matches!(state.drag_mode, DragMode::Blocks { .. }) && canvas_resp.dragged() {
-            let delta = canvas_resp.drag_delta();
+        // NOTE: the drag is owned by the block's interaction rect, not the
+        // canvas, so gate on the pointer state — `canvas_resp.dragged()` can
+        // never be true here.
+        if matches!(state.drag_mode, DragMode::Blocks { .. })
+            && ui.input(|i| i.pointer.is_decidedly_dragging())
+        {
+            let delta = ui.input(|i| i.pointer.delta());
             let s = base_scale * zoom;
             if let DragMode::Blocks {
                 ref mut dx,
@@ -654,7 +666,9 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             }
             ui.ctx().request_repaint(); // Repaint for live preview
         }
-        if matches!(state.drag_mode, DragMode::Blocks { .. }) && canvas_resp.drag_stopped() {
+        if matches!(state.drag_mode, DragMode::Blocks { .. })
+            && ui.input(|i| i.pointer.primary_released())
+        {
             if let DragMode::Blocks { dx, dy } = state.drag_mode {
                 let idx_dx = state.snap(dx as i32);
                 let idx_dy = state.snap(dy as i32);
@@ -673,9 +687,11 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             state.drag_mode = DragMode::None;
         }
 
-        // Handle resize dragging
-        if matches!(state.drag_mode, DragMode::Resize { .. }) && canvas_resp.dragged() {
-            let delta = canvas_resp.drag_delta();
+        // Handle resize dragging (same child-widget drag ownership as Blocks)
+        if matches!(state.drag_mode, DragMode::Resize { .. })
+            && ui.input(|i| i.pointer.is_decidedly_dragging())
+        {
+            let delta = ui.input(|i| i.pointer.delta());
             let s = base_scale * zoom;
             if let DragMode::Resize {
                 ref mut dx,
@@ -688,7 +704,9 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             }
             ui.ctx().request_repaint();
         }
-        if matches!(state.drag_mode, DragMode::Resize { .. }) && canvas_resp.drag_stopped() {
+        if matches!(state.drag_mode, DragMode::Resize { .. })
+            && ui.input(|i| i.pointer.primary_released())
+        {
             if let DragMode::Resize {
                 block_index,
                 handle,
@@ -732,8 +750,10 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
         }
 
         // Handle connection dragging
-        if matches!(state.drag_mode, DragMode::Connection { .. }) && canvas_resp.dragged() {
-            if let Some(pos) = canvas_resp.hover_pos() {
+        if matches!(state.drag_mode, DragMode::Connection { .. })
+            && ui.input(|i| i.pointer.is_decidedly_dragging())
+        {
+            if let Some(pos) = ui.input(|i| i.pointer.latest_pos()) {
                 let model_pos = from_screen(pos);
                 if let DragMode::Connection {
                     ref mut current_x,
@@ -747,7 +767,9 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             }
             ui.ctx().request_repaint();
         }
-        if matches!(state.drag_mode, DragMode::Connection { .. }) && canvas_resp.drag_stopped() {
+        if matches!(state.drag_mode, DragMode::Connection { .. })
+            && ui.input(|i| i.pointer.primary_released())
+        {
             // Try to complete the connection
             if let DragMode::Connection {
                 ref src_sid,
@@ -1393,12 +1415,15 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             canvas_context_menu(state, ui, &from_screen, &canvas_resp);
         });
 
-        // Rectangle selection via canvas drag (when not dragging blocks)
+        // Rectangle selection via canvas drag (when not dragging blocks).
+        // `canvas_resp.drag_started()` already implies the press began on the
+        // canvas (a block widget would own the drag otherwise); use the drag
+        // ORIGIN for the block test and marquee start — the pointer may have
+        // moved inside a block by the time drag_started is detected.
         if matches!(state.drag_mode, DragMode::None)
             && canvas_resp.drag_started()
-            && let Some(pos) = canvas_resp.hover_pos()
+            && let Some(pos) = ui.input(|i| i.pointer.press_origin())
         {
-            // Check if we clicked on empty space (not on a block)
             let on_block = blocks.iter().any(|(_, r)| {
                 let r_screen = Rect::from_min_max(to_screen(r.min), to_screen(r.max));
                 r_screen.contains(pos)
@@ -1424,13 +1449,16 @@ fn editor_update_internal(state: &mut EditorState, ui: &mut egui::Ui) {
             if let Some(system) =
                 crate::egui_app::resolve_subsystem_by_vec(&state.app.root, &state.app.path)
             {
+                // Screen = (model - bb.min) * s + avail.min + margin + pan:
+                // finish_rect adds pan itself, so fold bb.min into the offset.
+                let s = base_scale * zoom;
                 state.selection.finish_rect(
                     system,
-                    base_scale * zoom,
+                    s,
                     pan.x,
                     pan.y,
-                    avail.left() + margin,
-                    avail.top() + margin,
+                    avail.left() + margin - bb.left() * s,
+                    avail.top() + margin - bb.top() * s,
                 );
             }
             state.drag_mode = DragMode::None;

@@ -601,6 +601,14 @@ pub(crate) fn update_internal(
             Pos2::new(x, y)
         };
 
+        app.last_canvas_transform = Some(view_transform::ViewTransform::new(
+            bb,
+            avail,
+            margin,
+            staged_zoom,
+            staged_pan,
+        ));
+
         // In-canvas text/icon scaling is coupled to the model's measurement
         // unit: `base_scale * staged_zoom` is the screen-pixels-per-model-unit
         // scale (identical to the one used for block geometry), so names and

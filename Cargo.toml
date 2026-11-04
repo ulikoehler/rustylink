@@ -187,3 +187,23 @@ required-features = ["egui"]
 name = "dashboard_ui"
 path = "tests/dashboard_ui.rs"
 required-features = ["dashboard"]
+
+[[test]]
+name = "e2e_harness_smoke"
+path = "tests/e2e_harness_smoke.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_editor_dnd"
+path = "tests/e2e_editor_dnd.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_propagation"
+path = "tests/e2e_propagation.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_routing"
+path = "tests/e2e_routing.rs"
+required-features = ["egui"]
