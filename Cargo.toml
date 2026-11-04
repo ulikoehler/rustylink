@@ -327,3 +327,8 @@ required-features = ["egui"]
 name = "e2e_caps"
 path = "tests/e2e_caps.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_deep"
+path = "tests/e2e_deep.rs"
+required-features = ["egui"]
