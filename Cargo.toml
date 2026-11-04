@@ -332,3 +332,23 @@ required-features = ["egui"]
 name = "e2e_deep"
 path = "tests/e2e_deep.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_menus"
+path = "tests/e2e_menus.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_prop4"
+path = "tests/e2e_prop4.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_property"
+path = "tests/e2e_property.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_linedrag"
+path = "tests/e2e_linedrag.rs"
+required-features = ["egui"]
