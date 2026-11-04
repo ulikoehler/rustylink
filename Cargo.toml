@@ -242,3 +242,8 @@ required-features = ["dashboard"]
 name = "e2e_propagation2"
 path = "tests/e2e_propagation2.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_parser"
+path = "tests/e2e_parser.rs"
+required-features = ["egui"]
