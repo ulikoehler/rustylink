@@ -6,7 +6,7 @@
 mod harness;
 
 use eframe::egui;
-use harness::{BlockBuilder, EditorHarness, SystemBuilder, ViewerHarness, gain_chain, input};
+use harness::{EditorHarness, ViewerHarness, gain_chain, input};
 
 fn rclick(pos: egui::Pos2) -> Vec<egui::RawInput> {
     let press = egui::RawInput {

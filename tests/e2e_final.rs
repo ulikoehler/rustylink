@@ -9,7 +9,6 @@ use eframe::egui;
 use harness::model_builders::line;
 use harness::{BlockBuilder, EditorHarness, SystemBuilder, ViewerHarness, gain_chain, live_feed};
 use rustylink::connection_targets::ConnectionTargetResolver;
-use rustylink::model::System;
 
 #[test]
 fn fn_001_goto_from_matching_tag_links() {
@@ -139,7 +138,7 @@ fn fn_006_scope_block_stores_live_series() {
     h.app
         .live_values
         .insert("1:out:1".into(), live_feed::scalar(0.5));
-    assert!(h.app.live_values.get("1:out:1").is_some());
+    assert!(h.app.live_values.contains_key("1:out:1"));
 }
 
 #[test]
