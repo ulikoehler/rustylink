@@ -282,3 +282,8 @@ required-features = ["egui"]
 name = "e2e_matrix"
 path = "tests/e2e_matrix.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_context"
+path = "tests/e2e_context.rs"
+required-features = ["egui"]
