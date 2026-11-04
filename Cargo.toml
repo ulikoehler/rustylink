@@ -262,3 +262,13 @@ required-features = ["egui"]
 name = "e2e_journeys"
 path = "tests/e2e_journeys.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_propagation3"
+path = "tests/e2e_propagation3.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_ops2"
+path = "tests/e2e_ops2.rs"
+required-features = ["egui"]
