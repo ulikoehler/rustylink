@@ -207,3 +207,23 @@ required-features = ["egui"]
 name = "e2e_routing"
 path = "tests/e2e_routing.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_editor_ops"
+path = "tests/e2e_editor_ops.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_serialization"
+path = "tests/e2e_serialization.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_live_values"
+path = "tests/e2e_live_values.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_stress"
+path = "tests/e2e_stress.rs"
+required-features = ["egui"]

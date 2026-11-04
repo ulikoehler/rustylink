@@ -442,9 +442,54 @@ fn write_dialog_control(out: &mut String, dc: &DialogControl, level: usize) {
     out.push_str("</DialogControl>\n");
 }
 
+/// Serialize an [`EndpointRef`] back to `"sid#port_type:index"` form.
+fn endpoint_str(ep: &EndpointRef) -> String {
+    format!("{}#{}:{}", ep.sid, ep.port_type, ep.port_index)
+}
+
 fn write_line(out: &mut String, line: &Line, level: usize) {
     indent(out, level);
     out.push_str("<Line>\n");
+
+    // Emit typed fields the parser lifts out of `properties` — models built
+    // programmatically (e.g. editor-created lines) store Src/Dst/Points only
+    // in typed fields, so skipping them would silently drop endpoints.
+    if !line.properties.contains_key("Name")
+        && let Some(name) = &line.name
+    {
+        write_p(out, level + 1, "Name", name, false);
+    }
+    if !line.properties.contains_key("ZOrder")
+        && let Some(z) = &line.zorder
+    {
+        write_p(out, level + 1, "ZOrder", z, false);
+    }
+    if !line.properties.contains_key("Src")
+        && let Some(src) = &line.src
+    {
+        write_p(out, level + 1, "Src", &endpoint_str(src), false);
+    }
+    if !line.properties.contains_key("Dst")
+        && let Some(dst) = &line.dst
+    {
+        write_p(out, level + 1, "Dst", &endpoint_str(dst), false);
+    }
+    if !line.properties.contains_key("Labels")
+        && let Some(labels) = &line.labels
+    {
+        write_p(out, level + 1, "Labels", labels, false);
+    }
+    if !line.properties.contains_key("Points") {
+        for p in &line.points {
+            write_p(
+                out,
+                level + 1,
+                "Points",
+                &format!("[{}, {}]", p.x, p.y),
+                false,
+            );
+        }
+    }
 
     // Write P elements in their original order from the properties map
     for (name, value) in &line.properties {
@@ -463,6 +508,39 @@ fn write_line(out: &mut String, line: &Line, level: usize) {
 fn write_branch(out: &mut String, branch: &Branch, level: usize) {
     indent(out, level);
     out.push_str("<Branch>\n");
+
+    // Same typed-field fallback as `write_line` (see above).
+    if !branch.properties.contains_key("Name")
+        && let Some(name) = &branch.name
+    {
+        write_p(out, level + 1, "Name", name, false);
+    }
+    if !branch.properties.contains_key("ZOrder")
+        && let Some(z) = &branch.zorder
+    {
+        write_p(out, level + 1, "ZOrder", z, false);
+    }
+    if !branch.properties.contains_key("Dst")
+        && let Some(dst) = &branch.dst
+    {
+        write_p(out, level + 1, "Dst", &endpoint_str(dst), false);
+    }
+    if !branch.properties.contains_key("Labels")
+        && let Some(labels) = &branch.labels
+    {
+        write_p(out, level + 1, "Labels", labels, false);
+    }
+    if !branch.properties.contains_key("Points") {
+        for p in &branch.points {
+            write_p(
+                out,
+                level + 1,
+                "Points",
+                &format!("[{}, {}]", p.x, p.y),
+                false,
+            );
+        }
+    }
 
     for (name, value) in &branch.properties {
         write_p(out, level + 1, name, value, false);

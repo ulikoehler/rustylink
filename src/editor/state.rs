@@ -329,13 +329,47 @@ impl EditorState {
     }
 
     /// Delete selected items.
+    ///
+    /// Deleting a block cascades: every line attached to it (as src, dst, or
+    /// branch destination) is removed as well — wires referencing a deleted
+    /// block have no valid endpoints.
     pub fn delete_selection(&mut self) {
         if self.selection.is_empty() {
             return;
         }
-        let line_indices = self.selection.selected_lines.clone();
+        let mut line_indices = self.selection.selected_lines.clone();
         let block_indices = self.selection.selected_blocks.clone();
         if let Some(system) = resolve_subsystem_by_vec_mut(&mut self.app.root, &self.app.path) {
+            // Cascade: collect lines attached to any deleted block.
+            if !block_indices.is_empty() {
+                let deleted_sids: std::collections::HashSet<String> = block_indices
+                    .iter()
+                    .filter_map(|&i| system.blocks.get(i))
+                    .filter_map(|b| b.sid.clone())
+                    .collect();
+                fn branch_refs_sid(
+                    b: &crate::model::Branch,
+                    sids: &std::collections::HashSet<String>,
+                ) -> bool {
+                    (b.dst
+                        .as_ref()
+                        .is_some_and(|e| sids.contains(e.sid.as_str())))
+                        || b.branches.iter().any(|c| branch_refs_sid(c, sids))
+                }
+                for (i, l) in system.lines.iter().enumerate() {
+                    let hits = l
+                        .src
+                        .as_ref()
+                        .is_some_and(|e| deleted_sids.contains(e.sid.as_str()))
+                        || l.dst
+                            .as_ref()
+                            .is_some_and(|e| deleted_sids.contains(e.sid.as_str()))
+                        || l.branches.iter().any(|b| branch_refs_sid(b, &deleted_sids));
+                    if hits && !line_indices.contains(&i) {
+                        line_indices.push(i);
+                    }
+                }
+            }
             // Delete lines first (higher indices first)
             if !line_indices.is_empty() {
                 let cmd = super::operations::delete_lines(system, &line_indices);
