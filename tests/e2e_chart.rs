@@ -7,7 +7,7 @@ mod harness;
 
 use harness::{BlockBuilder, SystemBuilder, ViewerHarness, gain_chain, input};
 use rustylink::egui_app::state::ChartView;
-use rustylink::model::{Chart, ChartPort, System};
+use rustylink::model::{Chart, ChartPort};
 use std::collections::BTreeMap;
 
 fn sample_chart() -> Chart {

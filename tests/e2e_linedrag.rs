@@ -6,9 +6,7 @@
 mod harness;
 
 use eframe::egui;
-use harness::model_builders::line;
-use harness::{BlockBuilder, EditorHarness, SystemBuilder, ViewerHarness, gain_chain, input};
-use rustylink::model::System;
+use harness::{EditorHarness, ViewerHarness, gain_chain, input};
 
 #[test]
 fn ld_001_viewer_line_point_drag_mode() {

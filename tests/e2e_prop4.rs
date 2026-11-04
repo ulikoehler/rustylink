@@ -6,9 +6,8 @@
 mod harness;
 
 use harness::model_builders::line;
-use harness::{BlockBuilder, SystemBuilder, assert_target_paths_eq, gain_chain};
+use harness::{BlockBuilder, SystemBuilder, assert_target_paths_eq};
 use rustylink::connection_targets::ConnectionTargetResolver;
-use rustylink::model::System;
 
 #[test]
 fn pp_001_trigger_port_line_resolves() {
