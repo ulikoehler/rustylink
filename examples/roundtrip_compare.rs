@@ -174,7 +174,7 @@ fn read_zip_entries_from_reader<R: Read + Seek>(reader: R) -> Result<BTreeMap<St
     let mut entries = BTreeMap::new();
     for i in 0..zip.len() {
         let mut file = zip.by_index(i)?;
-        let name = file.name().to_string();
+        let name = file.name()?.to_string();
         let mut data = Vec::new();
         file.read_to_end(&mut data)?;
         entries.insert(name, data);

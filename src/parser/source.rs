@@ -81,7 +81,7 @@ impl<R: Read + std::io::Seek> ContentSource for ZipSource<R> {
             prefix.push('/');
         }
         for i in 0..self.zip.len() {
-            let name = self.zip.by_index(i)?.name().to_string();
+            let name = self.zip.by_index(i)?.name()?.to_string();
             if name.starts_with(&prefix) && !name.ends_with('/') {
                 files.push(Utf8PathBuf::from(name));
             }

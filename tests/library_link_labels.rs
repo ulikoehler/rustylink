@@ -36,8 +36,8 @@ impl ContentSource for MemSource {
 fn write_slx(path: &std::path::Path, files: &[(&str, &str)]) {
     let file = File::create(path).expect("create slx");
     let mut zip = zip::ZipWriter::new(file);
-    let options: zip::write::FileOptions<'_, ()> =
-        zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let options =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
     for (name, contents) in files {
         zip.start_file(*name, options).expect("start file");
         zip.write_all(contents.as_bytes()).expect("write file");

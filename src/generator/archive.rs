@@ -35,7 +35,7 @@ impl SlxArchive {
 
         for i in 0..zip.len() {
             let mut file = zip.by_index(i)?;
-            let path = file.name().to_string();
+            let path = file.name()?.to_string();
             let compressed = file.compression() == zip::CompressionMethod::Deflated;
 
             let mut raw = Vec::new();
