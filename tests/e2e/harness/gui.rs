@@ -36,6 +36,7 @@ pub struct EditorHarness {
     pub ctx: egui::Context,
     pub state: EditorState,
     last: Option<egui::FullOutput>,
+    frame_no: u32,
 }
 
 impl EditorHarness {
@@ -45,11 +46,15 @@ impl EditorHarness {
             ctx: new_ctx(),
             state: EditorState::new(root, Vec::new(), charts, chart_map),
             last: None,
+            frame_no: 0,
         }
     }
 
     /// Run exactly one frame with the given input batch.
     pub fn frame(&mut self, raw: egui::RawInput) -> &egui::FullOutput {
+        let mut raw = raw;
+        self.frame_no += 1;
+        raw.time = Some(self.frame_no as f64 / 60.0);
         let mut out = self.ctx.run_ui(raw, |ui| {
             egui::CentralPanel::default().show(ui, |ui| {
                 rustylink::editor::ui::editor_update_with_info(&mut self.state, ui);
@@ -268,6 +273,9 @@ pub struct ViewerHarness {
     pub ctx: egui::Context,
     pub app: SubsystemApp,
     last: Option<egui::FullOutput>,
+    /// Response returned by `update_with_info` on the most recent frame.
+    pub last_response: Option<rustylink::egui_app::ui::UpdateResponse>,
+    frame_no: u32,
 }
 
 impl ViewerHarness {
@@ -277,15 +285,22 @@ impl ViewerHarness {
             ctx: new_ctx(),
             app: SubsystemApp::new(root, Vec::new(), charts, chart_map),
             last: None,
+            last_response: None,
+            frame_no: 0,
         }
     }
 
     pub fn frame(&mut self, raw: egui::RawInput) -> &egui::FullOutput {
+        let mut raw = raw;
+        self.frame_no += 1;
+        raw.time = Some(self.frame_no as f64 / 60.0);
+        let mut response = None;
         let mut out = self.ctx.run_ui(raw, |ui| {
             egui::CentralPanel::default().show(ui, |ui| {
-                rustylink::egui_app::ui::update_with_info(&mut self.app, ui);
+                response = Some(rustylink::egui_app::ui::update_with_info(&mut self.app, ui));
             });
         });
+        self.last_response = response;
         out.textures_delta.clear();
         self.last = Some(out);
         self.last.as_ref().unwrap()

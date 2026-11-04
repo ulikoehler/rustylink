@@ -227,3 +227,18 @@ required-features = ["egui"]
 name = "e2e_stress"
 path = "tests/e2e_stress.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_viewer"
+path = "tests/e2e_viewer.rs"
+required-features = ["egui"]
+
+[[test]]
+name = "e2e_dashboard"
+path = "tests/e2e_dashboard.rs"
+required-features = ["dashboard"]
+
+[[test]]
+name = "e2e_propagation2"
+path = "tests/e2e_propagation2.rs"
+required-features = ["egui"]
