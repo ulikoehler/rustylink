@@ -148,3 +148,108 @@ fn ep_006_endpoint_matches_chevron_visual() {
         );
     }
 }
+
+// ── out-port equivalents ─────────────────────────────────────────────────────
+
+fn multi_out(n: u32) -> System {
+    SystemBuilder::new("model")
+        .block(
+            BlockBuilder::new("Mux", "M", "1")
+                .pos(0, 0, 40, 120)
+                .ports(0, n)
+                .build(),
+        )
+        .build()
+}
+
+#[test]
+fn ep_007_out_hit_pos_equals_anchor() {
+    // Same check as inputs but on the right edge (out ports).
+    let mut h = EditorHarness::new(multi_out(3));
+    h.idle(2);
+    let r = h.block_screen_rect("1").unwrap();
+    for (i, want) in [(1u32, 1.0 / 6.0), (2, 3.0 / 6.0), (3, 5.0 / 6.0)] {
+        let p = h.port_hit_pos("1", "out", i);
+        let frac = (p.y - r.top()) / r.height();
+        assert!(
+            (frac - want as f32).abs() < 0.02,
+            "out:{i} hit at frac {frac:.3}, want anchor {want:.3}"
+        );
+        assert!((p.x - r.right()).abs() <= 1.0, "out:{i} on right edge");
+    }
+}
+
+#[test]
+fn ep_008_mirrored_multiport_anchor() {
+    // Mirrored 2-in block: in ports move to the RIGHT edge but keep the
+    // same (i-0.5)/n fractions — mirrored does not flip port ORDER.
+    let sys = SystemBuilder::new("model")
+        .block(
+            BlockBuilder::new("Mux", "M", "1")
+                .pos(0, 0, 40, 120)
+                .ports(2, 1)
+                .mirrored()
+                .build(),
+        )
+        .build();
+    let mut h = EditorHarness::new(sys);
+    h.idle(2);
+    let r = h.block_screen_rect("1").unwrap();
+    for (i, want) in [(1u32, 0.25), (2, 0.75)] {
+        let p = h.port_hit_pos("1", "in", i);
+        let frac = (p.y - r.top()) / r.height();
+        assert!(
+            (frac - want as f32).abs() < 0.02,
+            "mirrored in:{i} frac {frac:.3}"
+        );
+        assert!(p.x > r.center().x, "mirrored in:{i} on right side");
+    }
+}
+
+#[test]
+fn ep_009_drawn_endpoint_matches_anchor_zooms() {
+    // End-to-end at multiple zooms: draw a connection, then verify the
+    // renderer's endpoint anchor on the dst block's screen rect equals the
+    // cell-centred fraction — at every zoom the geometry is identical.
+    let mut sys = SystemBuilder::new("model")
+        .block(
+            BlockBuilder::new("Constant", "C", "1")
+                .pos(0, 0, 40, 24)
+                .ports(0, 1)
+                .build(),
+        )
+        .block(
+            BlockBuilder::new("Mux", "M", "2")
+                .pos(200, 0, 240, 120)
+                .ports(3, 0)
+                .build(),
+        )
+        .build();
+    sys.lines.push(
+        harness::model_builders::LineBuilder::new()
+            .from("1", 1)
+            .to("2", 2)
+            .build(),
+    );
+    for zoom in [0.3f32, 0.7, 1.0, 2.5, 4.0] {
+        let mut h = EditorHarness::new(sys.clone());
+        h.state.app.zoom = zoom;
+        h.idle(3);
+        let r = h.block_screen_rect("2").unwrap();
+        // Endpoint anchor for in:2 of 3 = fraction 0.5 (3/6).
+        let ep = rustylink::model::EndpointRef {
+            sid: "2".into(),
+            port_type: "in".into(),
+            port_index: 2,
+        };
+        let mut counts = std::collections::HashMap::new();
+        counts.insert(("2".to_string(), 0u8), 3u32);
+        let anchor =
+            rustylink::egui_app::ui::signal_routing::endpoint_pos(r, &ep, &counts, false, &[]);
+        let frac = (anchor.y - r.top()) / r.height();
+        assert!(
+            (frac - 0.5).abs() < 0.02,
+            "zoom {zoom}: endpoint frac {frac:.3}, want 0.5"
+        );
+    }
+}
