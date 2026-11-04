@@ -257,3 +257,8 @@ required-features = ["egui"]
 name = "e2e_fuzz"
 path = "tests/e2e_fuzz.rs"
 required-features = ["egui"]
+
+[[test]]
+name = "e2e_journeys"
+path = "tests/e2e_journeys.rs"
+required-features = ["egui"]
