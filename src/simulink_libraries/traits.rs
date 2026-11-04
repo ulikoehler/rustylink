@@ -213,6 +213,85 @@ pub fn block_traits(block_type: &str) -> BlockTraits {
             dashboard_ports: Some((0, 0)),
             ..BlockTraits::PLAIN
         },
+        // ── subsystem containers (deeper Ports & Subsystems coverage) ──
+        "EnabledAndTriggeredSubsystem" | "ForIteratorSubsystem"
+        | "FunctionCallSubsystem" | "ResettableSubsystem"
+        | "SwitchCaseActionSubsystem" | "InitializeFunction" | "ResetFunction"
+        | "TerminateFunction" | "SimulinkFunction" => BlockTraits {
+            signal_role: SignalRole::Container,
+            container: true,
+            owns_child_system: true,
+            ..BlockTraits::PLAIN
+        },
+        "SwitchCase" | "ElseIf" | "Else" => BlockTraits {
+            signal_role: SignalRole::ControlPort,
+            ..BlockTraits::PLAIN
+        },
+        // ── sources ──
+        "Ground" => BlockTraits {
+            live: Some(LiveRole::Input),
+            implicit_value: Some("0"),
+            ..BlockTraits::PLAIN
+        },
+        "Clock" | "DigitalClock" | "Chirp" | "ChirpSignal" | "SignalBuilder"
+        | "SignalGenerator" | "BandLimitedWhiteNoise" | "FromWorkspace"
+        | "FromFile" | "FromSpreadsheet" | "EnumeratedConstant" | "Counter"
+        | "CounterLimited" | "RepeatingSequenceInterpolated" | "DateTimeClock" => BlockTraits {
+            live: Some(LiveRole::Input),
+            ..BlockTraits::PLAIN
+        },
+        "Step" | "Ramp" | "PulseGenerator" | "SineWave" | "RandomNumber"
+        | "UniformRandomNumber" | "RepeatingSequence" | "RepeatingSequenceStair"
+        | "RepeatingSequenceRamp" => BlockTraits {
+            live: Some(LiveRole::Input),
+            ..BlockTraits::PLAIN
+        },
+        // ── sinks ──
+        "Terminator" | "ToWorkspace" | "ToFile" | "XYGraph" | "FloatingScope"
+        | "Record" | "Stop" | "Assertion" => BlockTraits {
+            live: Some(LiveRole::Value),
+            reads_signal_line: true,
+            ..BlockTraits::PLAIN
+        },
+        // ── dashboard widgets (input / output roles) ──
+        "ToggleSwitch" | "ToggleSwitchBlock" | "ToggleSwitchCustom"
+        | "PushButton" | "PushButtonCustom" | "Checkbox" | "CheckboxCustom"
+        | "RockerSwitch" | "RockerSwitchCustom" | "RotarySwitch"
+        | "RotarySwitchCustom" | "RadioButton" | "RadioButtonCustom"
+        | "RadioButtonGroup" | "ComboBox" | "SliderSwitch" | "SliderSwitchCustom"
+        | "CallbackButton" => BlockTraits {
+            live: Some(LiveRole::Toggle),
+            dashboard_ports: Some((0, 0)),
+            ..BlockTraits::PLAIN
+        },
+        "Knob" | "KnobCustom" | "Slider" | "SliderCustom" | "Edit"
+        | "EditCustom" | "TextArea" | "SliderGain" => BlockTraits {
+            live: Some(LiveRole::Input),
+            dashboard_ports: Some((0, 0)),
+            ..BlockTraits::PLAIN
+        },
+        "Lamp" | "LampCustom" | "Gauge" | "GaugeCustom" | "CircularGauge"
+        | "CircularGaugeCustom" | "LinearGauge" | "LinearGaugeCustom"
+        | "HalfGauge" | "HalfGaugeCustom" | "QuarterGauge" | "QuarterGaugeCustom"
+        | "Stopwatch" | "DisplayCustom" | "DashboardScopeCustom" => BlockTraits {
+            live: Some(LiveRole::Value),
+            dashboard_ports: Some((0, 0)),
+            ..BlockTraits::PLAIN
+        },
+        "Playback" | "RealTimeDashboard" => BlockTraits {
+            live: Some(LiveRole::Trace),
+            dashboard_ports: Some((0, 0)),
+            ..BlockTraits::PLAIN
+        },
+        // ── pass-through conversions (resolver-transparent) ──
+        "DataTypeConversion" | "DataTypeConversionInherited" | "UnitConversion"
+        | "InitialCondition" | "SignalSpecification" | "WeightedSampleTime"
+        | "IsFixed" | "IsNonBus" | "Probe" | "Width" | "GotoTagVisibility"
+        | "DataTypeDuplicate" | "DataTypePropagation" | "DataTypeScalingStrip"
+        | "VectorToBus" | "BusToVector" | "BusElement" | "BusElementPort"
+        | "SignalConversion" | "UnitSystemConfig" | "EnvironmentController" => {
+            BlockTraits::PLAIN
+        }
         _ => BlockTraits::PLAIN,
     }
 }
