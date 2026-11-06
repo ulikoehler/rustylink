@@ -136,6 +136,10 @@ const DASHBOARD_BLOCKS: &[StubBlock] = &[
     StubBlock::new("LinearGaugeBlock", &["LinearGauge"], 0, 0),
     StubBlock::new("QuarterGaugeBlock", &["QuarterGauge"], 0, 0),
     StubBlock::new("DashboardScope", &["DashboardScopeBlock"], 0, 0),
+    StubBlock::new("Playback", &[], 0, 1),
+    StubBlock::new("RealTimeDashboard", &[], 1, 0),
+    StubBlock::new("Stopwatch", &[], 1, 0),
+    StubBlock::new("TextArea", &["TextAreaBlock"], 1, 0),
 ];
 
 /// All built-in virtual libraries keyed by their name matcher.
