@@ -170,9 +170,9 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_aliases(&["Signal Builder"])
         .with_description("Interactive waveform builder")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
-        .with_icon(plot(concat!(
+        .with_icon(plot(
             "r 0.10,0.15 0.80,0.70; p 0.16,0.75 0.30,0.40 0.50,0.65 0.70,0.30 0.84,0.55"
-        ))),
+        )),
     SimulinkBlockDefinition::new("TriggeredFromWorkspace", "Sources")
         .with_description("Workspace source gated by a trigger")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
