@@ -187,4 +187,134 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Split a function-call signal")
         .with_ports(IOPorts::Fixed(1), IOPorts::Variable(1))
         .with_icon(icon("fc|")),
+    // ── subsystem variants: same box + port model as SubSystem, with a
+    //    banner label naming the variant ──
+    SimulinkBlockDefinition::new("EnabledSubsystem", "Ports & Subsystems")
+        .with_aliases(&["Enabled Subsystem"])
+        .with_description("Subsystem enabled by a control input")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("Enabled"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
+    SimulinkBlockDefinition::new("TriggeredSubsystem", "Ports & Subsystems")
+        .with_aliases(&["Triggered Subsystem"])
+        .with_description("Subsystem run on a trigger edge")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("Triggered"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
+    SimulinkBlockDefinition::new("IfActionSubsystem", "Ports & Subsystems")
+        .with_aliases(&["If Action Subsystem"])
+        .with_description("Subsystem run for an if-action")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("If Action"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
+    SimulinkBlockDefinition::new("EnabledAndTriggeredSubsystem", "Ports & Subsystems")
+        .with_description("Subsystem run when enabled on a trigger")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("Enabled+Trig"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
+    SimulinkBlockDefinition::new("ForEachSubsystem", "Ports & Subsystems")
+        .with_aliases(&["For Each Subsystem"])
+        .with_description("Subsystem iterating each input element")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("For Each"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
+    SimulinkBlockDefinition::new("WhileSubsystem", "Ports & Subsystems")
+        .with_aliases(&["While Iterator Subsystem"])
+        .with_description("Subsystem iterating while a condition holds")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("While"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
+    SimulinkBlockDefinition::new("ResettableSubsystem", "Ports & Subsystems")
+        .with_aliases(&["Resettable Subsystem"])
+        .with_description("Subsystem resettable by a control input")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("Resettable"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
+    SimulinkBlockDefinition::new("SwitchCaseActionSubsystem", "Ports & Subsystems")
+        .with_description("Subsystem run for a switch-case action")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("Switch Case"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
+    SimulinkBlockDefinition::new("FunctionCallSubsystem", "Ports & Subsystems")
+        .with_aliases(&["Function-Call Subsystem"])
+        .with_description("Subsystem run by a function call")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("f()"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
+    SimulinkBlockDefinition::new("AtomicSubSystem", "Ports & Subsystems")
+        .with_aliases(&["Atomic Subsystem"])
+        .with_description("Non-virtual (atomic) subsystem")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("Atomic"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
+    SimulinkBlockDefinition::new("MaskedSubSystem", "Ports & Subsystems")
+        .with_aliases(&["Masked Subsystem"])
+        .with_description("Subsystem with a parameter mask")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("Masked"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
+    SimulinkBlockDefinition::new("VariantSubSystem", "Ports & Subsystems")
+        .with_aliases(&["Variant Subsystem"])
+        .with_description("Subsystem with variant choices")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("Variant"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
+    SimulinkBlockDefinition::new("ConfigSubSystem", "Ports & Subsystems")
+        .with_aliases(&["Configurable Subsystem"])
+        .with_description("Subsystem with a configurable implementation")
+        .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
+        .with_static_renderer(renderers::static_subsystem)
+        .with_block_label(crate::simulink_libraries::types::BlockLabelPolicy::Fixed("Config"))
+        .with_port_labels(
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+            PortLabelPolicy::MetadataDependent(port_labels_from_model),
+        ),
 ];
