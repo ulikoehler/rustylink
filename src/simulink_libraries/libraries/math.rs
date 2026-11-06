@@ -136,4 +136,73 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_metadata_keys(&[MetadataKey::with_default("Mode", "Hermitian")])
         .with_block_label(BlockLabelPolicy::MetadataDependent(labels::is_hermitian_mode)),
+    SimulinkBlockDefinition::new("Sign", "Math Operations")
+        .with_description("Sign of input: -1, 0, or 1")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("sgn")),
+    SimulinkBlockDefinition::new("Rounding", "Math Operations")
+        .with_aliases(&["Rounding Function"])
+        .with_description("Round to a specified integer rule")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("round")),
+    SimulinkBlockDefinition::new("UnaryMinus", "Math Operations")
+        .with_description("Negate the input")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("-u")),
+    SimulinkBlockDefinition::new("SignedSqrt", "Math Operations")
+        .with_description("Square root of absolute value, signed")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{221A}|u|")),
+    SimulinkBlockDefinition::new("Sqrt", "Math Operations")
+        .with_description("Square root")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{221A}")),
+    SimulinkBlockDefinition::new("Square", "Math Operations")
+        .with_description("Square of input")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("u\u{00B2}")),
+    SimulinkBlockDefinition::new("Abs2", "Math Operations")
+        .with_description("Squared magnitude")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("|u|\u{00B2}")),
+    SimulinkBlockDefinition::new("ProductOfElements", "Math Operations")
+        .with_description("Product of all input elements")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{220F}")),
+    SimulinkBlockDefinition::new("Reshape", "Math Operations")
+        .with_description("Reshape input to a new dimensionality")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{2B0D}")),
+    SimulinkBlockDefinition::new("PermuteDimensions", "Math Operations")
+        .with_description("Permute input dimensions")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{22A4}d")),
+    SimulinkBlockDefinition::new("VectorConcatenate", "Math Operations")
+        .with_description("Concatenate inputs into a vector")
+        .with_ports(IOPorts::Variable(1), IOPorts::Fixed(1))
+        .with_icon(icon("[u1;u2]")),
+    SimulinkBlockDefinition::new("Assignment", "Math Operations")
+        .with_description("Assign values at specified indices")
+        .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
+        .with_icon(icon("u[i]=y")),
+    SimulinkBlockDefinition::new("Polynomial", "Math Operations")
+        .with_description("Evaluate a polynomial")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("P(u)")),
+    SimulinkBlockDefinition::new("MatrixGain", "Math Operations")
+        .with_description("Multiply by a matrix gain")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("K")),
+    SimulinkBlockDefinition::new("WeightedSampleTime", "Math Operations")
+        .with_description("Multiply by weighted sample time")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("w Ts")),
+    SimulinkBlockDefinition::new("Find", "Math Operations")
+        .with_description("Find nonzero elements and their indices")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Variable(1))
+        .with_icon(icon("find")),
+    SimulinkBlockDefinition::new("ReciprocalSqrt", "Math Operations")
+        .with_description("Reciprocal square root")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("1/\u{221A}")),
 ];
