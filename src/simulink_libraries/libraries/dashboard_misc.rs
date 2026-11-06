@@ -11,7 +11,7 @@ use crate::simulink_libraries::types::{BlockLabelPolicy, IOPorts, SimulinkBlockD
 pub static BLOCKS: &[SimulinkBlockDefinition] =
     &[
         SimulinkBlockDefinition::new("CustomCallbackButton", "Dashboard")
-            .with_aliases(&["Callback Button"])
+            .with_aliases(&["Callback Button", "CallbackButton", "CallbackButtonCustom"])
             .with_description("Dashboard callback button")
             .with_ports(IOPorts::None, IOPorts::None)
             .with_block_label(BlockLabelPolicy::Fixed("Button")),

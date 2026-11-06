@@ -32,7 +32,9 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             MetadataKey::with_default("Inputs", "++"),
         ])
         .with_port_overrides_fn(renderers::sum_port_overrides)
-        .with_static_renderer(renderers::static_sum),
+        .with_static_renderer(renderers::static_sum)
+        .with_aliases(&["SumOfElements", "Add"]),
+
     SimulinkBlockDefinition::new("Gain", "Math Operations")
         .with_description("Multiply input by a constant")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
@@ -69,7 +71,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_metadata_keys(&[MetadataKey::with_default("Operator", "exp")])
         .with_static_renderer(renderers::static_math_function),
     SimulinkBlockDefinition::new("Trigonometry", "Math Operations")
-        .with_aliases(&["Trigonometric Function"])
+        .with_aliases(&["Trigonometric Function", "Trig"])
         .with_description("Trigonometric function (sin, cos, tan, acos, ...)")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_metadata_keys(&[MetadataKey::with_default("Operator", "sin")])
@@ -80,7 +82,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             PortLabelPolicy::None,
             PortLabelPolicy::MetadataDependent(renderers::trigonometry_port_labels),
         ),
-    SimulinkBlockDefinition::new("MinMax", "Math Operations")
+    SimulinkBlockDefinition::new("MinMax", "Math Operations").with_aliases(&["Min", "Max", "Min", "Max", "MaxMin"])
         .with_description("Output minimum or maximum of inputs")
         .with_ports(IOPorts::Variable(2), IOPorts::Fixed(1))
         .with_metadata_keys(&[MetadataKey::with_default("Function", "min")])
@@ -156,7 +158,9 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
     SimulinkBlockDefinition::new("Sqrt", "Math Operations")
         .with_description("Square root")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
-        .with_icon(icon("\u{221A}")),
+        .with_icon(icon("\u{221A}"))
+        .with_aliases(&["Sqrt3D"]),
+
     SimulinkBlockDefinition::new("Abs2", "Math Operations")
         .with_description("Squared magnitude")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
@@ -188,7 +192,9 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
     SimulinkBlockDefinition::new("MatrixGain", "Math Operations")
         .with_description("Multiply by a matrix gain")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
-        .with_icon(icon("K")),
+        .with_icon(icon("K"))
+        .with_aliases(&["SliderGain"]),
+
     SimulinkBlockDefinition::new("WeightedSampleTime", "Math Operations")
         .with_description("Multiply by weighted sample time")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))

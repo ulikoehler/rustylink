@@ -18,8 +18,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_metadata_keys(&[MetadataKey::with_default("Value", "1")])
         .with_block_label(BlockLabelPolicy::MetadataDependent(labels::constant_value)),
-    SimulinkBlockDefinition::new("DiscretePulseGenerator", "Sources")
-        .with_aliases(&["Discrete Pulse Generator", "Pulse Generator"])
+    SimulinkBlockDefinition::new("DiscretePulseGenerator", "Sources").with_aliases(&["PulseGenerator"])
+        .with_aliases(&["PulseGenerator", "PulseGenerator"])
         .with_description("Generate discrete square-pulse signal")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_icon(plot(concat!(
@@ -27,7 +27,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             " 0.56,0.20 0.74,0.20 0.74,0.82 0.94,0.82"
         ))),
     SimulinkBlockDefinition::new("Sin", "Sources")
-        .with_aliases(&["Sine Wave"])
+        .with_aliases(&["Sine Wave", "SineWave"])
         .with_description("Generate sine wave using internal time source")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_icon(plot(concat!(
@@ -89,8 +89,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("White noise with specified bandwidth")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_icon(plot(NOISE_TRACE)),
-    SimulinkBlockDefinition::new("Chirp", "Sources").with_aliases(&["ChirpSignal"])
-        .with_aliases(&["Chirp Signal"])
+    SimulinkBlockDefinition::new("Chirp", "Sources").with_aliases(&["ChirpSignal", "Chirp Signal"])
         .with_description("Generate frequency-swept sinusoidal signal")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_icon(plot(concat!(
@@ -112,20 +111,20 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             "p 0.06,0.92 0.24,0.92 0.24,0.74 0.42,0.74 0.42,0.56 0.60,0.56",
             " 0.60,0.38 0.78,0.38 0.78,0.92 0.94,0.92"
         ))),
-    SimulinkBlockDefinition::new("Repeating", "Sources")
-        .with_aliases(&["Repeating Sequence"])
+    SimulinkBlockDefinition::new("Repeating", "Sources").with_aliases(&["RepeatingSequence", "RepeatingSequenceRamp"])
+        .with_aliases(&["RepeatingSequence", "RepeatingSequenceRamp", "RepeatingSequence", "RepeatingSequenceRamp"])
         .with_description("Generate repeating arbitrary signal")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_icon(plot(SAWTOOTH)),
-    SimulinkBlockDefinition::new("RepeatingInterp", "Sources")
-        .with_aliases(&["Repeating Sequence Interpolated"])
+    SimulinkBlockDefinition::new("RepeatingInterp", "Sources").with_aliases(&["RepeatingSequenceInterpolated"])
+        .with_aliases(&["RepeatingSequenceInterpolated", "RepeatingSequenceInterpolated"])
         .with_description("Repeating sequence with interpolation")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_icon(plot(
             "p 0.06,0.20 0.22,0.62 0.34,0.30 0.50,0.78 0.68,0.86 0.94,0.80"
         )),
-    SimulinkBlockDefinition::new("RepeatingStair", "Sources")
-        .with_aliases(&["Repeating Sequence Stair"])
+    SimulinkBlockDefinition::new("RepeatingStair", "Sources").with_aliases(&["RepeatingSequenceStair"])
+        .with_aliases(&["RepeatingSequenceStair", "RepeatingSequenceStair"])
         .with_description("Generate repeating staircase signal")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_icon(plot(concat!(
@@ -155,4 +154,31 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Output an enumerated constant")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_icon(icon("enum")),
+
+    SimulinkBlockDefinition::new("FromFile", "Sources")
+        .with_aliases(&["From File"])
+        .with_description("Read data from a MAT file")
+        .with_ports(IOPorts::None, IOPorts::Fixed(1))
+        .with_icon(icon("\u{2192}file")),
+    SimulinkBlockDefinition::new("FromWorkspace", "Sources")
+        .with_aliases(&["From Workspace"])
+        .with_description("Load data from a workspace variable")
+        .with_ports(IOPorts::None, IOPorts::Fixed(1))
+        .with_icon(icon("\u{2192}ws")),
+
+    SimulinkBlockDefinition::new("SignalBuilder", "Sources")
+        .with_aliases(&["Signal Builder"])
+        .with_description("Interactive waveform builder")
+        .with_ports(IOPorts::None, IOPorts::Fixed(1))
+        .with_icon(plot(concat!(
+            "r 0.10,0.15 0.80,0.70; p 0.16,0.75 0.30,0.40 0.50,0.65 0.70,0.30 0.84,0.55"
+        ))),
+    SimulinkBlockDefinition::new("TriggeredFromWorkspace", "Sources")
+        .with_description("Workspace source gated by a trigger")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{2192}ws")),
+    SimulinkBlockDefinition::new("TriggeredReadFromFile", "Sources")
+        .with_description("File source gated by a trigger")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{2192}file")),
 ];

@@ -173,7 +173,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         IOPorts::Fixed(1),
         static_display,
         view_field_or_display,
-    ),
+    )
+    .with_aliases(&["DisplayCustom", "DisplayCustom"]),
     // Controls (inputs).
     widget(
         "PushButtonBlock",
@@ -184,7 +185,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         static_push_button,
         live_push_button,
     )
-    .with_dashboard_control(DashboardControlKind::Pulse),
+    .with_dashboard_control(DashboardControlKind::Pulse)
+    .with_aliases(&["PushButton", "PushButtonCustom"]),
     widget(
         "Checkbox",
         "Checkbox",
@@ -194,7 +196,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         static_checkbox,
         live_checkbox,
     )
-    .with_dashboard_control(DashboardControlKind::Bool),
+    .with_dashboard_control(DashboardControlKind::Bool)
+    .with_aliases(&["CheckboxCustom"]),
     widget(
         "ComboBox",
         "Combo Box",
@@ -204,7 +207,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         static_combo_box,
         live_combo_box,
     )
-    .with_dashboard_control(DashboardControlKind::Discrete),
+    .with_dashboard_control(DashboardControlKind::Discrete)
+    .with_aliases(&["ComboBoxCustom"]),
     widget(
         "EditField",
         "Edit Field",
@@ -214,7 +218,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         static_edit_field,
         live_edit_field,
     )
-    .with_dashboard_control(DashboardControlKind::Scalar),
+    .with_dashboard_control(DashboardControlKind::Scalar)
+    .with_aliases(&["Edit", "EditCustom"]),
     widget(
         "RadioButtonGroup",
         "Radio Button Group",
@@ -224,7 +229,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         static_radio_button_group,
         live_radio_button_group,
     )
-    .with_dashboard_control(DashboardControlKind::Discrete),
+    .with_dashboard_control(DashboardControlKind::Discrete)
+    .with_aliases(&["RadioButton", "RadioButtonCustom"]),
     widget(
         "SliderBlock",
         "Slider",
@@ -234,7 +240,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         static_slider,
         live_slider,
     )
-    .with_dashboard_control(DashboardControlKind::Scalar),
+    .with_dashboard_control(DashboardControlKind::Scalar)
+    .with_aliases(&["Slider", "SliderCustom"]),
     widget(
         "SliderSwitchBlock",
         "Slider Switch",
@@ -246,7 +253,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         static_slider_switch,
         live_slider_switch,
     )
-    .with_dashboard_control(DashboardControlKind::Bool),
+    .with_dashboard_control(DashboardControlKind::Bool)
+    .with_aliases(&["SliderSwitch", "SliderSwitchCustom"]),
     widget(
         "ToggleSwitchBlock",
         "Toggle Switch",
@@ -256,7 +264,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         static_toggle_switch,
         live_toggle_switch,
     )
-    .with_dashboard_control(DashboardControlKind::Bool),
+    .with_dashboard_control(DashboardControlKind::Bool)
+    .with_aliases(&["ToggleSwitch", "ToggleSwitchCustom"]),
     widget(
         "RockerSwitchBlock",
         "Rocker Switch",
@@ -266,7 +275,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         static_rocker_switch,
         live_rocker_switch,
     )
-    .with_dashboard_control(DashboardControlKind::Bool),
+    .with_dashboard_control(DashboardControlKind::Bool)
+    .with_aliases(&["RockerSwitch", "RockerSwitchCustom"]),
     widget(
         "RotarySwitchBlock",
         "Rotary Switch",
@@ -276,7 +286,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         static_rotary_switch,
         live_rotary_switch,
     )
-    .with_dashboard_control(DashboardControlKind::Discrete),
+    .with_dashboard_control(DashboardControlKind::Discrete)
+    .with_aliases(&["RotarySwitch", "RotarySwitchCustom"]),
     widget(
         "KnobBlock",
         "Knob",
@@ -286,7 +297,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         static_knob,
         live_knob,
     )
-    .with_dashboard_control(DashboardControlKind::Scalar),
+    .with_dashboard_control(DashboardControlKind::Scalar)
+    .with_aliases(&["Knob", "KnobCustom"]),
     // Gauges / indicators (outputs/displays).
     widget(
         "CircularGaugeBlock",
@@ -296,7 +308,13 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         IOPorts::Fixed(1),
         static_circular_gauge,
         view_radial_gauge,
-    ),
+    )
+    .with_aliases(&[
+        "CircularGauge",
+        "CircularGaugeCustom",
+        "CircularGauge",
+        "CircularGaugeCustom",
+    ]),
     widget(
         "SemiCircularGaugeBlock",
         "Semi-Circular Gauge",
@@ -305,7 +323,19 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         IOPorts::Fixed(1),
         static_semi_circular_gauge,
         view_radial_gauge,
-    ),
+    )
+    .with_aliases(&[
+        "Gauge",
+        "HalfGauge",
+        "GaugeCustom",
+        "HalfGaugeCustom",
+        "SemiCircularGaugeCustom",
+        "Gauge",
+        "HalfGauge",
+        "GaugeCustom",
+        "HalfGaugeCustom",
+        "SemiCircularGaugeCustom",
+    ]),
     widget(
         "QuarterGaugeBlock",
         "Quarter Gauge",
@@ -314,7 +344,13 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         IOPorts::Fixed(1),
         static_quarter_gauge,
         view_radial_gauge,
-    ),
+    )
+    .with_aliases(&[
+        "QuarterGauge",
+        "QuarterGaugeCustom",
+        "QuarterGauge",
+        "QuarterGaugeCustom",
+    ]),
     widget(
         "LinearGaugeBlock",
         "Linear Gauge",
@@ -323,7 +359,13 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         IOPorts::Fixed(1),
         static_linear_gauge,
         view_linear_gauge,
-    ),
+    )
+    .with_aliases(&[
+        "LinearGauge",
+        "LinearGaugeCustom",
+        "LinearGauge",
+        "LinearGaugeCustom",
+    ]),
     widget(
         "LampBlock",
         "Lamp",
@@ -332,7 +374,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         IOPorts::Fixed(1),
         static_lamp,
         view_lamp,
-    ),
+    )
+    .with_aliases(&["Knob", "KnobCustom", "Lamp", "LampCustom"]),
     // DashboardScope's live view is an interactive liveplot tile owned by the
     // UI; the static fallback is a simple waveform glyph.
     SimulinkBlockDefinition::new("DashboardScope", "Dashboard")
@@ -341,5 +384,22 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
         .with_shape(SimulinkShape::Rectangle)
         .with_icon(ph(egui_material_icons::icons::ICON_SHOW_CHART.codepoint))
-        .with_static_renderer(static_dashboard_scope),
+        .with_static_renderer(static_dashboard_scope)
+        .with_aliases(&["DashboardScopeCustom"]),
+    SimulinkBlockDefinition::new("Playback", "Dashboard")
+        .with_description("Replay recorded signal data")
+        .with_ports(IOPorts::None, IOPorts::Fixed(1))
+        .with_icon(icon("\u{25B6}")),
+    SimulinkBlockDefinition::new("RealTimeDashboard", "Dashboard")
+        .with_description("Real-time dashboard display")
+        .with_ports(IOPorts::Fixed(1), IOPorts::None)
+        .with_icon(icon("rt")),
+    SimulinkBlockDefinition::new("Stopwatch", "Dashboard")
+        .with_description("Elapsed-time stopwatch display")
+        .with_ports(IOPorts::Fixed(1), IOPorts::None)
+        .with_icon(icon("\u{23F1}")),
+    SimulinkBlockDefinition::new("TextArea", "Dashboard")
+        .with_description("Text display area")
+        .with_ports(IOPorts::Fixed(1), IOPorts::None)
+        .with_icon(icon("Aa")),
 ];

@@ -26,7 +26,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
     // ═══════════════════════════════════════════════════════════════════════
     // Simulink's XY Graph icon is a scatter of samples along a rising trend.
     SimulinkBlockDefinition::new("Record", "Sinks")
-        .with_aliases(&["XY Graph", "To Workspace"])
+        .with_aliases(&["XY Graph", "To Workspace", "XYGraph", "ToWorkspace"])
         .with_description("Record signal data")
         .with_ports(IOPorts::Variable(1), IOPorts::None)
         .with_icon(plot(concat!(
@@ -56,4 +56,13 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Stop the simulation when input is nonzero")
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
         .with_icon(icon("STOP")),
+
+    SimulinkBlockDefinition::new("TriggeredToWorkspace", "Sinks")
+        .with_description("Workspace sink gated by a trigger")
+        .with_ports(IOPorts::Fixed(2), IOPorts::None)
+        .with_icon(icon("ws\u{2192}")),
+    SimulinkBlockDefinition::new("TriggeredWriteToFile", "Sinks")
+        .with_description("File sink gated by a trigger")
+        .with_ports(IOPorts::Fixed(2), IOPorts::None)
+        .with_icon(icon("file\u{2192}")),
 ];

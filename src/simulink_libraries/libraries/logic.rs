@@ -16,8 +16,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
     // ═══════════════════════════════════════════════════════════════════════
     //  Logic and Bit Operations
     // ═══════════════════════════════════════════════════════════════════════
-    SimulinkBlockDefinition::new("Logic", "Logic and Bit Operations")
-        .with_aliases(&["Logical Operator"])
+    SimulinkBlockDefinition::new("Logic", "Logic and Bit Operations").with_aliases(&["LogicalOperator"])
+        .with_aliases(&["LogicalOperator", "LogicalOperator"])
         .with_description("Perform logical operation (AND, OR, NOT, ...)")
         .with_ports(IOPorts::Variable(2), IOPorts::Fixed(1))
         .with_shape(SimulinkShape::None)

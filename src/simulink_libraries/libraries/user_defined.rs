@@ -38,8 +38,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Call external C++ code")
         .with_ports(IOPorts::Variable(1), IOPorts::Variable(1))
         .with_static_renderer(renderers::static_c_function),
-    SimulinkBlockDefinition::new("MATLABFunction", "User-Defined Functions")
-        .with_aliases(&["MATLAB Function", "MATLAB Fcn", "Interpreted MATLAB Function"])
+    SimulinkBlockDefinition::new("MATLABFunction", "User-Defined Functions").with_aliases(&["MATLABFcn"])
+        .with_aliases(&["MATLABFcn", "MATLABFcn"])
         .with_description("Embedded MATLAB function")
         .with_ports(IOPorts::Variable(1), IOPorts::Variable(1))
         .with_icon(icon("fcn"))

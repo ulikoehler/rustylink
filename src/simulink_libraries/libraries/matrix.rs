@@ -71,6 +71,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             labels::is_hermitian_mode,
         )),
     SimulinkBlockDefinition::new("Cross Product", CAT)
+        .with_aliases(&["CrossProduct"])
         .with_description("Cross product of two vectors")
         .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
         .with_block_label(BlockLabelPolicy::Fixed("cross")),
@@ -113,6 +114,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
     // Matrix in, diagonal out: a square with its diagonal drawn beside a
     // labelled arrow (`A ⇒ D` for extract, `D ⇒ A` for create).
     SimulinkBlockDefinition::new("Extract Diagonal", CAT)
+        .with_aliases(&["Diagonal"])
         .with_aliases(&["ExtractDiag"])
         .with_description("Extract the main diagonal of a matrix")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
@@ -123,7 +125,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             "p 0.70,0.22 0.88,0.78; t 0.96,0.50,0.30 D"
         ))),
     SimulinkBlockDefinition::new("Create Diagonal Matrix", CAT)
-        .with_aliases(&["DiagonalMatrix"])
+        .with_aliases(&["DiagonalMatrix", "Diagonal"])
         .with_description("Create a diagonal matrix from a vector")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_icon(plot(concat!(
@@ -143,6 +145,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             dot_matrix!()
         ))),
     SimulinkBlockDefinition::new("Matrix Concatenate", CAT)
+        .with_aliases(&["MatrixConcatenate"])
         .with_description("Concatenate matrices")
         .with_ports(IOPorts::Variable(2), IOPorts::Fixed(1))
         .with_metadata_keys(&[

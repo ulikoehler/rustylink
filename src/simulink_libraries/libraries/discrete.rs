@@ -142,4 +142,18 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Decrement signal by 1 (stored integer)")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_icon(icon("-1i")),
+
+    SimulinkBlockDefinition::new("ZeroOrderHold", "Discrete")
+        .with_aliases(&["Zero-Order Hold"])
+        .with_description("Sample and hold at a fixed rate")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("ZOH")),
+    SimulinkBlockDefinition::new("TriggeredDelay", "Discrete")
+        .with_description("Delay gated by a trigger")
+        .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
+        .with_icon(math("frac:z^{-d}")),
+    SimulinkBlockDefinition::new("TriggeredSampleAndHold", "Discrete")
+        .with_description("Sample-and-hold gated by a trigger")
+        .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
+        .with_icon(icon("S&H")),
 ];

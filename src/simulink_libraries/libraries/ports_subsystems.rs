@@ -51,7 +51,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
     // A link into a library the catalog does not describe.  Its ports and their
     // names come from the linked block's own subsystem, exactly like a subsystem
     // stored in the model; the interior names the library it links to.
-    SimulinkBlockDefinition::new("Reference", "Ports & Subsystems")
+    SimulinkBlockDefinition::new("Reference", "Ports & Subsystems").with_aliases(&["ModelReference", "ModelReference"])
         .with_description("Link to a block in a library")
         .with_ports(IOPorts::Variable(0), IOPorts::Variable(0))
         .with_port_labels(
@@ -67,7 +67,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_ports(IOPorts::None, IOPorts::None)
         .with_static_renderer(renderers::static_enable_port),
     SimulinkBlockDefinition::new("ForIterator", "Ports & Subsystems")
-        .with_aliases(&["For Iterator"])
+        .with_aliases(&["For Iterator", "WhileIterator"])
         .with_description("Repeat subsystem execution a specified number of times")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_icon(icon("for")),
@@ -266,7 +266,9 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_port_labels(
             PortLabelPolicy::MetadataDependent(port_labels_from_model),
             PortLabelPolicy::MetadataDependent(port_labels_from_model),
-        ),
+        )
+        .with_aliases(&["SwitchCase"]),
+
     SimulinkBlockDefinition::new("FunctionCallSubsystem", "Ports & Subsystems")
         .with_aliases(&["Function-Call Subsystem"])
         .with_description("Subsystem run by a function call")
@@ -317,4 +319,23 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             PortLabelPolicy::MetadataDependent(port_labels_from_model),
             PortLabelPolicy::MetadataDependent(port_labels_from_model),
         ),
+
+    SimulinkBlockDefinition::new("ActionPort", "Ports & Subsystems")
+        .with_aliases(&["Action Port"])
+        .with_description("Action port for if/else control")
+        .with_ports(IOPorts::Fixed(1), IOPorts::None)
+        .with_icon(icon("if")),
+    SimulinkBlockDefinition::new("If", "Ports & Subsystems")
+        .with_description("If-else conditional control block")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Variable(0))
+        .with_icon(icon("if")),
+    SimulinkBlockDefinition::new("DataStoreMemory", "Ports & Subsystems")
+        .with_aliases(&["Data Store Memory"])
+        .with_description("Define a named data store")
+        .with_ports(IOPorts::None, IOPorts::None)
+        .with_icon(icon("A")),
+    SimulinkBlockDefinition::new("SelectorPort", "Ports & Subsystems")
+        .with_description("Selector element port")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("sel")),
 ];
