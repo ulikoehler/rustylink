@@ -49,4 +49,69 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Discrete-time derivative K(z-1)/(Ts z)")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_icon(math("frac:K(z-1)/Ts z")),
+    SimulinkBlockDefinition::new("DiscreteFilter", "Discrete")
+        .with_description("Discrete-time IIR/FIR filter")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:1/(z+0.5)")),
+    SimulinkBlockDefinition::new("DiscreteTransferFcn", "Discrete")
+        .with_aliases(&["Discrete Transfer Fcn"])
+        .with_description("Discrete-time transfer function")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:(z-0.5)/z")),
+    SimulinkBlockDefinition::new("DiscreteStateSpace", "Discrete")
+        .with_aliases(&["Discrete State-Space"])
+        .with_description("Discrete-time state-space model")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("lines:x(k+1) = Ax + Bu|y(k) = Cx + Du")),
+    SimulinkBlockDefinition::new("DiscreteZeroPole", "Discrete")
+        .with_aliases(&["Discrete Zero-Pole"])
+        .with_description("Discrete transfer function by zeros and poles")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:Z(z)/P(z)")),
+    SimulinkBlockDefinition::new("DiscreteFIRFilter", "Discrete")
+        .with_aliases(&["Discrete FIR Filter"])
+        .with_description("Discrete-time FIR filter")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:b0+b1 z^-1+\u{22EF}")),
+    SimulinkBlockDefinition::new("DiscretePIDController", "Discrete")
+        .with_aliases(&["Discrete PID Controller"])
+        .with_description("Discrete-time PID controller")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:K(z+a)/(z-1)")),
+    SimulinkBlockDefinition::new("DiscretePIDController2DOF", "Discrete")
+        .with_aliases(&["Discrete PID Controller (2DOF)"])
+        .with_description("Two-degree-of-freedom discrete PID")
+        .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
+        .with_icon(math("frac:K(z+a)/(z-1)")),
+    SimulinkBlockDefinition::new("FirstOrderHold", "Discrete")
+        .with_aliases(&["First-Order Hold"])
+        .with_description("First-order hold interpolation")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:(1+z^{-1})/2")),
+    SimulinkBlockDefinition::new("Memory", "Discrete")
+        .with_description("Output input from previous time step")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:u(t-1)")),
+    SimulinkBlockDefinition::new("ResettableDelay", "Discrete")
+        .with_description("Delay with external reset input")
+        .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
+        .with_icon(math("frac:z^{-d}")),
+    SimulinkBlockDefinition::new("TappedDelay", "Discrete")
+        .with_description("Delay with intermediate taps")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:z^{-N}")),
+    SimulinkBlockDefinition::new("VariableIntegerDelay", "Discrete")
+        .with_description("Delay by a variable integer number of samples")
+        .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
+        .with_icon(math("frac:z^{-d(n)}")),
+    SimulinkBlockDefinition::new("TransferFcnDirectFormII", "Discrete")
+        .with_aliases(&["Transfer Fcn Direct Form II"])
+        .with_description("Transfer function in direct-form II")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:b(z)/a(z)")),
+    SimulinkBlockDefinition::new("TransferFcnDirectFormIITimeVarying", "Discrete")
+        .with_aliases(&["Transfer Fcn Direct Form II Time Varying"])
+        .with_description("Time-varying direct-form II transfer function")
+        .with_ports(IOPorts::Fixed(3), IOPorts::Fixed(1))
+        .with_icon(math("frac:b(z,t)/a(z,t)")),
 ];
