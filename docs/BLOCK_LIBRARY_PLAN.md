@@ -8,6 +8,12 @@
 > Reference: <https://de.mathworks.com/help/simulink/block-libraries.html>
 > (R2026b, 23 categories) + block reference pages under
 > `help/simulink/slref/<block>.html`.
+>
+> **STATUS — implemented on `block-library-plan`:**
+> `KNOWN_BLOCK_TYPES` 83 → 320 · `block_traits` for ~80 types ·
+> ~120 new `SimulinkBlockDefinition`s across 17 category files (3 new
+> files: `datetime`, `messages_events`, `utilities`) · all categories
+> now have icon coverage · 597 tests green · clippy clean.
 
 ## 1. Current state — what's already there
 

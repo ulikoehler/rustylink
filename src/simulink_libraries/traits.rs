@@ -214,10 +214,15 @@ pub fn block_traits(block_type: &str) -> BlockTraits {
             ..BlockTraits::PLAIN
         },
         // ── subsystem containers (deeper Ports & Subsystems coverage) ──
-        "EnabledAndTriggeredSubsystem" | "ForIteratorSubsystem"
-        | "FunctionCallSubsystem" | "ResettableSubsystem"
-        | "SwitchCaseActionSubsystem" | "InitializeFunction" | "ResetFunction"
-        | "TerminateFunction" | "SimulinkFunction" => BlockTraits {
+        "EnabledAndTriggeredSubsystem"
+        | "ForIteratorSubsystem"
+        | "FunctionCallSubsystem"
+        | "ResettableSubsystem"
+        | "SwitchCaseActionSubsystem"
+        | "InitializeFunction"
+        | "ResetFunction"
+        | "TerminateFunction"
+        | "SimulinkFunction" => BlockTraits {
             signal_role: SignalRole::Container,
             container: true,
             owns_child_system: true,
@@ -233,47 +238,74 @@ pub fn block_traits(block_type: &str) -> BlockTraits {
             implicit_value: Some("0"),
             ..BlockTraits::PLAIN
         },
-        "Clock" | "DigitalClock" | "Chirp" | "ChirpSignal" | "SignalBuilder"
-        | "SignalGenerator" | "BandLimitedWhiteNoise" | "FromWorkspace"
-        | "FromFile" | "FromSpreadsheet" | "EnumeratedConstant" | "Counter"
-        | "CounterLimited" | "RepeatingSequenceInterpolated" | "DateTimeClock" => BlockTraits {
+        "Clock"
+        | "DigitalClock"
+        | "Chirp"
+        | "ChirpSignal"
+        | "SignalBuilder"
+        | "SignalGenerator"
+        | "BandLimitedWhiteNoise"
+        | "FromWorkspace"
+        | "FromFile"
+        | "FromSpreadsheet"
+        | "EnumeratedConstant"
+        | "Counter"
+        | "CounterLimited"
+        | "RepeatingSequenceInterpolated"
+        | "DateTimeClock" => BlockTraits {
             live: Some(LiveRole::Input),
             ..BlockTraits::PLAIN
         },
-        "Step" | "Ramp" | "PulseGenerator" | "SineWave" | "RandomNumber"
-        | "UniformRandomNumber" | "RepeatingSequence" | "RepeatingSequenceStair"
+        "Step"
+        | "Ramp"
+        | "PulseGenerator"
+        | "SineWave"
+        | "RandomNumber"
+        | "UniformRandomNumber"
+        | "RepeatingSequence"
+        | "RepeatingSequenceStair"
         | "RepeatingSequenceRamp" => BlockTraits {
             live: Some(LiveRole::Input),
             ..BlockTraits::PLAIN
         },
         // ── sinks ──
-        "Terminator" | "ToWorkspace" | "ToFile" | "XYGraph" | "FloatingScope"
-        | "Record" | "Stop" | "Assertion" => BlockTraits {
+        "Terminator" | "ToWorkspace" | "ToFile" | "XYGraph" | "FloatingScope" | "Record"
+        | "Stop" | "Assertion" => BlockTraits {
             live: Some(LiveRole::Value),
             reads_signal_line: true,
             ..BlockTraits::PLAIN
         },
         // ── dashboard widgets (input / output roles) ──
-        "ToggleSwitch" | "ToggleSwitchBlock" | "ToggleSwitchCustom"
-        | "PushButton" | "PushButtonCustom" | "Checkbox" | "CheckboxCustom"
-        | "RockerSwitch" | "RockerSwitchCustom" | "RotarySwitch"
-        | "RotarySwitchCustom" | "RadioButton" | "RadioButtonCustom"
-        | "RadioButtonGroup" | "ComboBox" | "SliderSwitch" | "SliderSwitchCustom"
-        | "CallbackButton" => BlockTraits {
+        "ToggleSwitch" | "ToggleSwitchBlock" | "ToggleSwitchCustom" | "PushButton"
+        | "PushButtonCustom" | "Checkbox" | "CheckboxCustom" | "RockerSwitch"
+        | "RockerSwitchCustom" | "RotarySwitch" | "RotarySwitchCustom" | "RadioButton"
+        | "RadioButtonCustom" | "RadioButtonGroup" | "ComboBox" | "SliderSwitch"
+        | "SliderSwitchCustom" | "CallbackButton" => BlockTraits {
             live: Some(LiveRole::Toggle),
             dashboard_ports: Some((0, 0)),
             ..BlockTraits::PLAIN
         },
-        "Knob" | "KnobCustom" | "Slider" | "SliderCustom" | "Edit"
-        | "EditCustom" | "TextArea" | "SliderGain" => BlockTraits {
+        "Knob" | "KnobCustom" | "Slider" | "SliderCustom" | "Edit" | "EditCustom" | "TextArea"
+        | "SliderGain" => BlockTraits {
             live: Some(LiveRole::Input),
             dashboard_ports: Some((0, 0)),
             ..BlockTraits::PLAIN
         },
-        "Lamp" | "LampCustom" | "Gauge" | "GaugeCustom" | "CircularGauge"
-        | "CircularGaugeCustom" | "LinearGauge" | "LinearGaugeCustom"
-        | "HalfGauge" | "HalfGaugeCustom" | "QuarterGauge" | "QuarterGaugeCustom"
-        | "Stopwatch" | "DisplayCustom" | "DashboardScopeCustom" => BlockTraits {
+        "Lamp"
+        | "LampCustom"
+        | "Gauge"
+        | "GaugeCustom"
+        | "CircularGauge"
+        | "CircularGaugeCustom"
+        | "LinearGauge"
+        | "LinearGaugeCustom"
+        | "HalfGauge"
+        | "HalfGaugeCustom"
+        | "QuarterGauge"
+        | "QuarterGaugeCustom"
+        | "Stopwatch"
+        | "DisplayCustom"
+        | "DashboardScopeCustom" => BlockTraits {
             live: Some(LiveRole::Value),
             dashboard_ports: Some((0, 0)),
             ..BlockTraits::PLAIN
@@ -284,14 +316,27 @@ pub fn block_traits(block_type: &str) -> BlockTraits {
             ..BlockTraits::PLAIN
         },
         // ── pass-through conversions (resolver-transparent) ──
-        "DataTypeConversion" | "DataTypeConversionInherited" | "UnitConversion"
-        | "InitialCondition" | "SignalSpecification" | "WeightedSampleTime"
-        | "IsFixed" | "IsNonBus" | "Probe" | "Width" | "GotoTagVisibility"
-        | "DataTypeDuplicate" | "DataTypePropagation" | "DataTypeScalingStrip"
-        | "VectorToBus" | "BusToVector" | "BusElement" | "BusElementPort"
-        | "SignalConversion" | "UnitSystemConfig" | "EnvironmentController" => {
-            BlockTraits::PLAIN
-        }
+        "DataTypeConversion"
+        | "DataTypeConversionInherited"
+        | "UnitConversion"
+        | "InitialCondition"
+        | "SignalSpecification"
+        | "WeightedSampleTime"
+        | "IsFixed"
+        | "IsNonBus"
+        | "Probe"
+        | "Width"
+        | "GotoTagVisibility"
+        | "DataTypeDuplicate"
+        | "DataTypePropagation"
+        | "DataTypeScalingStrip"
+        | "VectorToBus"
+        | "BusToVector"
+        | "BusElement"
+        | "BusElementPort"
+        | "SignalConversion"
+        | "UnitSystemConfig"
+        | "EnvironmentController" => BlockTraits::PLAIN,
         _ => BlockTraits::PLAIN,
     }
 }
@@ -433,7 +478,8 @@ pub fn dashboard_port_counts(block_type: &str) -> (u32, u32) {
 
 /// The block types the SLX scanner recognises, used to report the ones this
 /// crate does not model yet.
-pub const KNOWN_BLOCK_TYPES: &[&str] = &[    "Abs",
+pub const KNOWN_BLOCK_TYPES: &[&str] = &[
+    "Abs",
     "ActionPort",
     "AsciiToString",
     "Assertion",

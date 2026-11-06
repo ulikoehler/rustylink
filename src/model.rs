@@ -73,7 +73,9 @@ pub struct System {
 /// Identifies the kind of a child XML element inside a `<Block>` or
 /// `<Reference>` element. Used by [`Block::child_order`] to preserve the
 /// exact element ordering for round-trip XML generation.
-#[derive(Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, PartialEq, Eq,
+)]
 pub enum BlockChildKind {
     PortCounts,
     /// A `<P>` element (value is the `Name` attribute).
@@ -238,7 +240,18 @@ impl Block {
 // Supporting types
 // ────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, PartialEq, Eq, Default)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    wincode::SchemaWrite,
+    wincode::SchemaRead,
+    PartialEq,
+    Eq,
+    Default,
+)]
 pub enum NameLocation {
     Top,
     #[default]
@@ -250,7 +263,9 @@ pub enum NameLocation {
 /// Represents the `<PortCounts in="…" out="…" enable="…" trigger="…"
 /// reset="…" event="…"/>` XML element.  The control ports (everything but
 /// `in`/`out`) sit on the top edge of the block rather than on the input side.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead)]
+#[derive(
+    Debug, Clone, Default, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead,
+)]
 pub struct PortCounts {
     pub ins: Option<u32>,
     pub outs: Option<u32>,
@@ -314,7 +329,9 @@ pub struct Branch {
     pub properties: IndexMap<String, String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead)]
+#[derive(
+    Debug, Clone, PartialEq, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead,
+)]
 pub struct Point {
     pub x: i32,
     pub y: i32,
@@ -361,7 +378,9 @@ pub struct ChartPort {
 // CFunction / Mask / InstanceData / Annotation
 // ────────────────────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, Default)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, Default,
+)]
 pub struct CFunctionCode {
     pub output_code: Option<String>,
     pub start_code: Option<String>,
@@ -371,7 +390,9 @@ pub struct CFunctionCode {
     pub codegen_terminate_code: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, Default)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, Default,
+)]
 pub struct Mask {
     pub display: Option<String>,
     /// Attributes on the `<Display>` element (e.g., `RunInitForIconRedraw`).
@@ -432,13 +453,17 @@ pub struct DialogControl {
     pub children: Vec<DialogControl>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, Default)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, Default,
+)]
 pub struct ControlOptions {
     pub prompt_location: Option<String>,
 }
 
 /// `<LinkData>` element containing dialog parameter overrides for reference blocks.
-#[derive(Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, Default)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, Default,
+)]
 pub struct LinkData {
     pub dialog_parameters: Vec<DialogParametersEntry>,
 }
@@ -451,12 +476,24 @@ pub struct DialogParametersEntry {
 }
 
 /// Key-value map from `<InstanceData><P …>…</P></InstanceData>`.
-#[derive(Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, Default)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, Default,
+)]
 pub struct InstanceData {
     pub properties: IndexMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, PartialEq, Eq, Default)]
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    wincode::SchemaWrite,
+    wincode::SchemaRead,
+    PartialEq,
+    Eq,
+    Default,
+)]
 pub enum ValueKind {
     #[default]
     Unknown,
@@ -466,7 +503,9 @@ pub enum ValueKind {
 }
 
 /// Simulink annotation (text or HTML) with position.
-#[derive(Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, Default)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, Default,
+)]
 pub struct Annotation {
     pub sid: Option<String>,
     pub text: Option<String>,
@@ -487,7 +526,20 @@ pub struct Annotation {
 /// a `BindingPersistence` property whose `Ref` attribute points to a binary
 /// `.mxarray` file inside the SLX archive. This struct holds the information
 /// extracted from that file.
-#[derive(Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    wincode::SchemaWrite,
+    wincode::SchemaRead,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Default,
+)]
 pub struct DashboardTargetPath {
     /// Optional output/logical port index encoded by Simulink for this target path.
     pub port_index: Option<u32>,
@@ -526,7 +578,9 @@ impl DashboardTargetPath {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, PartialEq, Eq)]
+#[derive(
+    Debug, Clone, Serialize, Deserialize, wincode::SchemaWrite, wincode::SchemaRead, PartialEq, Eq,
+)]
 pub enum DashboardBinding {
     /// The dashboard block **writes** to a block parameter (input widget).
     ///
