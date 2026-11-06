@@ -39,4 +39,75 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             axes!(),
             "p 0.06,0.94 0.50,0.62; p 0.50,0.38 0.94,0.06"
         ))),
+    // Dead zone: output stays flat across |x|<deadband.
+    SimulinkBlockDefinition::new("DeadZone", "Discontinuities")
+        .with_description("Set output to zero within a dead region")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(plot(concat!(
+            axes!(),
+            "p 0.06,0.06 0.42,0.46 0.58,0.54 0.94,0.94"
+        ))),
+    // Dynamic dead zone carries `up`/`lo` limit inputs.
+    SimulinkBlockDefinition::new("DeadZoneDynamic", "Discontinuities")
+        .with_aliases(&["Dead Zone Dynamic"])
+        .with_description("Dead zone with dynamic limits")
+        .with_ports(IOPorts::Fixed(3), IOPorts::Fixed(1))
+        .with_icon(plot(concat!(
+            axes!(),
+            "p 0.06,0.06 0.42,0.46 0.58,0.54 0.94,0.94"
+        ))),
+    // Quantizer: staircase transfer curve.
+    SimulinkBlockDefinition::new("Quantizer", "Discontinuities")
+        .with_description("Discretize input at a specified interval")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(plot(concat!(
+            axes!(),
+            "p 0.08,0.84 0.24,0.84 0.24,0.70 0.38,0.70 0.38,0.56",
+            " 0.52,0.56 0.52,0.42 0.66,0.42 0.66,0.28 0.80,0.28 0.80,0.14 0.94,0.14"
+        ))),
+    // Rate limiter: slope-capped rising edge.
+    SimulinkBlockDefinition::new("RateLimiter", "Discontinuities")
+        .with_aliases(&["Rate Limiter"])
+        .with_description("Limit the rate of change of a signal")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(plot(concat!(
+            axes!(),
+            "p 0.08,0.88 0.46,0.48 0.78,0.48 0.92,0.14"
+        ))),
+    // Dynamic rate limiter carries `up`/`lo` inputs.
+    SimulinkBlockDefinition::new("RateLimiterDynamic", "Discontinuities")
+        .with_aliases(&["Rate Limiter Dynamic"])
+        .with_description("Rate limiter with dynamic limits")
+        .with_ports(IOPorts::Fixed(3), IOPorts::Fixed(1))
+        .with_icon(plot(concat!(
+            axes!(),
+            "p 0.08,0.88 0.46,0.48 0.78,0.48 0.92,0.14"
+        ))),
+    // Relay: square-wave hysteresis.
+    SimulinkBlockDefinition::new("Relay", "Discontinuities")
+        .with_description("Switch output between two constants with hysteresis")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(plot(concat!(
+            axes!(),
+            "p 0.18,0.82 0.66,0.82 0.66,0.58 0.30,0.58;",
+            "p 0.34,0.42 0.70,0.42 0.70,0.18 0.82,0.18"
+        ))),
+    // Dynamic saturation: clip at `up`/`lo` inputs.
+    SimulinkBlockDefinition::new("SaturateDynamic", "Discontinuities")
+        .with_aliases(&["Saturation Dynamic"])
+        .with_description("Limit signal to dynamic upper and lower bounds")
+        .with_ports(IOPorts::Fixed(3), IOPorts::Fixed(1))
+        .with_icon(plot(concat!(
+            axes!(),
+            "p 0.06,0.82 0.32,0.82 0.68,0.16 0.94,0.16"
+        ))),
+    // Wrap to zero: output wraps to 0 above a threshold.
+    SimulinkBlockDefinition::new("WrapToZero", "Discontinuities")
+        .with_aliases(&["Wrap To Zero"])
+        .with_description("Set output to zero when input exceeds threshold")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(plot(concat!(
+            axes!(),
+            "p 0.08,0.16 0.44,0.16 0.44,0.50 0.56,0.50 0.56,0.84 0.92,0.84"
+        ))),
 ];
