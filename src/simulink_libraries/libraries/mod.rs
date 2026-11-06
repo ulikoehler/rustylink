@@ -12,11 +12,13 @@ pub mod catalog;
 pub mod continuous;
 pub mod dashboard;
 pub mod dashboard_misc;
+pub mod datetime;
 pub mod discontinuities;
 pub mod discrete;
 pub mod logic;
 pub mod lookup;
 pub mod math;
+pub mod messages_events;
 pub mod matrix;
 pub mod ports_subsystems;
 mod prelude;
@@ -26,6 +28,7 @@ pub mod sinks;
 pub mod sources;
 pub mod strings;
 pub mod user_defined;
+pub mod utilities;
 pub mod verification;
 
 use crate::simulink_libraries::types::SimulinkLibrary;
@@ -45,8 +48,10 @@ pub static ALL_LIBRARIES: &[SimulinkLibrary] = &[
     group!("simulink", sources),
     group!("simulink", sinks),
     group!("simulink", continuous),
+    group!("simulink", datetime),
     group!("simulink", discrete),
     group!("simulink", math),
+    group!("simulink", messages_events),
     group!("simulink", logic),
     group!("simulink", discontinuities),
     group!("simulink", lookup),
@@ -54,6 +59,7 @@ pub static ALL_LIBRARIES: &[SimulinkLibrary] = &[
     group!("simulink", signal_attributes),
     group!("simulink", ports_subsystems),
     group!("simulink", user_defined),
+    group!("simulink", utilities),
     group!("simulink", verification),
     group!("simulink", strings),
     group!("dashboard", dashboard),
