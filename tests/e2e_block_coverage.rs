@@ -105,3 +105,65 @@ fn cov_003_discontinuity_icons_are_curves_not_question_marks() {
         assert!(def.icon.is_some(), "{ty} should carry a curve icon");
     }
 }
+
+// ── golden fixture: a canvas full of new blocks, rendered end-to-end ─────────
+
+#[test]
+fn cov_005_new_blocks_render_on_canvas_without_fallback() {
+    use harness::{BlockBuilder, SystemBuilder, ViewerHarness};
+    // A spread of the newly-implemented blocks on one system.
+    let mut b = SystemBuilder::new("gold");
+    for (i, (bt, name)) in [
+        ("DeadZone", "DZ"),
+        ("Quantizer", "Q"),
+        ("RateLimiter", "RL"),
+        ("Relay", "Rel"),
+        ("PIDController", "PID"),
+        ("TransportDelay", "TD"),
+        ("Derivative", "D"),
+        ("ZeroPole", "ZP"),
+        ("Sqrt", "SQ"),
+        ("StringConstant", "SC"),
+        ("MessageDisplay", "MD"),
+        ("DocBlock", "DB"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        b = b.block(
+            BlockBuilder::new(bt, name, &format!("{}", i + 1))
+                .pos(
+                    (i % 4) as i32 * 140,
+                    (i / 4) as i32 * 100,
+                    (i % 4) as i32 * 140 + 90,
+                    (i / 4) as i32 * 100 + 50,
+                )
+                .ports(1, 1)
+                .build(),
+        );
+    }
+    let sys = b.build();
+    let mut h = ViewerHarness::new(sys.clone());
+    h.idle(3);
+    // Every block must resolve to a non-generic definition (no `?` icon path).
+    for bl in &sys.blocks {
+        let def = rustylink::simulink_libraries::resolve_definition(bl);
+        let real = def.icon.is_some()
+            || def.static_renderer.is_some()
+            || def.live_renderer.is_some()
+            || !matches!(
+                def.block_label,
+                rustylink::simulink_libraries::types::BlockLabelPolicy::None
+            )
+            || !matches!(
+                def.shape,
+                rustylink::simulink_libraries::types::SimulinkShape::Rectangle
+                    | rustylink::simulink_libraries::types::SimulinkShape::None
+            );
+        assert!(
+            real,
+            "{} renders generically (no icon/renderer/label/shape)",
+            bl.block_type
+        );
+    }
+}
