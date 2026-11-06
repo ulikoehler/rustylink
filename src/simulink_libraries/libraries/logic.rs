@@ -73,4 +73,48 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Detect change in signal value")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_icon(icon("U ~= U/z")),
+    SimulinkBlockDefinition::new("DetectFallNegative", "Logic and Bit Operations")
+        .with_aliases(&["Detect Fall Negative"])
+        .with_description("Detect transition to negative")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{2198}<0")),
+    SimulinkBlockDefinition::new("DetectFallNonpositive", "Logic and Bit Operations")
+        .with_aliases(&["Detect Fall Nonpositive"])
+        .with_description("Detect transition to nonpositive")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{2198}\u{2264}0")),
+    SimulinkBlockDefinition::new("DetectRiseNonnegative", "Logic and Bit Operations")
+        .with_aliases(&["Detect Rise Nonnegative"])
+        .with_description("Detect transition to nonnegative")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{2197}\u{2265}0")),
+    SimulinkBlockDefinition::new("DetectRisePositive", "Logic and Bit Operations")
+        .with_aliases(&["Detect Rise Positive"])
+        .with_description("Detect transition to positive")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{2197}>0")),
+    SimulinkBlockDefinition::new("BitwiseOperator", "Logic and Bit Operations")
+        .with_description("Specified bitwise operation")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("&|\u{2295}")),
+    SimulinkBlockDefinition::new("ExtractBits", "Logic and Bit Operations")
+        .with_description("Extract selected bits")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("bits")),
+    SimulinkBlockDefinition::new("ShiftArithmetic", "Logic and Bit Operations")
+        .with_description("Arithmetic bit shift")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{226A}\u{226A}")),
+    SimulinkBlockDefinition::new("CombinatorialLogic", "Logic and Bit Operations")
+        .with_description("Combinatorial logic truth table")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("T/F")),
+    SimulinkBlockDefinition::new("IntervalTest", "Logic and Bit Operations")
+        .with_description("Test whether input is within an interval")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("[lo,hi]")),
+    SimulinkBlockDefinition::new("IntervalTestDynamic", "Logic and Bit Operations")
+        .with_description("Interval test with dynamic limits")
+        .with_ports(IOPorts::Fixed(3), IOPorts::Fixed(1))
+        .with_icon(icon("[up,lo]")),
 ];
