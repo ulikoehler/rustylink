@@ -4,7 +4,7 @@
 
 #![cfg(feature = "egui")]
 
-use super::prelude::math;
+use super::prelude::{math, plot};
 use crate::simulink_libraries::renderers;
 use crate::simulink_libraries::types::{
     IOPorts, MetadataKey, PortLabelPolicy, SimulinkBlockDefinition,
@@ -67,4 +67,70 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Descriptor state-space model E*dx = Ax + Bu")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_icon(math("lines:E\u{1E8B} = Ax + Bu|y = Cx + Du")),
+// ═══════════════════════════════════════════════════════════════════════
+    //  Continuous — transfer-function & integrator variants
+    // ═══════════════════════════════════════════════════════════════════════
+    SimulinkBlockDefinition::new("IntegratorLimited", "Continuous")
+        .with_aliases(&["Integrator, Limited"])
+        .with_description("Integrator with output saturation limits")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:1/s")),
+    SimulinkBlockDefinition::new("IntegratorSecondOrderLimited", "Continuous")
+        .with_aliases(&["Second-Order Integrator, Limited"])
+        .with_description("Second-order integrator with limits")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(2))
+        .with_icon(math("frac:1/s\u{00B2}")),
+    SimulinkBlockDefinition::new("PIDController", "Continuous")
+        .with_aliases(&["PID Controller"])
+        .with_description("Continuous-time PID controller")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:K(s+a)/s")),
+    SimulinkBlockDefinition::new("PIDController2DOF", "Continuous")
+        .with_aliases(&["PID Controller (2DOF)"])
+        .with_description("Two-degree-of-freedom PID")
+        .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
+        .with_icon(math("frac:K(s+a)/s")),
+    SimulinkBlockDefinition::new("TransferFcnFirstOrder", "Continuous")
+        .with_aliases(&["Transfer Fcn First Order"])
+        .with_description("First-order transfer function K/(Ts+1)")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:K/(Ts+1)")),
+    SimulinkBlockDefinition::new("TransferFcnLeadLag", "Continuous")
+        .with_aliases(&["Transfer Fcn Lead or Lag"])
+        .with_description("Lead/lag compensator")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:(s+z)/(s+p)")),
+    SimulinkBlockDefinition::new("TransferFcnRealZero", "Continuous")
+        .with_aliases(&["Transfer Fcn Real Zero"])
+        .with_description("Transfer function with a real zero")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:(s+z)/s")),
+    SimulinkBlockDefinition::new("FirstOrderTransferFunction", "Continuous")
+        .with_description("First-order transfer function")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:K/(Ts+1)")),
+    SimulinkBlockDefinition::new("ZeroPole", "Continuous")
+        .with_description("Transfer function specified by zeros and poles")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:Z(s)/P(s)")),
+    SimulinkBlockDefinition::new("TransportDelay", "Continuous")
+        .with_description("Delay signal by a fixed time")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:e^(-sT)")),
+    SimulinkBlockDefinition::new("TransferDelay", "Continuous")
+        .with_description("Transport delay specified by delay time")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:e^(-sT)")),
+    SimulinkBlockDefinition::new("VariableTimeDelay", "Continuous")
+        .with_aliases(&["Variable Transport Delay"])
+        .with_description("Delay by a time-varying amount")
+        .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
+        .with_icon(math("frac:e^(-sT(t))")),
+    SimulinkBlockDefinition::new("Continuous-VCO", "Continuous")
+        .with_description("Continuous-time voltage-controlled oscillator")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(plot(concat!(
+            "p 0.06,0.50 0.16,0.16 0.26,0.84 0.36,0.16 0.46,0.84",
+            " 0.56,0.50 0.66,0.36 0.76,0.62 0.86,0.42 0.94,0.50"
+        ))),
 ];
