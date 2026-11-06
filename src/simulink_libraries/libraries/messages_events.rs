@@ -33,4 +33,13 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Visualize message sequences")
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
         .with_icon(icon("seq")),
+
+    SimulinkBlockDefinition::new("EntitySink", "Messages and Events")
+        .with_description("SimEvents entity sink")
+        .with_ports(IOPorts::Fixed(1), IOPorts::None)
+        .with_icon(icon("ent")),
+    SimulinkBlockDefinition::new("EntitySource", "Messages and Events")
+        .with_description("SimEvents entity source")
+        .with_ports(IOPorts::None, IOPorts::Fixed(1))
+        .with_icon(icon("ent")),
 ];

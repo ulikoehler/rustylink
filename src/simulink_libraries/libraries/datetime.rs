@@ -23,7 +23,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_icon(icon("dt\u{2192}")),
     SimulinkBlockDefinition::new("DateTimeElapsedTime", "DateTime")
-        .with_aliases(&["DateTime Elapsed Time"])
+        .with_aliases(&["DateTime Elapsed Time", "ElapsedTime"])
         .with_description("Output elapsed simulation time")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_icon(icon("dt")),

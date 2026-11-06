@@ -89,7 +89,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("White noise with specified bandwidth")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_icon(plot(NOISE_TRACE)),
-    SimulinkBlockDefinition::new("Chirp", "Sources")
+    SimulinkBlockDefinition::new("Chirp", "Sources").with_aliases(&["ChirpSignal"])
         .with_aliases(&["Chirp Signal"])
         .with_description("Generate frequency-swept sinusoidal signal")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
@@ -144,4 +144,15 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Video/media input source")
         .with_ports(IOPorts::None, IOPorts::Fixed(1))
         .with_icon(icon("\u{25B6}")),
+
+    SimulinkBlockDefinition::new("FromSpreadsheet", "Sources")
+        .with_aliases(&["From Spreadsheet"])
+        .with_description("Load data from a spreadsheet file")
+        .with_ports(IOPorts::None, IOPorts::Fixed(1))
+        .with_icon(icon("\u{1F4CA}")),
+    SimulinkBlockDefinition::new("EnumeratedConstant", "Sources")
+        .with_aliases(&["Enumerated Constant", "EnumeratedConst"])
+        .with_description("Output an enumerated constant")
+        .with_ports(IOPorts::None, IOPorts::Fixed(1))
+        .with_icon(icon("enum")),
 ];

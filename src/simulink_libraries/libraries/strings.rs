@@ -16,7 +16,7 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
     //  String Operations
     // ═══════════════════════════════════════════════════════════════════════
     SimulinkBlockDefinition::new("ASCIIToString", "String Operations")
-        .with_aliases(&["ASCII to String"])
+        .with_aliases(&["ASCII to String", "AsciiToString"])
         .with_description("Convert ASCII codes to string")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_block_label(BlockLabelPolicy::Fixed("ASCII \u{27F6} string")),

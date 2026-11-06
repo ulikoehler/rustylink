@@ -4,6 +4,7 @@
 
 #![cfg(feature = "egui")]
 
+use super::prelude::icon;
 use crate::simulink_libraries::labels;
 use crate::simulink_libraries::renderers;
 use crate::simulink_libraries::types::{
@@ -151,4 +152,14 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
         .with_metadata_keys(&[MetadataKey::with_default("DataStoreName", "A")])
         .with_static_renderer(renderers::static_data_store_access),
+
+    SimulinkBlockDefinition::new("BusElement", "Signal Routing")
+        .with_description("Bus element port connector")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("bus")),
+    SimulinkBlockDefinition::new("BusElementPort", "Signal Routing")
+        .with_aliases(&["Bus Element Port"])
+        .with_description("Bus element in/out port")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("bus io")),
 ];
