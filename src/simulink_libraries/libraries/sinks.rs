@@ -34,4 +34,26 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             "d 0.22,0.72 0.045; d 0.34,0.70 0.045; d 0.44,0.54 0.045;",
             "d 0.58,0.46 0.045; d 0.68,0.30 0.045; d 0.80,0.24 0.045"
         ))),
+
+    // File writer: arrow-into-disk glyph.
+    SimulinkBlockDefinition::new("ToFile", "Sinks")
+        .with_aliases(&["To File"])
+        .with_description("Write signal data to a MAT file")
+        .with_ports(IOPorts::Fixed(1), IOPorts::None)
+        .with_icon(plot(concat!(
+            "r 0.16,0.18 0.68,0.64; p 0.10,0.50 0.30,0.50;",
+            "p 0.24,0.42 0.30,0.50 0.24,0.58"
+        ))),
+    // Floating scope: same screen-with-wave as Scope but `ports(0,0)`.
+    SimulinkBlockDefinition::new("FloatingScope", "Sinks")
+        .with_aliases(&["Floating Scope"])
+        .with_description("Scope not directly connected to a signal")
+        .with_ports(IOPorts::None, IOPorts::None)
+        .with_static_renderer(renderers::static_scope),
+    // Stop simulation: octagon with STOP text.
+    SimulinkBlockDefinition::new("Stop", "Sinks")
+        .with_aliases(&["Stop Simulation"])
+        .with_description("Stop the simulation when input is nonzero")
+        .with_ports(IOPorts::Fixed(1), IOPorts::None)
+        .with_icon(icon("STOP")),
 ];
