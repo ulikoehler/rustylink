@@ -33,8 +33,4 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Visualize message sequences")
         .with_ports(IOPorts::Fixed(1), IOPorts::None)
         .with_icon(icon("seq")),
-    SimulinkBlockDefinition::new("EventListener", "Messages and Events")
-        .with_description("Listen for a simulation event")
-        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
-        .with_icon(icon("evt")),
 ];

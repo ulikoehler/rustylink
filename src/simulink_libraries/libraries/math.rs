@@ -157,10 +157,6 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Square root")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
         .with_icon(icon("\u{221A}")),
-    SimulinkBlockDefinition::new("Square", "Math Operations")
-        .with_description("Square of input")
-        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
-        .with_icon(icon("u\u{00B2}")),
     SimulinkBlockDefinition::new("Abs2", "Math Operations")
         .with_description("Squared magnitude")
         .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
