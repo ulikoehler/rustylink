@@ -162,4 +162,29 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_shape(SimulinkShape::TrapezoidStemLeft)
         .with_static_renderer(renderers::static_variant_connector)
         .with_live_renderer(renderers::live_variant_connector),
+    SimulinkBlockDefinition::new("Else", "Ports & Subsystems")
+        .with_description("Else action for an If block")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("else")),
+    SimulinkBlockDefinition::new("ElseIf", "Ports & Subsystems")
+        .with_description("Else-if action for an If block")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("elseif")),
+    SimulinkBlockDefinition::new("ForIteratorSubsystem", "Ports & Subsystems")
+        .with_aliases(&["For Iterator Subsystem"])
+        .with_description("Subsystem iterating a fixed count")
+        .with_ports(IOPorts::Variable(1), IOPorts::Variable(1))
+        .with_icon(icon("for")),
+    SimulinkBlockDefinition::new("FunctionCallFeedbackLatch", "Ports & Subsystems")
+        .with_description("Break feedback loops in function-call chains")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("fcl")),
+    SimulinkBlockDefinition::new("FunctionCallGenerator", "Ports & Subsystems")
+        .with_description("Generate function-call events")
+        .with_ports(IOPorts::None, IOPorts::Fixed(1))
+        .with_icon(icon("fc")),
+    SimulinkBlockDefinition::new("FunctionCallSplit", "Ports & Subsystems")
+        .with_description("Split a function-call signal")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Variable(1))
+        .with_icon(icon("fc|")),
 ];

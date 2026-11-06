@@ -4,7 +4,7 @@
 
 #![cfg(feature = "egui")]
 
-use super::prelude::math;
+use super::prelude::{icon, math};
 use crate::simulink_libraries::renderers;
 use crate::simulink_libraries::types::{
     IOPorts, MetadataKey, PortLabelPolicy, SimulinkBlockDefinition,
@@ -114,4 +114,32 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("Time-varying direct-form II transfer function")
         .with_ports(IOPorts::Fixed(3), IOPorts::Fixed(1))
         .with_icon(math("frac:b(z,t)/a(z,t)")),
+    SimulinkBlockDefinition::new("CICFilter", "Additional Math and Discrete")
+        .with_description("Cascaded integrator-comb filter")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(math("frac:CIC")),
+    SimulinkBlockDefinition::new("IncrementRealWorld", "Additional Math and Discrete")
+        .with_description("Increment signal by 1 (real-world)")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("+1")),
+    SimulinkBlockDefinition::new("IncrementStoredInteger", "Additional Math and Discrete")
+        .with_description("Increment signal by 1 (stored integer)")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("+1i")),
+    SimulinkBlockDefinition::new("IncrementDecrementToZero", "Additional Math and Discrete")
+        .with_description("Increment or decrement toward zero")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("\u{00B1}1")),
+    SimulinkBlockDefinition::new("IncrementDecrementToValue", "Additional Math and Discrete")
+        .with_description("Increment or decrement toward a value")
+        .with_ports(IOPorts::Fixed(2), IOPorts::Fixed(1))
+        .with_icon(icon("\u{00B1}1")),
+    SimulinkBlockDefinition::new("DecrementRealWorld", "Additional Math and Discrete")
+        .with_description("Decrement signal by 1 (real-world)")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("-1")),
+    SimulinkBlockDefinition::new("DecrementStoredInteger", "Additional Math and Discrete")
+        .with_description("Decrement signal by 1 (stored integer)")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("-1i")),
 ];

@@ -140,4 +140,8 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
             "p 0.06,0.50 0.14,0.24 0.22,0.62 0.30,0.20 0.38,0.70 0.46,0.34",
             " 0.54,0.66 0.62,0.22 0.70,0.60 0.78,0.28 0.86,0.56 0.94,0.40"
         ))),
+    SimulinkBlockDefinition::new("Video", "Sources")
+        .with_description("Video/media input source")
+        .with_ports(IOPorts::None, IOPorts::Fixed(1))
+        .with_icon(icon("\u{25B6}")),
 ];

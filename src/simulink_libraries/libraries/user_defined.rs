@@ -74,4 +74,33 @@ pub static BLOCKS: &[SimulinkBlockDefinition] = &[
         .with_description("S-Function (system function) block")
         .with_ports(IOPorts::Variable(1), IOPorts::Variable(1))
         .with_icon(icon("S-fn")),
+    SimulinkBlockDefinition::new("C++Function", "User-Defined Functions")
+        .with_aliases(&["C++ Function"])
+        .with_description("Custom C++ code block")
+        .with_ports(IOPorts::Variable(1), IOPorts::Variable(1))
+        .with_icon(icon("C++")),
+    SimulinkBlockDefinition::new("InterpretedMATLABFunction", "User-Defined Functions")
+        .with_aliases(&["Interpreted MATLAB Function"])
+        .with_description("Interpreted MATLAB expression")
+        .with_ports(IOPorts::Fixed(1), IOPorts::Fixed(1))
+        .with_icon(icon("f(x)")),
+    SimulinkBlockDefinition::new("Level2MATLABSFunction", "User-Defined Functions")
+        .with_aliases(&["Level-2 MATLAB S-Function"])
+        .with_description("Level-2 MATLAB S-Function")
+        .with_ports(IOPorts::Variable(1), IOPorts::Variable(1))
+        .with_icon(icon("M-Sfn")),
+    SimulinkBlockDefinition::new("Python", "User-Defined Functions")
+        .with_aliases(&["Python Module"])
+        .with_description("Python function block")
+        .with_ports(IOPorts::Variable(1), IOPorts::Variable(1))
+        .with_icon(icon("py")),
+    SimulinkBlockDefinition::new("S-FunctionBuilder", "User-Defined Functions")
+        .with_aliases(&["S-Function Builder"])
+        .with_description("Build custom S-Function")
+        .with_ports(IOPorts::Variable(1), IOPorts::Variable(1))
+        .with_icon(icon("S-bld")),
+    SimulinkBlockDefinition::new("SimulinkFunction", "User-Defined Functions")
+        .with_description("Simulink function definition")
+        .with_ports(IOPorts::Variable(1), IOPorts::Variable(1))
+        .with_icon(icon("fn")),
 ];
